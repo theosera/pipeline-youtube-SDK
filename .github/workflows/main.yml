@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint (ruff check)
+        run: uv run ruff check pipeline_youtube/ tests/
+
+      - name: Format check (ruff format --check)
+        run: uv run ruff format --check pipeline_youtube/ tests/
+
+      - name: Type check
+        run: uv run mypy pipeline_youtube/ --ignore-missing-imports
+
+      - name: Run tests
+        run: uv run pytest tests/ -q --tb=short
+
+      - name: Audit dependencies (pip-audit)
+        run: uv run --with pip-audit pip-audit

@@ -1,0 +1,45 @@
+# Stage 03 capture isolation image.
+#
+# Contains only the binaries actually needed by the host orchestrator:
+# - yt-dlp  : Video download (network I/O hits youtube.com only)
+# - ffmpeg  : Frame extraction (libwebp + GIF palette passes)
+# - gif2webp: Fallback WebP converter when ffmpeg lacks libwebp
+#
+# The container runs as UID 1000 / GID 1000, drops all capabilities, and
+# is invoked read-only with a tmpfs for /tmp. Only the host's tmp and
+# vault _assets directories are bind-mounted in. See docs/docker.md for
+# the exact `docker run` invocation; DockerCaptureBackend mirrors it.
+
+FROM python:3.13-slim AS base
+
+# Pin tool versions so image builds are reproducible. yt-dlp releases
+# frequently — bump explicitly after testing against current YouTube
+# extractor behavior.
+ARG YT_DLP_VERSION=2026.3.31
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      webp \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+RUN pip install --no-cache-dir "yt-dlp==${YT_DLP_VERSION}"
+
+# /work is the bind-mount target for the host's tmp/ directory
+# (downloaded mp4 lives here). /assets is the bind-mount for Vault's
+# pipeline-youtube image folder (extracted WebP / GIF outputs land
+# here). DockerCaptureBackend passes `--user=<caller-uid>:<caller-gid>`
+# at runtime so the container runs as the same UID that owns the host
+# bind-mounted directories — writes land correctly regardless of what
+# UID that happens to be (this image does not need its own named user).
+# The bind mounts at runtime mask the in-image directories entirely,
+# so perms set here are cosmetic.
+RUN mkdir -p /work /assets
+
+WORKDIR /work
+
+# Entrypoint intentionally left as the invoked binary so callers can
+# pass one of: yt-dlp, ffmpeg, gif2webp, or `ffmpeg -hide_banner -encoders`.
+# DockerCaptureBackend always supplies the full argv.
+ENTRYPOINT []
+CMD ["bash"]

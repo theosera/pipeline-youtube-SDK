@@ -1,0 +1,31 @@
+# === 個人データ（漏らしたら困るもの）===
+config.json
+.env
+logs/
+tmp/
+
+# === Reference upstream (read-only clone) ===
+.ref-upstream/
+
+# === テストフィクスチャの実データ禁止 ===
+# 公開するのは mock/synthetic のみ。実 transcript を置く場合は real_ prefix で ignore
+tests/fixtures/real_*
+
+# === Python ===
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg
+
+# === macOS / IDE ===
+.DS_Store
+.vscode/
+.idea/
+*.swp

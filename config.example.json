@@ -1,0 +1,35 @@
+{
+  "vault_root": "/path/to/your/Obsidian Vault",
+  "providers": {
+    "ollama": {
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "ollama",
+      "default_model": "qwen3:8b"
+    },
+    "lmstudio": {
+      "base_url": "http://localhost:1234/v1",
+      "api_key": "lm-studio",
+      "default_model": "qwen3-8b"
+    },
+    "anthropic": {
+      "api_key": "${ANTHROPIC_API_KEY}"
+    },
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "${OPENAI_API_KEY}"
+    },
+    "gemini": {
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "api_key": "${GEMINI_API_KEY}"
+    }
+  },
+  "models": {
+    "router":   {"provider": "ollama", "model": "qwen3:8b"},
+    "stage_02": {"provider": "ollama", "model": "qwen3:8b"},
+    "stage_04": {"provider": "ollama", "model": "qwen3:8b"},
+    "alpha":    {"provider": "ollama", "model": "qwen3:8b"},
+    "beta":     {"provider": "ollama", "model": "qwen3:8b"},
+    "leader":   {"provider": "ollama", "model": "qwen3:8b"},
+    "reviewer": {"provider": "ollama", "model": "qwen3:8b"}
+  }
+}

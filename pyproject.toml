@@ -1,0 +1,60 @@
+[project]
+name = "pipeline-youtube-sdk"
+version = "0.1.0"
+description = "YouTube playlist → Obsidian vault learning pipeline (Multi-LLM SDK version)"
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1",
+    "yt-dlp>=2026.3",
+    "youtube-transcript-api>=0.6",
+    "httpx>=0.27",
+    "openai>=1.30",
+    "anthropic>=0.52",
+]
+
+[project.optional-dependencies]
+# Whisper pulls in torch (~2GB). Install only when local transcription fallback is needed:
+#   uv sync --extra whisper
+whisper = [
+    "openai-whisper>=20240930",
+    "filelock>=3.13",
+]
+
+[project.scripts]
+pipeline-youtube = "pipeline_youtube.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline_youtube"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.20.1",
+    "pre-commit>=3.7",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+ignore = [
+    "E501",  # line length: enforced by formatter only when auto-fixable
+    "B008",  # click.Option(...) in decorator default is idiomatic
+    "SIM108",  # ternary vs if/else readability is case-by-case
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # allow assert False in tests
