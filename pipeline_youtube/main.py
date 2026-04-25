@@ -724,7 +724,9 @@ def cli(
     providers_raw = json.loads(cfg_path.read_text(encoding="utf-8")).get("providers", {})
     models_raw = json.loads(cfg_path.read_text(encoding="utf-8")).get("models", {})
     configure_providers(providers_raw, models_raw)
-    click.echo(f"providers: {', '.join(providers_raw.keys()) if providers_raw else 'default (ollama)'}")
+    click.echo(
+        f"providers: {', '.join(providers_raw.keys()) if providers_raw else 'default (ollama)'}"
+    )
     click.echo("llm_backends: SDK mode (no claude CLI dependency)")
 
     # Resolve the Stage 03 capture backend. CLI flag beats config.json; both

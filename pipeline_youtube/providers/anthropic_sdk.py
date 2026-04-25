@@ -175,9 +175,7 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def _estimate_cost(
-    model: str, input_tokens: int | None, output_tokens: int | None
-) -> float | None:
+def _estimate_cost(model: str, input_tokens: int | None, output_tokens: int | None) -> float | None:
     """Return estimated cost in USD, or None if pricing is unknown."""
     pricing = _PRICING.get(model)
     if pricing is None:
