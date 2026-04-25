@@ -38,9 +38,7 @@ class LLMResponse:
     def total_tokens(self) -> int:
         """Sum of fresh input + cache creation + output (cache reads are ~free)."""
         return (
-            (self.input_tokens or 0)
-            + (self.cache_creation_tokens or 0)
-            + (self.output_tokens or 0)
+            (self.input_tokens or 0) + (self.cache_creation_tokens or 0) + (self.output_tokens or 0)
         )
 
 

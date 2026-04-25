@@ -43,4 +43,8 @@ jobs:
         run: uv run pytest tests/ -q --tb=short
 
       - name: Audit dependencies (pip-audit)
-        run: uv run --with pip-audit pip-audit
+        # GHSA-58qw-9mgm-455v / CVE-2026-3219: pip tar+ZIP confusion. No fix
+        # version is published yet; pip is only present transitively via the
+        # pip-audit runtime, not as a project dependency. Re-evaluate when
+        # upstream ships a fix.
+        run: uv run --with pip-audit pip-audit --ignore-vuln GHSA-58qw-9mgm-455v

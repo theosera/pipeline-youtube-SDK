@@ -202,9 +202,7 @@ class TestE2EPlaylist:
         monkeypatch.setattr(main_mod, "prefetch_video_download", lambda video: None)
 
         # SDK version: no claude binary validation needed
-        monkeypatch.setattr(
-            main_mod, "configure_providers", lambda *a, **kw: None
-        )
+        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
 
         # Stub Router (genre classification) — avoid real LLM call
         from pipeline_youtube.genres import Genre
@@ -263,9 +261,7 @@ class TestE2EPlaylist:
         monkeypatch.setattr(main_mod, "fetch_metadata", lambda url: _videos())
         monkeypatch.setattr(main_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
         monkeypatch.setattr(main_mod, "prefetch_video_download", lambda video: None)
-        monkeypatch.setattr(
-            main_mod, "configure_providers", lambda *a, **kw: None
-        )
+        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
         from pipeline_youtube.genres import Genre
         from pipeline_youtube.stages import learning as learning_mod
         from pipeline_youtube.stages import summary as summary_mod
