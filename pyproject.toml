@@ -58,3 +58,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]  # allow assert False in tests
+
+[tool.mypy]
+# Keep CI and local mypy runs in sync — do not duplicate flags in the workflow.
+python_version = "3.13"
+ignore_missing_imports = true

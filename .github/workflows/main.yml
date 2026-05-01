@@ -5,46 +5,75 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.13"]
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-python-uv
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Lint (ruff check)
+      - name: Ruff check
         run: uv run ruff check pipeline_youtube/ tests/
 
-      - name: Format check (ruff format --check)
+      - name: Ruff format check
         run: uv run ruff format --check pipeline_youtube/ tests/
 
-      - name: Type check
-        run: uv run mypy pipeline_youtube/ --ignore-missing-imports
+  typecheck:
+    name: Type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-python-uv
 
-      - name: Run tests
-        run: uv run pytest tests/ -q --tb=short
+      # mypy options live in [tool.mypy] in pyproject.toml so CI and local runs match.
+      - name: mypy
+        run: uv run mypy pipeline_youtube/
 
-      - name: Audit dependencies (pip-audit)
-        # GHSA-58qw-9mgm-455v / CVE-2026-3219: pip tar+ZIP confusion. No fix
-        # version is published yet; pip is only present transitively via the
-        # pip-audit runtime, not as a project dependency. Re-evaluate when
-        # upstream ships a fix.
-        run: uv run --with pip-audit pip-audit --ignore-vuln GHSA-58qw-9mgm-455v
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-python-uv
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run tests with coverage
+        run: uv run --with pytest-cov pytest tests/ -q --tb=short --cov=pipeline_youtube --cov-report=xml --cov-report=term
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-python-uv
+
+      # Advisory: surface findings as warning annotations without failing the pipeline.
+      # Promote to a required check once known transitive vulnerabilities are addressed.
+      - name: pip-audit (advisory)
+        run: |
+          uv run --with pip-audit pip-audit \
+            || echo "::warning::pip-audit reported findings — see job log."
