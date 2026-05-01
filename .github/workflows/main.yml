@@ -71,9 +71,17 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-python-uv
 
-      # Advisory: surface findings as warning annotations without failing the pipeline.
-      # Promote to a required check once known transitive vulnerabilities are addressed.
+      # Distinguish vulnerability findings (advisory) from tool failures (real errors):
+      #   exit 0  -> clean
+      #   exit 1  -> vulnerabilities found; emit a warning annotation, don't fail
+      #   other   -> resolver / network / tooling failure; surface as error and fail
+      #              so dependency auditing isn't silently disabled.
       - name: pip-audit (advisory)
         run: |
-          uv run --with pip-audit pip-audit \
-            || echo "::warning::pip-audit reported findings — see job log."
+          rc=0
+          uv run --with pip-audit pip-audit || rc=$?
+          case "$rc" in
+            0) ;;
+            1) echo "::warning::pip-audit reported findings — see job log." ;;
+            *) echo "::error::pip-audit failed to run (exit $rc)"; exit "$rc" ;;
+          esac
