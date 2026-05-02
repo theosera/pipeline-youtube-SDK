@@ -14,6 +14,10 @@ permissions:
   security-events: write
   actions: read
 
+env:
+  # See note in main.yml — opt in to Node 24 to silence the deprecation warning.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: true

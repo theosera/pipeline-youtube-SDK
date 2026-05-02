@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # Opt into Node.js 24 for JS-based actions ahead of GitHub's 2026-06-02 default
+  # flip. Silences the per-run deprecation warning emitted for actions still on
+  # Node 20 (e.g. actions/upload-artifact@v4). Remove once those actions ship
+  # native Node 24 support and Dependabot has bumped them.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # See note in main.yml — opt in to Node 24 to silence the deprecation warning.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   build:
     name: Build sdist & wheel
