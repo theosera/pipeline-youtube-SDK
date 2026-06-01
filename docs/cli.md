@@ -11,8 +11,18 @@ Usage: python -m pipeline_youtube.main [OPTIONS] [URL]
 
 Options:
   --dry-run                       Do not write to vault; print to stdout only.
-  --concurrency INTEGER RANGE     Videos in parallel (1-5, default 1).
-                                  [1<=x<=5]
+  --concurrency INTEGER RANGE     Videos in parallel (1-8). Higher is faster
+                                  but raises API-rate/CPU load.  [default: 3;
+                                  1<=x<=8]
+  --cache-dir PATH                Persistent cache root for transcripts/videos/
+                                  code/LLM output. Default
+                                  ~/.cache/pipeline-youtube (or config.json
+                                  cache_dir / $PIPELINE_YOUTUBE_CACHE).
+  --no-cache                      Disable the persistent cache entirely
+                                  (recompute everything).
+  --cache-llm-synthesis           Also cache Stage 05 synthesis LLM output (off
+                                  by default). Stage 02/04/router output is
+                                  cached either way.
   --skip-synthesis                Skip stage 05 after 01-04 finish.
   --synthesis-only                Skip stages 01-04 and re-run only stage 05
                                   against existing 04 md files for today's
@@ -50,7 +60,16 @@ Options:
 
 ### 並列処理
 
-- **`--concurrency N`** (1〜5, default 1): 動画単位を `asyncio.Semaphore(N)` で並列に回す。Whisper (tier 3 文字起こし) は内部のファイルロックで常に 1 本ずつ、他段は並列。
+- **`--concurrency N`** (1〜8, default 3): 動画単位を `asyncio.Semaphore(N)` で並列に回す。Whisper (tier 3 文字起こし) は内部の bounded semaphore (既定 1、`config.json` の `whisper_concurrency` で変更可) で同時数を絞り、他段は並列。
+
+### キャッシュ
+
+content-addressed な永続キャッシュ (`pipeline_youtube/cache.py`) をリポジトリ外・Vault 外 (既定 `~/.cache/pipeline-youtube/`) に保存し、再実行・`--synthesis-only` をほぼ即時化する。動画由来物は git 追跡しない。
+
+- **`--cache-dir PATH`**: 保存先を上書き。優先順位は `--cache-dir` > `config.json` の `cache_dir` > 環境変数 `$PIPELINE_YOUTUBE_CACHE` > 既定 (`$XDG_CACHE_HOME`/pipeline-youtube または `~/.cache/pipeline-youtube`)。
+- **`--no-cache`**: キャッシュを完全に無効化し、毎回再計算する。
+- **`--cache-llm-synthesis`**: Stage 05 (α/β/leader/reviewer) の LLM 出力もキャッシュする。既定では合成は毎回 fresh に再生成し、決定論的な transcript/動画/code と Stage 02/04/router の LLM 出力のみキャッシュする。
+- 名前空間: `transcript/{video_id}/{tier}/{lang}`、`video/{video_id}/{fmt}` (`cache_max_video_bytes` で LRU 退避)、`code_fetch/{sha256(url)}`、`llm/{sha256(provider+model+system+prompt)}`。
 
 ### Stage 03 (Capture)
 

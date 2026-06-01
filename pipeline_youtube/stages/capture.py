@@ -353,22 +353,38 @@ def run_stage_capture(
     assets_dir = vault_root / assets_rel
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    tmp_video_path = prefetched_video_path or _tmp_video_path(video)
+    from ..cache import get_cache
 
-    if prefetched_video_path is None or not prefetched_video_path.exists():
-        try:
-            _download_video(
-                video.watch_url,
-                tmp_video_path,
-                resolution=resolution,
-                backend=active_backend,
-            )
-        except Exception as e:
-            return CaptureResult(
-                ranges=ranges,
-                capture_format=ext,
-                error=f"download_failed: {type(e).__name__}: {e}",
-            )
+    cache = get_cache()
+    # `cleanup_path` is the working copy to delete in `finally`. A cache HIT
+    # points extraction at the persistent copy, which must NOT be deleted.
+    cleanup_path: Path | None = None
+
+    if prefetched_video_path is not None and prefetched_video_path.exists():
+        tmp_video_path = prefetched_video_path
+        cleanup_path = prefetched_video_path
+        cache.put_video(video.video_id, resolution, prefetched_video_path)
+    else:
+        cached_video = cache.get_video(video.video_id, resolution)
+        if cached_video is not None:
+            tmp_video_path = cached_video  # reuse persistent copy; do not delete
+        else:
+            tmp_video_path = _tmp_video_path(video)
+            cleanup_path = tmp_video_path
+            try:
+                _download_video(
+                    video.watch_url,
+                    tmp_video_path,
+                    resolution=resolution,
+                    backend=active_backend,
+                )
+            except Exception as e:
+                return CaptureResult(
+                    ranges=ranges,
+                    capture_format=ext,
+                    error=f"download_failed: {type(e).__name__}: {e}",
+                )
+            cache.put_video(video.video_id, resolution, tmp_video_path)
 
     extractor = _dispatch_extractor(choice.strategy)
 
@@ -424,8 +440,11 @@ def run_stage_capture(
             capture_format=ext,
         )
     finally:
-        with contextlib.suppress(OSError):
-            tmp_video_path.unlink(missing_ok=True)
+        # Only delete the working copy. When `--no-cache` is set the download
+        # path above is the working copy, so delete-after-use is preserved.
+        if cleanup_path is not None:
+            with contextlib.suppress(OSError):
+                cleanup_path.unlink(missing_ok=True)
 
 
 # =====================================================

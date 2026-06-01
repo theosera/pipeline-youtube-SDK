@@ -378,6 +378,7 @@ def call_alpha(
         append_system_prompt=ALPHA_SYSTEM_PROMPT,
         model=model,
         timeout=timeout,
+        role="alpha",
     )
     topics = parse_alpha_topics(response.text)
     return topics, _wrap_result(response)
@@ -431,6 +432,7 @@ def call_beta(
         append_system_prompt=BETA_SYSTEM_PROMPT,
         model=model,
         timeout=timeout,
+        role="beta",
     )
     chapters = parse_beta_chapters(response.text)
     return chapters, _wrap_result(response)
@@ -489,6 +491,7 @@ def call_leader(
         append_system_prompt=LEADER_SYSTEM_PROMPT,
         model=model,
         timeout=timeout,
+        role="leader",
     )
     leader_output = parse_leader_output(response.text)
     return leader_output, _wrap_result(response)
@@ -555,6 +558,7 @@ def call_reviewer(
         append_system_prompt=REVIEWER_SYSTEM_PROMPT,
         model=model,
         timeout=timeout,
+        role="reviewer",
     )
     feedback = parse_reviewer_output(response.text)
     return feedback, _wrap_result(response)
@@ -602,6 +606,7 @@ def rerun_leader_with_feedback(
         append_system_prompt=LEADER_SYSTEM_PROMPT,
         model=model,
         timeout=timeout,
+        role="leader",
     )
     leader_output = parse_leader_output(response.text)
     return leader_output, _wrap_result(response)

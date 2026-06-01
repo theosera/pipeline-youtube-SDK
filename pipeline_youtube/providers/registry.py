@@ -20,6 +20,8 @@ call sites compile without changes during incremental migration.
 from __future__ import annotations
 
 import os
+import threading
+from dataclasses import asdict, fields
 from typing import Any
 
 from .base import ClaudeCliError, LLMError, LLMProvider, LLMResponse
@@ -39,6 +41,34 @@ __all__ = [
 _providers_config: dict[str, Any] = {}
 _models_config: dict[str, dict[str, str]] = {}
 _provider_cache: dict[str, LLMProvider] = {}
+# Guards get-or-create of _provider_cache under raised --concurrency, where
+# multiple worker threads may resolve the same provider simultaneously.
+_provider_lock = threading.Lock()
+
+# LLM-output cache policy (per-role). Stage 02/04 + the router transform a
+# fixed input deterministically, so caching them makes re-runs / --synthesis-only
+# near-instant. Stage 05 synthesis is creative/cross-video — users iterate on it,
+# so fresh output is the sane default. ``--no-cache`` disables everything.
+_LLM_CACHE_STAGE_ROLES = frozenset({"router", "stage_02", "stage_04"})
+_LLM_CACHE_SYNTHESIS_ROLES = frozenset({"alpha", "beta", "leader", "reviewer"})
+_llm_cache_stages_enabled = True
+_llm_cache_synthesis_enabled = False
+
+
+def configure_llm_cache(*, stages: bool = True, synthesis: bool = False) -> None:
+    """Set the per-role LLM-output cache policy (called from ``main.cli()``)."""
+    global _llm_cache_stages_enabled, _llm_cache_synthesis_enabled
+    _llm_cache_stages_enabled = stages
+    _llm_cache_synthesis_enabled = synthesis
+
+
+def _llm_cache_enabled_for_role(role: str | None) -> bool:
+    if role in _LLM_CACHE_STAGE_ROLES:
+        return _llm_cache_stages_enabled
+    if role in _LLM_CACHE_SYNTHESIS_ROLES:
+        return _llm_cache_synthesis_enabled
+    return False  # unknown/None role: never cache (safe default)
+
 
 # Default provider/model when config is not set (useful for tests).
 _DEFAULT_PROVIDER = "ollama"
@@ -76,10 +106,20 @@ def _resolve_env_vars(value: str) -> str:
 
 
 def get_provider(provider_name: str) -> LLMProvider:
-    """Get or create a cached provider instance."""
-    if provider_name in _provider_cache:
-        return _provider_cache[provider_name]
+    """Get or create a cached provider instance (thread-safe)."""
+    cached = _provider_cache.get(provider_name)
+    if cached is not None:
+        return cached
 
+    with _provider_lock:
+        # Re-check inside the lock: another thread may have just built it.
+        cached = _provider_cache.get(provider_name)
+        if cached is not None:
+            return cached
+        return _build_provider(provider_name)
+
+
+def _build_provider(provider_name: str) -> LLMProvider:
     cfg = _providers_config.get(provider_name, {})
     provider: LLMProvider
 
@@ -184,8 +224,24 @@ def invoke_llm(
     elif provider_name is None:
         provider_name = _DEFAULT_PROVIDER
 
+    # LLM-output cache (per-role policy). Multi-turn calls (``messages``)
+    # carry conversation state that the (provider, model, system, prompt)
+    # key does not capture, so they bypass the cache.
+    from ..cache import get_cache, llm_key
+
+    cache = get_cache()
+    use_cache = cache.enabled and messages is None and _llm_cache_enabled_for_role(role)
+    key = ""
+    if use_cache:
+        key = llm_key(provider_name, model, system_prompt, prompt)
+        cached = cache.get_llm(key)
+        if cached is not None:
+            restored = _llm_response_from_cache(cached)
+            if restored is not None:
+                return restored
+
     provider = get_provider(provider_name)
-    return provider.invoke(
+    response = provider.invoke(
         prompt,
         system_prompt=system_prompt,
         model=model,
@@ -194,6 +250,26 @@ def invoke_llm(
         retry_base_delay=retry_base_delay,
         messages=messages,
     )
+    if use_cache:
+        cache.put_llm(key, _llm_response_to_cache(response))
+    return response
+
+
+# Fields excluded from the cached form: ``raw`` (may hold non-serializable
+# SDK objects) and ``session_id`` (run-specific, meaningless on replay).
+_LLM_CACHE_SKIP_FIELDS = frozenset({"raw", "session_id"})
+
+
+def _llm_response_to_cache(response: LLMResponse) -> dict[str, Any]:
+    return {k: v for k, v in asdict(response).items() if k not in _LLM_CACHE_SKIP_FIELDS}
+
+
+def _llm_response_from_cache(data: dict[str, Any]) -> LLMResponse | None:
+    valid = {f.name for f in fields(LLMResponse)}
+    try:
+        return LLMResponse(**{k: v for k, v in data.items() if k in valid})
+    except (TypeError, ValueError):
+        return None
 
 
 # Backward compatibility alias.

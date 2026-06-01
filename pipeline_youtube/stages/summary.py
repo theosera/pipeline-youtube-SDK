@@ -153,6 +153,7 @@ def run_stage_summary(
         prompt=prompt,
         append_system_prompt=SUMMARY_SYSTEM_PROMPT,
         model=model,
+        role="stage_02",
     )
 
     body = response.text.strip()

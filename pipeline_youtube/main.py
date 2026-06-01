@@ -8,9 +8,13 @@ OpenAI, Anthropic, Gemini) via direct API calls instead of the
 `claude -p` CLI subprocess.
 
 Concurrency model: `--concurrency N` runs up to N videos in parallel
-via `asyncio.to_thread` + `asyncio.Semaphore`. Default is 1 (sequential).
-Whisper (tier 3 fallback) has its own file-based global lock so it never
-runs more than one instance even under concurrency > 1.
+via `asyncio.to_thread` + `asyncio.Semaphore` (default 3). Whisper
+(tier 3 fallback) has its own bounded semaphore (default 1) so it never
+exceeds its GPU/RAM budget even under higher concurrency.
+
+A content-addressed persistent cache (see `cache.py`) stores transcripts,
+downloaded videos, fetched code, and Stage 02/04/router LLM output so
+re-runs and `--synthesis-only` are near-instant. `--no-cache` disables it.
 """
 
 from __future__ import annotations
@@ -27,6 +31,7 @@ from typing import Any
 
 import click
 
+from .cache import DEFAULT_MAX_VIDEO_BYTES
 from .checkpoint import (
     extract_trusted_video_id,
     get_completed_video_ids,
@@ -38,7 +43,7 @@ from .obsidian import format_playlist_folder_name
 from .path_safety import ensure_safe_path
 from .pipeline import LEARNING_BASE, UNIT_DIRS, compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta, fetch_metadata, validate_youtube_url
-from .providers.registry import configure_providers
+from .providers.registry import configure_llm_cache, configure_providers
 from .sanitize import configure_alert_sink
 from .stages.capture import (
     ASSETS_REL_PATH,
@@ -79,6 +84,11 @@ class CliConfig:
     capture_docker_image: str = "pipeline-youtube-capture:latest"
     synthesis_timeout: int | None = None
     synthesis_profile: str | None = None
+    # Persistent cache (see cache.py). cache_dir=None → default ~/.cache root.
+    cache_dir: Path | None = None
+    cache_max_video_bytes: int = DEFAULT_MAX_VIDEO_BYTES
+    # Max concurrent Whisper transcriptions (GPU/RAM bound). None → keep default.
+    whisper_concurrency: int | None = None
 
 
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
@@ -161,6 +171,25 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
             f"{list(_SYNTHESIS_PROFILE_CHOICES)!r}, got {synthesis_profile_raw!r}"
         )
 
+    cache_dir_raw = data.get("cache_dir")
+    cache_dir = Path(str(cache_dir_raw)).expanduser() if cache_dir_raw else None
+
+    max_video_raw = data.get("cache_max_video_bytes")
+    if max_video_raw is None:
+        cache_max_video_bytes = DEFAULT_MAX_VIDEO_BYTES
+    elif isinstance(max_video_raw, int) and max_video_raw > 0:
+        cache_max_video_bytes = max_video_raw
+    else:
+        raise click.UsageError("config.json: cache_max_video_bytes must be a positive integer")
+
+    whisper_conc_raw = data.get("whisper_concurrency")
+    if whisper_conc_raw is None:
+        whisper_concurrency: int | None = None
+    elif isinstance(whisper_conc_raw, int) and whisper_conc_raw > 0:
+        whisper_concurrency = whisper_conc_raw
+    else:
+        raise click.UsageError("config.json: whisper_concurrency must be a positive integer")
+
     return CliConfig(
         vault_root=path,
         models=models,
@@ -169,6 +198,9 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         capture_docker_image=capture_docker_image,
         synthesis_timeout=synthesis_timeout,
         synthesis_profile=synthesis_profile,
+        cache_dir=cache_dir,
+        cache_max_video_bytes=cache_max_video_bytes,
+        whisper_concurrency=whisper_concurrency,
     )
 
 
@@ -573,9 +605,33 @@ async def _run_videos_concurrent(
 @click.option("--dry-run", is_flag=True, help="Do not write to vault; print to stdout only.")
 @click.option(
     "--concurrency",
-    type=click.IntRange(1, 5),
-    default=1,
-    help="Videos in parallel (1-5, default 1).",
+    type=click.IntRange(1, 8),
+    default=3,
+    show_default=True,
+    help="Videos in parallel (1-8). Higher is faster but raises API-rate/CPU load.",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help=(
+        "Persistent cache root for transcripts/videos/code/LLM output. "
+        "Default ~/.cache/pipeline-youtube (or config.json cache_dir / "
+        "$PIPELINE_YOUTUBE_CACHE)."
+    ),
+)
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    help="Disable the persistent cache entirely (recompute everything).",
+)
+@click.option(
+    "--cache-llm-synthesis",
+    is_flag=True,
+    help=(
+        "Also cache Stage 05 synthesis LLM output (off by default so re-runs "
+        "regenerate fresh synthesis). Stage 02/04/router output is cached either way."
+    ),
 )
 @click.option("--skip-synthesis", is_flag=True, help="Skip stage 05 after 01-04 finish.")
 @click.option(
@@ -669,6 +725,9 @@ def cli(
     url: str | None,
     dry_run: bool,
     concurrency: int,
+    cache_dir: Path | None,
+    no_cache: bool,
+    cache_llm_synthesis: bool,
     skip_synthesis: bool,
     synthesis_only: bool,
     force_video: tuple[str, ...],
@@ -728,6 +787,26 @@ def cli(
         f"providers: {', '.join(providers_raw.keys()) if providers_raw else 'default (ollama)'}"
     )
     click.echo("llm_backends: SDK mode (no claude CLI dependency)")
+
+    # Persistent cache + per-role LLM cache policy. ``--no-cache`` is the
+    # master off switch; otherwise deterministic artifacts (transcript/video/
+    # code) and Stage 02/04/router LLM output are cached, while Stage 05
+    # synthesis is opt-in via ``--cache-llm-synthesis``.
+    from .cache import configure_cache
+    from .transcript.whisper_fallback import configure_whisper_concurrency
+
+    cache = configure_cache(
+        cache_dir or cfg.cache_dir,
+        enabled=not no_cache,
+        max_video_bytes=cfg.cache_max_video_bytes,
+    )
+    configure_llm_cache(stages=True, synthesis=cache_llm_synthesis)
+    if cfg.whisper_concurrency:
+        configure_whisper_concurrency(cfg.whisper_concurrency)
+    click.echo(
+        f"cache: {'disabled' if not cache.enabled else cache.root} "
+        f"(llm synthesis cache: {'on' if cache_llm_synthesis else 'off'})"
+    )
 
     # Resolve the Stage 03 capture backend. CLI flag beats config.json; both
     # default to "host". The preflight for Docker mode is deferred until we

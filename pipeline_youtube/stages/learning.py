@@ -190,6 +190,7 @@ def run_stage_learning(
         prompt=prompt,
         append_system_prompt=system_prompt,
         model=model,
+        role="stage_04",
     )
 
     if not dry_run:

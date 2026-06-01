@@ -31,5 +31,8 @@
     "beta":     {"provider": "ollama", "model": "qwen3:8b"},
     "leader":   {"provider": "ollama", "model": "qwen3:8b"},
     "reviewer": {"provider": "ollama", "model": "qwen3:8b"}
-  }
+  },
+  "cache_dir": null,
+  "cache_max_video_bytes": 10737418240,
+  "whisper_concurrency": 1
 }

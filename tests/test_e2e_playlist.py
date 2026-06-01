@@ -231,6 +231,10 @@ class TestE2EPlaylist:
                 "https://www.youtube.com/playlist?list=PL_fake",
                 "--config",
                 str(cfg),
+                # Serial so the FIFO canned-response queue stays aligned with
+                # the per-video call order (parallelism is covered separately).
+                "--concurrency",
+                "1",
             ],
             catch_exceptions=False,
         )
@@ -291,6 +295,8 @@ class TestE2EPlaylist:
                 "--config",
                 str(cfg),
                 "--stop-after-capture",
+                "--concurrency",
+                "1",
             ],
             catch_exceptions=False,
         )

@@ -126,6 +126,7 @@ def classify_playlist_genre(
             system_prompt=_ROUTER_SYSTEM_PROMPT,
             model=model,
             max_retries=2,
+            role="router",
         )
     except ClaudeCliError as e:
         return Genre.OTHER, f"router_call_failed: {str(e)[:200]}"
