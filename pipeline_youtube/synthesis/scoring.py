@@ -12,7 +12,7 @@ Coverage (`CoverageReport`) is computed deterministically in Python —
 see `synthesis.agents.compute_coverage()`. No LLM parsing needed for
 a simple set diff.
 
-α / β / leader go through `claude -p` via providers.claude_cli. Strict
+α / β / leader go through the LLM provider via providers.registry.invoke_llm. Strict
 JSON parsing with a regex fallback (find the first `{...}` block) handles
 occasional prose leaks around the JSON payload.
 """

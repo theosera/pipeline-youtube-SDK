@@ -1,4 +1,4 @@
-"""End-to-end CLI test with yt-dlp / ffmpeg / claude -p mocked.
+"""End-to-end CLI test with yt-dlp / ffmpeg / LLM provider mocked.
 
 Runs a 3-video playlist through stages 01-05 to catch regressions in
 the orchestration layer (stage sequencing, per-stage model routing,

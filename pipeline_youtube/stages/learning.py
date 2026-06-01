@@ -1,8 +1,8 @@
 """Stage 04: integrate 01/02/03 into a theme-structured learning note.
 
 Reads the 02_Summary md (semantic timeline) and 03_Capture md (image
-embeds with timestamp ranges), then asks `claude -p` to restructure
-the content into a learner-friendly 04_Learning_Material md:
+embeds with timestamp ranges), then asks the configured LLM provider to
+restructure the content into a learner-friendly 04_Learning_Material md:
 
     ## 概念: テーマ名
     [MM:SS ~ MM:SS]
@@ -15,11 +15,11 @@ the content into a learner-friendly 04_Learning_Material md:
 
 Image-to-range mapping strategy
 -------------------------------
-Live tests showed claude occasionally fabricating image filenames
+Live tests showed the model occasionally fabricating image filenames
 (e.g. inventing `-7.webp` when only `-1.webp` through `-6.webp` exist)
 when it has to infer the mapping from the raw capture md. The fix:
 we pre-parse the capture md into a structured `[range, filename]`
-table and pass it to claude as an explicit allow-list. Claude is
+table and pass it to the model as an explicit allow-list. The model is
 told to pick filenames ONLY from this table.
 
 The 04 md is created directly here (not pre-created as an empty

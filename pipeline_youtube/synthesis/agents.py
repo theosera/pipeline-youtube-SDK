@@ -1,6 +1,6 @@
 """Agent Teams implementation for Stage 05 Synthesis.
 
-Three roles execute sequentially via `claude -p`:
+Three roles execute sequentially via the configured LLM provider:
 
     α (TopicExtractor) → β (ChapterArchitect) → Leader
 
@@ -10,10 +10,10 @@ operation. See `compute_coverage()` below.
 
 Caching strategy
 ----------------
-Consecutive `claude -p` calls within a 5-minute window automatically
-share cache reads, so the three roles executed in sequence pay full
-cache-creation cost only on the first call. No explicit `--resume`
-session chaining is needed.
+The three roles run as independent provider calls. Their LLM output is
+not cached by default — synthesis is regenerated fresh each run; pass
+`--cache-llm-synthesis` to memoize it via the content-addressed cache
+in `cache.py`. Any prompt-prefix cache reuse is left to the provider.
 """
 
 from __future__ import annotations
