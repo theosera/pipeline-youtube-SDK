@@ -116,3 +116,91 @@ class TestPrefetchedPathConsumed:
         assert called["download"] == 0
         assert called["extract"] == 1
         assert result.outcomes and result.outcomes[0].success
+
+
+class TestPrefetchSkippedOnCacheHit:
+    """Regression: an unconditional prefetch re-downloads the mp4 on every
+    rerun and overwrites the persistent video cache, defeating it. The
+    prefetch must be skipped when the video is already cached so that
+    `run_stage_capture` reuses the cached copy.
+    """
+
+    def _drive_process_video(self, tmp_path: Path, monkeypatch, *, cached: bool) -> int:
+        from datetime import datetime
+
+        import pipeline_youtube.cache as cache_mod
+        from pipeline_youtube import main as main_mod
+        from pipeline_youtube.providers.base import LLMResponse
+        from pipeline_youtube.stages.capture import CaptureResult, SummaryRange
+        from pipeline_youtube.transcript.base import (
+            TranscriptSnippet,
+            TranscriptSource,
+            build_result,
+        )
+
+        prefetch_calls = {"n": 0}
+
+        # Stub _process_video collaborators so only the prefetch decision matters.
+        paths = {k: tmp_path / f"{k}.md" for k in ("scripts", "summary", "capture", "learning")}
+        monkeypatch.setattr(main_mod, "compute_note_paths", lambda video, run_time: paths)
+        monkeypatch.setattr(main_mod, "create_placeholder_notes", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            main_mod,
+            "run_stage_scripts",
+            lambda video, path, *, dry_run, include_code_blocks=False: build_result(
+                video_id=video.video_id,
+                source=TranscriptSource.OFFICIAL,
+                language="ja",
+                snippets=[TranscriptSnippet("字幕", 0.0, 30.0)],
+            ),
+        )
+        monkeypatch.setattr(main_mod, "record_transcript_stat", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            main_mod,
+            "run_stage_summary",
+            lambda *a, **kw: LLMResponse(
+                text="ok",
+                model="sonnet",
+                input_tokens=1,
+                output_tokens=1,
+                cache_creation_tokens=0,
+                cache_read_tokens=0,
+                total_cost_usd=0.0,
+                duration_ms=1,
+            ),
+        )
+        monkeypatch.setattr(
+            main_mod,
+            "run_stage_capture",
+            lambda *a, **kw: CaptureResult(
+                ranges=[SummaryRange(0, 30, "x")], capture_format="webp"
+            ),
+        )
+
+        def fake_prefetch(video, backend=None):
+            prefetch_calls["n"] += 1
+            return None
+
+        monkeypatch.setattr(main_mod, "prefetch_video_download", fake_prefetch)
+
+        class _FakeCache:
+            def get_video(self, video_id: str, fmt: str):
+                return (tmp_path / "cached.mp4") if cached else None
+
+        monkeypatch.setattr(cache_mod, "get_cache", lambda: _FakeCache())
+
+        main_mod._process_video(
+            _video(),
+            datetime(2026, 1, 1),
+            dry_run=False,
+            capture_format="auto",
+            models={"stage_02": "sonnet", "stage_04": "sonnet"},
+            stop_after_capture=True,  # short-circuit before Stage 04
+        )
+        return prefetch_calls["n"]
+
+    def test_prefetch_skipped_when_video_cached(self, tmp_path: Path, monkeypatch):
+        assert self._drive_process_video(tmp_path, monkeypatch, cached=True) == 0
+
+    def test_prefetch_runs_on_cache_miss(self, tmp_path: Path, monkeypatch):
+        assert self._drive_process_video(tmp_path, monkeypatch, cached=False) == 1

@@ -47,6 +47,7 @@ from .providers.registry import configure_llm_cache, configure_providers
 from .sanitize import configure_alert_sink
 from .stages.capture import (
     ASSETS_REL_PATH,
+    DEFAULT_RESOLUTION,
     prefetch_video_download,
     run_stage_capture,
     sweep_stale_tmp,
@@ -473,10 +474,19 @@ def _process_video(
         # Kick off Stage 03 video download in parallel with Stage 02 LLM call.
         # Stage 03 still waits for Stage 02's output to parse timeline ranges,
         # but the download — the bulk of Stage 03's wall time — can overlap.
+        #
+        # Skip the prefetch when the video is already in the persistent cache:
+        # the prefetch always downloads, so an unconditional prefetch would
+        # re-fetch the mp4 every rerun and overwrite the cache, defeating it.
+        # On a cache hit `run_stage_capture` reuses the cached copy via its own
+        # `cache.get_video` lookup (prefetched_path stays None).
         prefetch = None
         if not dry_run:
-            with contextlib.suppress(Exception):
-                prefetch = prefetch_video_download(video, backend=capture_backend)
+            from .cache import get_cache
+
+            if get_cache().get_video(video.video_id, DEFAULT_RESOLUTION) is None:
+                with contextlib.suppress(Exception):
+                    prefetch = prefetch_video_download(video, backend=capture_backend)
 
         click.echo(f"  [02] summary (model={models['stage_02']})...", nl=False)
         summary_resp = run_stage_summary(
