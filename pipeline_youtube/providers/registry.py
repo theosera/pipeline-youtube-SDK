@@ -32,6 +32,7 @@ __all__ = [
     "invoke_claude",
     "get_provider",
     "configure_providers",
+    "configure_llm_concurrency",
     "LLMResponse",
     "LLMError",
     "ClaudeCliError",
@@ -60,6 +61,20 @@ def configure_llm_cache(*, stages: bool = True, synthesis: bool = False) -> None
     global _llm_cache_stages_enabled, _llm_cache_synthesis_enabled
     _llm_cache_stages_enabled = stages
     _llm_cache_synthesis_enabled = synthesis
+
+
+# Resource-class semaphore (Phase 3 A): bounds concurrent LLM API calls
+# independently of the per-video --concurrency. ``None`` = unbounded (default,
+# preserves prior behavior). When set, lets --concurrency rise without
+# over-subscribing the provider's rate/connection budget — downloads and other
+# stages fill the slack instead.
+_llm_semaphore: threading.BoundedSemaphore | None = None
+
+
+def configure_llm_concurrency(limit: int | None) -> None:
+    """Cap concurrent LLM provider calls. ``None`` / <=0 removes the cap."""
+    global _llm_semaphore
+    _llm_semaphore = threading.BoundedSemaphore(limit) if limit and limit > 0 else None
 
 
 def _llm_cache_enabled_for_role(role: str | None) -> bool:
@@ -241,15 +256,30 @@ def invoke_llm(
                 return restored
 
     provider = get_provider(provider_name)
-    response = provider.invoke(
-        prompt,
-        system_prompt=system_prompt,
-        model=model,
-        timeout=timeout,
-        max_retries=max_retries,
-        retry_base_delay=retry_base_delay,
-        messages=messages,
-    )
+    # Acquire the LLM resource slot only around the actual network call — cache
+    # hits above never consume one. ``None`` semaphore = unbounded.
+    sem = _llm_semaphore
+    if sem is not None:
+        with sem:
+            response = provider.invoke(
+                prompt,
+                system_prompt=system_prompt,
+                model=model,
+                timeout=timeout,
+                max_retries=max_retries,
+                retry_base_delay=retry_base_delay,
+                messages=messages,
+            )
+    else:
+        response = provider.invoke(
+            prompt,
+            system_prompt=system_prompt,
+            model=model,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_base_delay=retry_base_delay,
+            messages=messages,
+        )
     if use_cache:
         cache.put_llm(key, _llm_response_to_cache(response))
     return response

@@ -48,7 +48,7 @@ def _resolve_model(alias: str) -> str:
 class AnthropicProvider(LLMProvider):
     """Provider for the Anthropic Messages API."""
 
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None, *, prompt_caching: bool = True) -> None:
         resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not resolved_key:
             raise LLMError(
@@ -56,6 +56,10 @@ class AnthropicProvider(LLMProvider):
                 "Set ANTHROPIC_API_KEY env var or add to config.json providers.anthropic.api_key"
             )
         self._client = anthropic.Anthropic(api_key=resolved_key)
+        # Prompt caching is on by default; disable via
+        # ANTHROPIC_PROMPT_CACHING=0 for debugging or unsupported endpoints.
+        env = os.environ.get("ANTHROPIC_PROMPT_CACHING")
+        self._prompt_caching = prompt_caching and env not in {"0", "false", "no"}
 
     @property
     def provider_name(self) -> str:
@@ -92,7 +96,23 @@ class AnthropicProvider(LLMProvider):
                     "timeout": timeout,
                 }
                 if system_prompt:
-                    kwargs["system"] = system_prompt
+                    # Mark the system prompt as an ephemeral prompt-cache
+                    # breakpoint. Stage system prompts (e.g. SUMMARY_SYSTEM_PROMPT)
+                    # are large and identical across every video, so caching the
+                    # prefix turns repeated calls into cheap cache reads (~0.1x
+                    # input price) instead of re-billing the full prompt. Below
+                    # the model's minimum cacheable length the marker is ignored
+                    # by the API, so this is always safe.
+                    if self._prompt_caching:
+                        kwargs["system"] = [
+                            {
+                                "type": "text",
+                                "text": system_prompt,
+                                "cache_control": {"type": "ephemeral"},
+                            }
+                        ]
+                    else:
+                        kwargs["system"] = system_prompt
 
                 response = self._client.messages.create(**kwargs)
                 duration_ms = int((time.monotonic() - t0) * 1000)
@@ -106,9 +126,20 @@ class AnthropicProvider(LLMProvider):
                 usage = response.usage
                 input_tokens = usage.input_tokens if usage else None
                 output_tokens = usage.output_tokens if usage else None
+                # Cache-related token counts (None on SDK versions / responses
+                # that don't surface them). `input_tokens` already excludes
+                # cached tokens, so the three buckets sum to total input.
+                cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+                cache_read = getattr(usage, "cache_read_input_tokens", None)
 
                 # Estimate cost (approximate, for logging only).
-                cost = _estimate_cost(effective_model, input_tokens, output_tokens)
+                cost = _estimate_cost(
+                    effective_model,
+                    input_tokens,
+                    output_tokens,
+                    cache_creation_tokens=cache_creation,
+                    cache_read_tokens=cache_read,
+                )
 
                 return LLMResponse(
                     text=text,
@@ -116,6 +147,8 @@ class AnthropicProvider(LLMProvider):
                     provider="anthropic",
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cache_creation_tokens=cache_creation,
+                    cache_read_tokens=cache_read,
                     total_cost_usd=cost,
                     duration_ms=duration_ms,
                     stop_reason=response.stop_reason,
@@ -175,11 +208,31 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def _estimate_cost(model: str, input_tokens: int | None, output_tokens: int | None) -> float | None:
-    """Return estimated cost in USD, or None if pricing is unknown."""
+# Anthropic prompt-cache multipliers relative to the base input price:
+# writing a 5-minute ephemeral cache entry costs 1.25x, reading one 0.1x.
+_CACHE_WRITE_MULTIPLIER = 1.25
+_CACHE_READ_MULTIPLIER = 0.10
+
+
+def _estimate_cost(
+    model: str,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    *,
+    cache_creation_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+) -> float | None:
+    """Return estimated cost in USD, or None if pricing is unknown.
+
+    ``input_tokens`` is the fresh (uncached) input; cache writes and reads
+    are billed separately at 1.25x / 0.1x of the base input rate.
+    """
     pricing = _PRICING.get(model)
     if pricing is None:
         return None
-    inp = (input_tokens or 0) / 1_000_000 * pricing[0]
+    in_rate = pricing[0] / 1_000_000
+    inp = (input_tokens or 0) * in_rate
+    cache_write = (cache_creation_tokens or 0) * in_rate * _CACHE_WRITE_MULTIPLIER
+    cache_read = (cache_read_tokens or 0) * in_rate * _CACHE_READ_MULTIPLIER
     out = (output_tokens or 0) / 1_000_000 * pricing[1]
-    return round(inp + out, 6)
+    return round(inp + cache_write + cache_read + out, 6)

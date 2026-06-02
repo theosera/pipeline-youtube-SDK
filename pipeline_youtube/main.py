@@ -43,7 +43,11 @@ from .obsidian import format_playlist_folder_name
 from .path_safety import ensure_safe_path
 from .pipeline import LEARNING_BASE, UNIT_DIRS, compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta, fetch_metadata, validate_youtube_url
-from .providers.registry import configure_llm_cache, configure_providers
+from .providers.registry import (
+    configure_llm_cache,
+    configure_llm_concurrency,
+    configure_providers,
+)
 from .sanitize import configure_alert_sink
 from .stages.capture import (
     ASSETS_REL_PATH,
@@ -54,7 +58,11 @@ from .stages.capture import (
 )
 from .stages.capture_backend import DockerBackendNotReady, DockerCaptureBackend
 from .stages.learning import run_stage_learning
-from .stages.scripts import run_stage_scripts
+from .stages.scripts import (
+    DEFAULT_TRANSCRIPT_CONCURRENCY,
+    run_stage_scripts,
+    warm_transcript_cache,
+)
 from .stages.summary import run_stage_summary
 from .stages.synthesis import MIN_PLAYLIST_SIZE, log_synthesis_preflight, run_stage_synthesis
 from .stats import record_transcript_stat
@@ -90,6 +98,13 @@ class CliConfig:
     cache_max_video_bytes: int = DEFAULT_MAX_VIDEO_BYTES
     # Max concurrent Whisper transcriptions (GPU/RAM bound). None → keep default.
     whisper_concurrency: int | None = None
+    # Fan-out for the upfront transcript cache warm-up (network-bound).
+    # None → use scripts.DEFAULT_TRANSCRIPT_CONCURRENCY.
+    transcript_concurrency: int | None = None
+    # Resource-class caps (Phase 3 A), independent of --concurrency.
+    # None → unbounded (prior behavior).
+    llm_concurrency: int | None = None
+    download_concurrency: int | None = None
 
 
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
@@ -191,6 +206,25 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     else:
         raise click.UsageError("config.json: whisper_concurrency must be a positive integer")
 
+    transcript_conc_raw = data.get("transcript_concurrency")
+    if transcript_conc_raw is None:
+        transcript_concurrency: int | None = None
+    elif isinstance(transcript_conc_raw, int) and transcript_conc_raw > 0:
+        transcript_concurrency = transcript_conc_raw
+    else:
+        raise click.UsageError("config.json: transcript_concurrency must be a positive integer")
+
+    def _positive_int_or_none(key: str) -> int | None:
+        raw = data.get(key)
+        if raw is None:
+            return None
+        if isinstance(raw, int) and raw > 0:
+            return raw
+        raise click.UsageError(f"config.json: {key} must be a positive integer")
+
+    llm_concurrency = _positive_int_or_none("llm_concurrency")
+    download_concurrency = _positive_int_or_none("download_concurrency")
+
     return CliConfig(
         vault_root=path,
         models=models,
@@ -202,6 +236,9 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         cache_dir=cache_dir,
         cache_max_video_bytes=cache_max_video_bytes,
         whisper_concurrency=whisper_concurrency,
+        transcript_concurrency=transcript_concurrency,
+        llm_concurrency=llm_concurrency,
+        download_concurrency=download_concurrency,
     )
 
 
@@ -505,7 +542,18 @@ def _process_video(
 
         prefetched_path = None
         if prefetch is not None:
-            err = prefetch.wait()
+            # The prefetch thread owns tmp/<video_id>.mp4. Block until it has
+            # finished (success or failure) before Stage 03 runs. A fixed
+            # timeout here is unsafe: when --download-concurrency throttles the
+            # prefetch, it can sit queued on the download semaphore past the
+            # timeout while still alive, and run_stage_capture would then fall
+            # back to a second _download_video() on the same path — the two
+            # downloads race on unlink/overwrite. Waiting to completion makes
+            # the prefetch the single writer; on failure the thread has exited,
+            # so the capture fallback re-downloads safely. The wait is finite:
+            # the download is bounded by the backend subprocess timeout and the
+            # download-concurrency semaphore.
+            err = prefetch.wait(timeout=None)
             if err is None and prefetch.path.exists():
                 prefetched_path = prefetch.path
 
@@ -619,6 +667,35 @@ async def _run_videos_concurrent(
     default=3,
     show_default=True,
     help="Videos in parallel (1-8). Higher is faster but raises API-rate/CPU load.",
+)
+@click.option(
+    "--transcript-concurrency",
+    type=click.IntRange(1, 16),
+    default=None,
+    help=(
+        "Fan-out for the upfront caption-transcript cache warm-up (1-16). "
+        "Network-bound, so it can run higher than --concurrency. "
+        "Default 8 (or config.json transcript_concurrency)."
+    ),
+)
+@click.option(
+    "--llm-concurrency",
+    type=click.IntRange(1, 32),
+    default=None,
+    help=(
+        "Cap concurrent LLM provider calls, independent of --concurrency. "
+        "Lets --concurrency rise without over-subscribing the API rate budget. "
+        "Default: unbounded (or config.json llm_concurrency)."
+    ),
+)
+@click.option(
+    "--download-concurrency",
+    type=click.IntRange(1, 32),
+    default=None,
+    help=(
+        "Cap concurrent video downloads (yt-dlp), independent of --concurrency. "
+        "Default: unbounded (or config.json download_concurrency)."
+    ),
 )
 @click.option(
     "--cache-dir",
@@ -735,6 +812,9 @@ def cli(
     url: str | None,
     dry_run: bool,
     concurrency: int,
+    transcript_concurrency: int | None,
+    llm_concurrency: int | None,
+    download_concurrency: int | None,
     cache_dir: Path | None,
     no_cache: bool,
     cache_llm_synthesis: bool,
@@ -803,6 +883,7 @@ def cli(
     # code) and Stage 02/04/router LLM output are cached, while Stage 05
     # synthesis is opt-in via ``--cache-llm-synthesis``.
     from .cache import configure_cache
+    from .stages.capture import configure_download_concurrency
     from .transcript.whisper_fallback import configure_whisper_concurrency
 
     cache = configure_cache(
@@ -813,6 +894,9 @@ def cli(
     configure_llm_cache(stages=True, synthesis=cache_llm_synthesis)
     if cfg.whisper_concurrency:
         configure_whisper_concurrency(cfg.whisper_concurrency)
+    # Resource-class caps (Phase 3 A): CLI flag overrides config; None=unbounded.
+    configure_llm_concurrency(llm_concurrency or cfg.llm_concurrency)
+    configure_download_concurrency(download_concurrency or cfg.download_concurrency)
     click.echo(
         f"cache: {'disabled' if not cache.enabled else cache.root} "
         f"(llm synthesis cache: {'on' if cache_llm_synthesis else 'off'})"
@@ -935,6 +1019,20 @@ def cli(
         if resume_reviewed:
             # Phase 3: filter to videos whose 02_Summary.md has `reviewed: true`.
             to_process = _filter_to_reviewed(to_process, playlist_title, run_time)
+
+        # Warm the transcript cache for all to-be-processed videos up front,
+        # at a higher fan-out than --concurrency. Skipped under
+        # --resume-reviewed (Stage 01 doesn't run) and a no-op when the cache
+        # is disabled or Whisper is the only available tier.
+        if to_process and not resume_reviewed:
+            warm_conc = (
+                transcript_concurrency
+                or cfg.transcript_concurrency
+                or DEFAULT_TRANSCRIPT_CONCURRENCY
+            )
+            warmed = warm_transcript_cache([v for _, v in to_process], concurrency=warm_conc)
+            if warmed:
+                click.echo(f"transcript warm-up: cached {warmed}/{len(to_process)} captions")
 
         # Process remaining videos
         if to_process and concurrency > 1:

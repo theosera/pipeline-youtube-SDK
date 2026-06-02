@@ -19,6 +19,8 @@ a ``## 関連コード`` section after the transcript.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 from ..code_fetch import (
@@ -34,6 +36,75 @@ from ..transcript.chunking import Chunk, chunk_by_window
 from ..transcript.official import fetch_official
 
 DEFAULT_LANGUAGES: list[str] = ["ja", "en"]
+
+# Default fan-out for the upfront transcript warm-up. Higher than the
+# pipeline's --concurrency because caption fetches are light network I/O,
+# not CPU/GPU/LLM bound.
+DEFAULT_TRANSCRIPT_CONCURRENCY = 8
+
+
+def warm_transcript_cache(
+    videos: list[VideoMeta],
+    *,
+    languages: list[str] | None = None,
+    concurrency: int = DEFAULT_TRANSCRIPT_CONCURRENCY,
+) -> int:
+    """Pre-fetch caption transcripts for many videos concurrently.
+
+    Phase 3 (C). Stage 01 fetches transcripts one video at a time, gated by
+    the pipeline's (intentionally low) ``--concurrency`` because the heavy
+    downstream stages share that budget. Caption fetches, though, are cheap
+    network I/O and can run at a much higher fan-out. Warming the persistent
+    transcript cache up front lets those fetches overlap maximally; the
+    per-video Stage 01 then hits the cache instead of re-fetching serially.
+
+    Only the official/auto tiers are warmed — Whisper is deliberately
+    excluded because it is GPU/RAM-bound and governed by its own semaphore.
+    Videos that have no captions simply miss here and fall through to
+    Whisper later in Stage 01, exactly as before. Best-effort: any per-video
+    error is swallowed so warming never blocks the run.
+
+    Returns the number of videos for which a caption tier was cached.
+    """
+    if not videos:
+        return 0
+
+    from ..cache import get_cache
+
+    # Without a persistent cache there is nothing to warm — Stage 01 would
+    # re-fetch regardless, so skip the extra pass entirely.
+    if not get_cache().enabled:
+        return 0
+
+    langs = languages or DEFAULT_LANGUAGES
+    bound = max(1, concurrency)
+
+    def _warm_one(video: VideoMeta) -> bool:
+        result = fetch_with_fallback(
+            video.video_id,
+            langs,
+            # Whisper intentionally omitted (heavy / separate budget).
+            fetchers=[("official", fetch_official), ("auto", fetch_auto)],
+        )
+        return bool(result.snippets)
+
+    async def _warm_all() -> int:
+        sem = asyncio.Semaphore(bound)
+        warmed = 0
+
+        async def _task(video: VideoMeta) -> None:
+            nonlocal warmed
+            async with sem:
+                ok = False
+                with contextlib.suppress(Exception):
+                    ok = await asyncio.to_thread(_warm_one, video)
+                if ok:
+                    warmed += 1
+
+        await asyncio.gather(*(_task(v) for v in videos))
+        return warmed
+
+    return asyncio.run(_warm_all())
 
 
 def run_stage_scripts(

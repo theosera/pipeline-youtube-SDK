@@ -14,6 +14,18 @@ Options:
   --concurrency INTEGER RANGE     Videos in parallel (1-8). Higher is faster
                                   but raises API-rate/CPU load.  [default: 3;
                                   1<=x<=8]
+  --transcript-concurrency INTEGER RANGE
+                                  Fan-out for the upfront caption-transcript
+                                  cache warm-up (1-16). Default 8 (or
+                                  config.json transcript_concurrency).
+  --llm-concurrency INTEGER RANGE
+                                  Cap concurrent LLM provider calls (1-32),
+                                  independent of --concurrency. Default
+                                  unbounded (or config.json llm_concurrency).
+  --download-concurrency INTEGER RANGE
+                                  Cap concurrent video downloads (1-32),
+                                  independent of --concurrency. Default
+                                  unbounded (or config.json download_concurrency).
   --cache-dir PATH                Persistent cache root for transcripts/videos/
                                   code/LLM output. Default
                                   ~/.cache/pipeline-youtube (or config.json
@@ -61,6 +73,15 @@ Options:
 ### 並列処理
 
 - **`--concurrency N`** (1〜8, default 3): 動画単位を `asyncio.Semaphore(N)` で並列に回す。Whisper (tier 3 文字起こし) は内部の bounded semaphore (既定 1、`config.json` の `whisper_concurrency` で変更可) で同時数を絞り、他段は並列。
+- **`--transcript-concurrency N`** (1〜16, default 8, `config.json` の `transcript_concurrency` でも指定可): メイン処理に先立ち、対象動画の字幕 (official/auto tier) を高並列でプリフェッチして transcript キャッシュを温める。字幕取得は軽い network I/O なので `--concurrency` より高く回せる。各動画の Stage 01 はキャッシュヒットになり、重い後段に律速されず取得が重なる。Whisper は重く専用セマフォ管理のため対象外。`--no-cache` 時・`--resume-reviewed` 時はスキップ。
+
+#### 資源別の同時実行上限 (ステージ・パイプライン化)
+
+`--concurrency`（動画数）とは独立に、ステージ種別ごとの資源を別枠で上限管理する。動画数を上げても特定資源を過剰subscribeせず、各資源を独立に使い切れる。既定はいずれも無制限（=従来挙動）。
+
+- **`--llm-concurrency N`** (1〜32, `config.json` の `llm_concurrency`): 同時 LLM 呼び出し数の上限。`--concurrency` を上げても API レート/接続を超過させない。Stage 02/04/router/synthesis すべての invoke を対象。キャッシュヒットは枠を消費しない。
+- **`--download-concurrency N`** (1〜32, `config.json` の `download_concurrency`): 同時動画ダウンロード (yt-dlp) 数の上限。Stage 03 本体と並列プリフェッチの両方を対象。
+- Whisper は別枠 `whisper_concurrency`（既定 1）で従来どおり管理。
 
 ### キャッシュ
 

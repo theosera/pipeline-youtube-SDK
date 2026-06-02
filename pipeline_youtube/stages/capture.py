@@ -38,6 +38,7 @@ from __future__ import annotations
 import contextlib
 import re
 import subprocess
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,6 +48,20 @@ from ..config import get_vault_root
 from ..path_safety import ensure_safe_path
 from ..playlist import VideoMeta
 from .capture_backend import CaptureBackend, HostCaptureBackend
+
+# Resource-class semaphore (Phase 3 A): bounds concurrent video downloads
+# (yt-dlp network I/O) independently of the per-video --concurrency. ``None`` =
+# unbounded (default, preserves prior behavior). Covers both the Stage 03
+# download and the parallel prefetch thread since both go through
+# ``_download_video``.
+_download_semaphore: threading.BoundedSemaphore | None = None
+
+
+def configure_download_concurrency(limit: int | None) -> None:
+    """Cap concurrent video downloads. ``None`` / <=0 removes the cap."""
+    global _download_semaphore
+    _download_semaphore = threading.BoundedSemaphore(limit) if limit and limit > 0 else None
+
 
 # Pipeline-managed subfolder separate from Obsidian's default _assets/2026/img/.
 # Reason: Obsidian's Attachment Management plugin treats img/ as an auto-managed
@@ -90,8 +105,14 @@ class VideoPrefetch:
     path: Path
     future: Any  # concurrent.futures.Future[None]
 
-    def wait(self, timeout: float = 600.0) -> Exception | None:
-        """Block until the download finishes. Returns the exception (if any)."""
+    def wait(self, timeout: float | None = 600.0) -> Exception | None:
+        """Block until the download finishes. Returns the exception (if any).
+
+        `timeout=None` blocks until the download thread completes (success
+        or failure). Callers that own `path` must wait to completion before
+        any fallback download to the same path, otherwise a queued prefetch
+        can outlive the timeout and race the fallback on `path`.
+        """
         try:
             self.future.result(timeout=timeout)
             return None
@@ -480,7 +501,13 @@ def _download_video(
     if dest.exists():
         dest.unlink()
 
-    (backend or HostCaptureBackend()).download_video(url, dest, resolution=resolution)
+    active = backend or HostCaptureBackend()
+    sem = _download_semaphore
+    if sem is not None:
+        with sem:
+            active.download_video(url, dest, resolution=resolution)
+    else:
+        active.download_video(url, dest, resolution=resolution)
 
 
 ExtractorFn = Callable[..., None]
