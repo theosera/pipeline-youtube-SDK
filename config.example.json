@@ -35,5 +35,7 @@
   "cache_dir": null,
   "cache_max_video_bytes": 10737418240,
   "whisper_concurrency": 1,
-  "transcript_concurrency": 8
+  "transcript_concurrency": 8,
+  "llm_concurrency": null,
+  "download_concurrency": null
 }

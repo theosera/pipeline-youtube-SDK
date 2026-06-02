@@ -43,7 +43,11 @@ from .obsidian import format_playlist_folder_name
 from .path_safety import ensure_safe_path
 from .pipeline import LEARNING_BASE, UNIT_DIRS, compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta, fetch_metadata, validate_youtube_url
-from .providers.registry import configure_llm_cache, configure_providers
+from .providers.registry import (
+    configure_llm_cache,
+    configure_llm_concurrency,
+    configure_providers,
+)
 from .sanitize import configure_alert_sink
 from .stages.capture import (
     ASSETS_REL_PATH,
@@ -97,6 +101,10 @@ class CliConfig:
     # Fan-out for the upfront transcript cache warm-up (network-bound).
     # None → use scripts.DEFAULT_TRANSCRIPT_CONCURRENCY.
     transcript_concurrency: int | None = None
+    # Resource-class caps (Phase 3 A), independent of --concurrency.
+    # None → unbounded (prior behavior).
+    llm_concurrency: int | None = None
+    download_concurrency: int | None = None
 
 
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
@@ -206,6 +214,17 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     else:
         raise click.UsageError("config.json: transcript_concurrency must be a positive integer")
 
+    def _positive_int_or_none(key: str) -> int | None:
+        raw = data.get(key)
+        if raw is None:
+            return None
+        if isinstance(raw, int) and raw > 0:
+            return raw
+        raise click.UsageError(f"config.json: {key} must be a positive integer")
+
+    llm_concurrency = _positive_int_or_none("llm_concurrency")
+    download_concurrency = _positive_int_or_none("download_concurrency")
+
     return CliConfig(
         vault_root=path,
         models=models,
@@ -218,6 +237,8 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         cache_max_video_bytes=cache_max_video_bytes,
         whisper_concurrency=whisper_concurrency,
         transcript_concurrency=transcript_concurrency,
+        llm_concurrency=llm_concurrency,
+        download_concurrency=download_concurrency,
     )
 
 
@@ -647,6 +668,25 @@ async def _run_videos_concurrent(
     ),
 )
 @click.option(
+    "--llm-concurrency",
+    type=click.IntRange(1, 32),
+    default=None,
+    help=(
+        "Cap concurrent LLM provider calls, independent of --concurrency. "
+        "Lets --concurrency rise without over-subscribing the API rate budget. "
+        "Default: unbounded (or config.json llm_concurrency)."
+    ),
+)
+@click.option(
+    "--download-concurrency",
+    type=click.IntRange(1, 32),
+    default=None,
+    help=(
+        "Cap concurrent video downloads (yt-dlp), independent of --concurrency. "
+        "Default: unbounded (or config.json download_concurrency)."
+    ),
+)
+@click.option(
     "--cache-dir",
     type=click.Path(path_type=Path),
     default=None,
@@ -762,6 +802,8 @@ def cli(
     dry_run: bool,
     concurrency: int,
     transcript_concurrency: int | None,
+    llm_concurrency: int | None,
+    download_concurrency: int | None,
     cache_dir: Path | None,
     no_cache: bool,
     cache_llm_synthesis: bool,
@@ -830,6 +872,7 @@ def cli(
     # code) and Stage 02/04/router LLM output are cached, while Stage 05
     # synthesis is opt-in via ``--cache-llm-synthesis``.
     from .cache import configure_cache
+    from .stages.capture import configure_download_concurrency
     from .transcript.whisper_fallback import configure_whisper_concurrency
 
     cache = configure_cache(
@@ -840,6 +883,9 @@ def cli(
     configure_llm_cache(stages=True, synthesis=cache_llm_synthesis)
     if cfg.whisper_concurrency:
         configure_whisper_concurrency(cfg.whisper_concurrency)
+    # Resource-class caps (Phase 3 A): CLI flag overrides config; None=unbounded.
+    configure_llm_concurrency(llm_concurrency or cfg.llm_concurrency)
+    configure_download_concurrency(download_concurrency or cfg.download_concurrency)
     click.echo(
         f"cache: {'disabled' if not cache.enabled else cache.root} "
         f"(llm synthesis cache: {'on' if cache_llm_synthesis else 'off'})"
