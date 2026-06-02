@@ -542,7 +542,18 @@ def _process_video(
 
         prefetched_path = None
         if prefetch is not None:
-            err = prefetch.wait()
+            # The prefetch thread owns tmp/<video_id>.mp4. Block until it has
+            # finished (success or failure) before Stage 03 runs. A fixed
+            # timeout here is unsafe: when --download-concurrency throttles the
+            # prefetch, it can sit queued on the download semaphore past the
+            # timeout while still alive, and run_stage_capture would then fall
+            # back to a second _download_video() on the same path — the two
+            # downloads race on unlink/overwrite. Waiting to completion makes
+            # the prefetch the single writer; on failure the thread has exited,
+            # so the capture fallback re-downloads safely. The wait is finite:
+            # the download is bounded by the backend subprocess timeout and the
+            # download-concurrency semaphore.
+            err = prefetch.wait(timeout=None)
             if err is None and prefetch.path.exists():
                 prefetched_path = prefetch.path
 

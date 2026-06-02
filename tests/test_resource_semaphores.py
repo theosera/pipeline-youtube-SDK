@@ -113,6 +113,62 @@ class TestDownloadConcurrencyCap:
         assert probe.peak >= 2
 
 
+class TestPrefetchSingleOwner:
+    """Regression: a prefetch throttled by the download semaphore must not
+    complete prematurely.
+
+    main.py waits to completion (``wait(timeout=None)``) so the prefetch stays
+    the single writer of ``tmp/<video_id>.mp4``. With a fixed timeout, a queued
+    prefetch outlives the wait while still alive, and the capture fallback then
+    re-downloads the same path — the two downloads race on unlink/overwrite.
+    """
+
+    def test_throttled_prefetch_is_not_abandoned(self):
+        from pipeline_youtube.playlist import VideoMeta
+        from pipeline_youtube.stages.capture import prefetch_video_download
+
+        video = VideoMeta(
+            video_id="zzz9999999",
+            title="t",
+            url="https://www.youtube.com/watch?v=zzz9999999",
+            duration=60,
+            channel="ch",
+            upload_date=None,
+            playlist_title=None,
+        )
+
+        calls = {"n": 0}
+
+        class _CountingBackend:
+            def download_video(self, url: str, dest: Path, *, resolution: str = "480") -> None:
+                calls["n"] += 1
+                dest.write_bytes(b"mp4")
+
+        cap.configure_download_concurrency(1)
+        sem = cap._download_semaphore
+        assert sem is not None
+        handle = None
+        try:
+            # Occupy the only download slot, as another in-flight download would.
+            sem.acquire()
+            try:
+                handle = prefetch_video_download(video, backend=_CountingBackend())
+                # Queued behind the held semaphore: a fixed timeout abandons it
+                # while the thread is still alive (the bug). No download yet.
+                assert isinstance(handle.wait(timeout=0.2), TimeoutError)
+                assert calls["n"] == 0
+            finally:
+                sem.release()
+            # Owner waits to completion: the download runs exactly once.
+            assert handle.wait(timeout=None) is None
+            assert handle.path.exists()
+            assert calls["n"] == 1
+        finally:
+            if handle is not None:
+                handle.path.unlink(missing_ok=True)
+            cap.configure_download_concurrency(None)
+
+
 class TestConfigureAcceptsNonPositive:
     def test_zero_and_negative_clear_caps(self):
         reg.configure_llm_concurrency(0)

@@ -105,8 +105,14 @@ class VideoPrefetch:
     path: Path
     future: Any  # concurrent.futures.Future[None]
 
-    def wait(self, timeout: float = 600.0) -> Exception | None:
-        """Block until the download finishes. Returns the exception (if any)."""
+    def wait(self, timeout: float | None = 600.0) -> Exception | None:
+        """Block until the download finishes. Returns the exception (if any).
+
+        `timeout=None` blocks until the download thread completes (success
+        or failure). Callers that own `path` must wait to completion before
+        any fallback download to the same path, otherwise a queued prefetch
+        can outlive the timeout and race the fallback on `path`.
+        """
         try:
             self.future.result(timeout=timeout)
             return None
