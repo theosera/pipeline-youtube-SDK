@@ -297,10 +297,23 @@ def fetch_snippets_for_urls(urls: list[str]) -> list[CodeSnippet]:
     default README gets noisy fast and rarely matches what the video is
     actually demonstrating. Only blob and gist URLs return code.
     """
+    from dataclasses import asdict
+
+    from .cache import get_cache, url_key
+
+    cache = get_cache()
     out: list[CodeSnippet] = []
     for url in urls:
         if len(out) >= MAX_URLS_PER_VIDEO:
             break
+        # Per-URL caching maximizes reuse across videos/playlists that
+        # reference the same repo file. Only successful fetches are cached;
+        # unsupported (repo) URLs are skipped cheaply without a network call.
+        key = url_key(url)
+        cached = cache.get_code_fetch(key)
+        if cached is not None:
+            out.append(CodeSnippet(**cached))
+            continue
         snippet: CodeSnippet | None = None
         if "/blob/" in url:
             snippet = _fetch_blob(url)
@@ -308,6 +321,7 @@ def fetch_snippets_for_urls(urls: list[str]) -> list[CodeSnippet]:
             snippet = _fetch_gist(url)
         # Repo URLs intentionally skipped.
         if snippet is not None:
+            cache.put_code_fetch(key, asdict(snippet))
             out.append(snippet)
     return out
 

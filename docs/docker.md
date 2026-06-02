@@ -8,18 +8,20 @@ privileges.
 
 The Docker backend runs the same binaries inside a hardened container,
 eliminating that privilege. Stage 01/02/04/05 continue to execute on
-the host because `claude -p` requires the OAuth session in the user's
-home directory (Threat Model §16: "claude -p は譲らない").
+the host because none of them shell out to untrusted binaries — they
+either call LLM providers via SDK (Anthropic / OpenAI / Gemini API, or
+a local Ollama / LM Studio endpoint) or use pure-Python libraries, so
+there is no host privilege left to contain.
 
 ## Scope
 
 | Stage | Risky binary? | Backend |
 |-------|---------------|---------|
 | 01 Scripts | youtube-transcript-api (Python only, no subprocess) | host |
-| 02 Summary | `claude -p` (OAuth) | host |
+| 02 Summary | LLM provider SDK (cloud API / local) | host |
 | 03 Capture | **yt-dlp + ffmpeg + gif2webp** | **host or docker** |
-| 04 Learning | `claude -p` (OAuth) | host |
-| 05 Synthesis | `claude -p` (OAuth) | host |
+| 04 Learning | LLM provider SDK (cloud API / local) | host |
+| 05 Synthesis | LLM provider SDK (cloud API / local) | host |
 
 ## Build the image
 

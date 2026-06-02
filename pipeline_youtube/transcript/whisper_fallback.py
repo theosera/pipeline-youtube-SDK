@@ -4,13 +4,13 @@ Downloads the audio track via yt-dlp, runs openai-whisper, and returns
 a TranscriptResult with word-level timestamps. This is the last resort
 when YouTube provides neither official nor auto-generated captions.
 
-Global lock
------------
-Whisper is GPU/memory intensive. A file-based lock at
-`{project_root}/tmp/.whisper.lock` ensures only one Whisper process
-runs at a time across all pipeline instances. Other videos queue up
-behind the lock. The lock file is NOT deleted on release so the path
-stays stable.
+Bounded concurrency + model cache
+----------------------------------
+Whisper is GPU/memory intensive. An in-process ``BoundedSemaphore``
+(default 1, see ``configure_whisper_concurrency``) caps how many
+transcriptions run at once even under high ``--concurrency``; other
+videos queue behind it. Loaded models are memoized in ``_model_cache``
+so the multi-second ``load_model`` cost is paid once per process.
 
 Optional dependency
 -------------------
@@ -46,6 +46,7 @@ import contextlib
 import hashlib
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +60,25 @@ from .base import (
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 _TMP_DIR = _PROJECT_ROOT / "tmp"
-_LOCK_PATH = _TMP_DIR / ".whisper.lock"
+
+# Whisper is GPU/RAM-heavy, so concurrency is bounded by an in-process
+# semaphore (default 1) rather than a cross-process file lock — the
+# pipeline runs videos in worker threads of a single process, so a
+# threading primitive is the right tool and avoids filesystem-lock latency.
+DEFAULT_WHISPER_CONCURRENCY = 1
+_whisper_semaphore = threading.BoundedSemaphore(DEFAULT_WHISPER_CONCURRENCY)
+
+# Loaded whisper models are cached in-process so we don't pay the
+# multi-second `load_model` cost on every transcription.
+_model_cache: dict[str, Any] = {}
+_model_cache_lock = threading.Lock()
+
+
+def configure_whisper_concurrency(n: int) -> None:
+    """Set the max number of concurrent Whisper transcriptions."""
+    global _whisper_semaphore
+    _whisper_semaphore = threading.BoundedSemaphore(max(1, n))
+
 
 # Default whisper model — "small" balances speed and accuracy for most
 # YouTube content. Override via config.json whisper_model field (future).
@@ -199,6 +218,29 @@ def verify_whisper_model_integrity(model_name: str) -> None:
         )
 
 
+def _load_model_cached(model_name: str) -> Any:
+    """Load a whisper model once per process and reuse it.
+
+    The integrity check runs before the *first* load of a given model name
+    (whisper skips SHA256 verification on a cache hit, so a replaced ``.pt``
+    would otherwise be trusted). Subsequent calls reuse the in-memory model.
+    """
+    cached = _model_cache.get(model_name)
+    if cached is not None:
+        return cached
+    with _model_cache_lock:
+        cached = _model_cache.get(model_name)
+        if cached is not None:
+            return cached
+        import whisper  # type: ignore[import-untyped]
+
+        # L2: re-verify cached model before load.
+        verify_whisper_model_integrity(model_name)
+        model = whisper.load_model(model_name)
+        _model_cache[model_name] = model
+        return model
+
+
 def _run_whisper(
     audio_path: Path,
     model_name: str = DEFAULT_WHISPER_MODEL,
@@ -212,16 +254,12 @@ def _run_whisper(
     `verify_whisper_model_integrity`).
     """
     try:
-        import whisper  # type: ignore[import-untyped]
+        import whisper  # type: ignore[import-untyped]  # noqa: F401
     except ImportError as e:
         raise TranscriptNotAvailable("whisper_not_installed") from e
 
-    # L2: re-verify cached model before load (whisper skips this check
-    # on cache hit, so a replaced .pt would otherwise be trusted).
-    verify_whisper_model_integrity(model_name)
-
     try:
-        model = whisper.load_model(model_name)
+        model = _load_model_cached(model_name)
         result = model.transcribe(
             str(audio_path),
             language=language,
@@ -260,8 +298,8 @@ def fetch_whisper(
 ) -> TranscriptResult:
     """Tier 3 fetcher: download audio + Whisper transcribe.
 
-    Acquires a file-based global lock before running. Only one Whisper
-    instance runs at a time regardless of --concurrency.
+    Acquires a bounded semaphore (default 1) before running so Whisper
+    concurrency stays within GPU/RAM limits even under high --concurrency.
 
     Parameters
     ----------
@@ -273,24 +311,17 @@ def fetch_whisper(
     model_name:
         Whisper model size (tiny/base/small/medium/large).
     """
-    # Check whisper is importable before acquiring lock
+    # Check whisper is importable before acquiring the semaphore
     try:
         import whisper  # type: ignore[import-untyped]  # noqa: F401
     except ImportError as e:
         raise TranscriptNotAvailable("whisper_not_installed") from e
 
-    # File-based lock — only one whisper process at a time
-    try:
-        import filelock  # type: ignore[import-untyped]
-    except ImportError:
-        # filelock not installed — fall back to no lock (still works,
-        # just no cross-process protection)
-        filelock = None  # type: ignore[assignment]
-
     _ensure_tmp()
-    lock_ctx = filelock.FileLock(_LOCK_PATH, timeout=-1) if filelock else _noop_lock()
 
-    with lock_ctx:
+    # Bounded in-process concurrency (default 1) instead of a cross-process
+    # file lock: the pipeline is single-process with thread workers.
+    with _whisper_semaphore:
         audio_path: Path | None = None
         try:
             audio_path = _download_audio(video_id)

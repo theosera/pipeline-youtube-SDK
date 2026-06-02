@@ -80,7 +80,7 @@ duration:  73.4s
 
 - `[01] source`: どの tier で字幕が取れたか (tier 1 official → tier 2 auto → tier 3 whisper)
 - `[03] M/N ranges`: stage 02 が切り出したテーマ範囲の個数 N に対して M 個のキャプチャが成功
-- `cost`: 各 `claude -p` 呼び出しの実課金額合計 (OAuth 経由 Pro/Max 定額でも内部集計される)
+- `cost`: 各 LLM 呼び出しの実課金額合計 (クラウド API は従量課金で集計、ローカル LLM は $0)
 
 ### 並列処理時の出力順
 
@@ -198,7 +198,7 @@ succeeded: 2/3
 
 ## モデルカスケード (config.json の `models`)
 
-`config.json` に `models` を設定していると、各 stage/agent の `claude -p` 呼び出しログがそのモデル名で出る。
+`config.json` に `models` を設定していると、各 stage/agent の LLM 呼び出しログがそのモデル名で出る。
 
 ```
   [02] summary (model=haiku)...

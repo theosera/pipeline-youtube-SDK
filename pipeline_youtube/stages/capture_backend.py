@@ -8,8 +8,8 @@ flags these as the **largest residual risk** because a malicious
 YouTube response or a crafted video file could exercise 0day bugs in
 those binaries while they're running with full host privileges.
 
-To address R1 without breaking the "個人ローカル / OAuth on host"
-constraint, we introduce two interchangeable backends:
+To address R1 without breaking the "個人ローカル" usage model, we
+introduce two interchangeable backends:
 
 - ``HostCaptureBackend``: current behavior — invokes yt-dlp/ffmpeg
   directly as subprocesses on the host. Default.
@@ -19,8 +19,9 @@ constraint, we introduce two interchangeable backends:
   `tmp/` + the Vault `_assets/pipeline-youtube/` subfolder).
 
 The backend is picked at CLI startup via ``config.json`` or the
-``--capture-backend`` flag; Stage 02 / Stage 04 (``claude -p``,
-OAuth-dependent) continue to run on the host as-is.
+``--capture-backend`` flag; the LLM stages (02 / 04 / 05) call providers
+via SDK (cloud API key or a local Ollama / LM Studio endpoint) and
+continue to run on the host as-is.
 
 Both backends implement the same narrow protocol below. Callers never
 branch on the backend type — they just pass args through and the

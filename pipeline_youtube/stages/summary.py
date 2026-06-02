@@ -1,7 +1,8 @@
 """Stage 02: semantic summary of a video transcript.
 
-Reads stage 01's TranscriptResult, re-chunks it, and asks `claude -p`
-(via providers.claude_cli) to produce a 3-layer summary:
+Reads stage 01's TranscriptResult, re-chunks it, and asks the
+configured LLM provider (via providers.registry.invoke_llm) to produce
+a 3-layer summary:
 
     Layer 1: `## 全体サマリ` (overview) + `## 要点タイムライン` with
              `[MM:SS ~ MM:SS]` range headings — the timeline is what
@@ -16,10 +17,10 @@ Reads stage 01's TranscriptResult, re-chunks it, and asks `claude -p`
 Additionally a `### 【分野別の構造化および独自知見抽出】` section
 extracts transferable principles per user-requested Phase 1-3 form.
 
-Uses `--append-system-prompt` (not replace). The initial plan assumed
-`--system-prompt` would cut ~23k cache-creation tokens, but live runs
-showed Claude Code always loads the base context regardless. Append
-mode preserves Claude Code's default instructions with no cache cost.
+The system prompt (`SUMMARY_SYSTEM_PROMPT`) is passed straight to the
+provider via `invoke_llm(append_system_prompt=...)`; `append_system_prompt`
+is a legacy alias that the registry maps onto the provider's native
+`system_prompt` parameter (see `providers.registry.invoke_llm`).
 """
 
 from __future__ import annotations
@@ -153,6 +154,7 @@ def run_stage_summary(
         prompt=prompt,
         append_system_prompt=SUMMARY_SYSTEM_PROMPT,
         model=model,
+        role="stage_02",
     )
 
     body = response.text.strip()

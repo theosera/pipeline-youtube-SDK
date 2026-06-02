@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 
 class TranscriptSource(StrEnum):
@@ -71,6 +72,42 @@ def _iso_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def result_to_cache_dict(result: TranscriptResult) -> dict[str, object]:
+    """Serialize a successful result for the persistent cache.
+
+    ``fallback_reason``/``error`` are intentionally omitted — they describe
+    *this* run's tier history, which is re-derived on every fetch.
+    """
+    return {
+        "video_id": result.video_id,
+        "source": str(result.source),
+        "language": result.language,
+        "retrieved_at": result.retrieved_at,
+        "snippets": [
+            {"text": s.text, "start": s.start, "duration": s.duration} for s in result.snippets
+        ],
+    }
+
+
+def result_from_cache_dict(data: dict[str, Any]) -> TranscriptResult:
+    """Rebuild a TranscriptResult from its cached form."""
+    raw_snippets: list[dict[str, Any]] = data.get("snippets") or []
+    snippets = [
+        TranscriptSnippet(
+            text=str(s["text"]), start=float(s["start"]), duration=float(s["duration"])
+        )
+        for s in raw_snippets
+    ]
+    language = data.get("language")
+    return TranscriptResult(
+        video_id=str(data["video_id"]),
+        source=TranscriptSource(str(data["source"])),
+        language=language if language is None else str(language),
+        snippets=snippets,
+        retrieved_at=str(data.get("retrieved_at", "")),
+    )
+
+
 def build_result(
     video_id: str,
     source: TranscriptSource,
@@ -100,16 +137,30 @@ def fetch_with_fallback(
     `None` fetcher is skipped (used when the Whisper extra is not
     installed or disabled for cost reasons).
     """
+    from ..cache import get_cache
+
+    cache = get_cache()
+    lang_key = languages[0] if languages else "none"
+
     fallback_reasons: list[str] = []
     for tier_name, fetcher in fetchers:
         if fetcher is None:
             fallback_reasons.append(f"{tier_name}:disabled")
             continue
+        # Cache hit: a prior run already produced this tier's transcript.
+        # Whisper (the slowest tier) benefits most. Tier ordering is
+        # preserved — a missed earlier tier still re-attempts as before.
+        cached = cache.get_transcript(video_id, tier_name, lang_key)
+        if cached is not None:
+            result = result_from_cache_dict(cached)
+            joined = "; ".join(fallback_reasons) if fallback_reasons else None
+            return replace(result, fallback_reason=joined)
         try:
             result = fetcher(video_id, languages)
         except TranscriptNotAvailable as e:
             fallback_reasons.append(f"{tier_name}:{e}")
             continue
+        cache.put_transcript(video_id, tier_name, lang_key, result_to_cache_dict(result))
         # Success: annotate with accumulated fallback history
         joined = "; ".join(fallback_reasons) if fallback_reasons else None
         return replace(result, fallback_reason=joined)
