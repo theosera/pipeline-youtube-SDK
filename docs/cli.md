@@ -14,6 +14,10 @@ Options:
   --concurrency INTEGER RANGE     Videos in parallel (1-8). Higher is faster
                                   but raises API-rate/CPU load.  [default: 3;
                                   1<=x<=8]
+  --transcript-concurrency INTEGER RANGE
+                                  Fan-out for the upfront caption-transcript
+                                  cache warm-up (1-16). Default 8 (or
+                                  config.json transcript_concurrency).
   --cache-dir PATH                Persistent cache root for transcripts/videos/
                                   code/LLM output. Default
                                   ~/.cache/pipeline-youtube (or config.json
@@ -61,6 +65,7 @@ Options:
 ### 並列処理
 
 - **`--concurrency N`** (1〜8, default 3): 動画単位を `asyncio.Semaphore(N)` で並列に回す。Whisper (tier 3 文字起こし) は内部の bounded semaphore (既定 1、`config.json` の `whisper_concurrency` で変更可) で同時数を絞り、他段は並列。
+- **`--transcript-concurrency N`** (1〜16, default 8, `config.json` の `transcript_concurrency` でも指定可): メイン処理に先立ち、対象動画の字幕 (official/auto tier) を高並列でプリフェッチして transcript キャッシュを温める。字幕取得は軽い network I/O なので `--concurrency` より高く回せる。各動画の Stage 01 はキャッシュヒットになり、重い後段に律速されず取得が重なる。Whisper は重く専用セマフォ管理のため対象外。`--no-cache` 時・`--resume-reviewed` 時はスキップ。
 
 ### キャッシュ
 

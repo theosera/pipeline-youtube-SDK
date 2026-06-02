@@ -54,7 +54,11 @@ from .stages.capture import (
 )
 from .stages.capture_backend import DockerBackendNotReady, DockerCaptureBackend
 from .stages.learning import run_stage_learning
-from .stages.scripts import run_stage_scripts
+from .stages.scripts import (
+    DEFAULT_TRANSCRIPT_CONCURRENCY,
+    run_stage_scripts,
+    warm_transcript_cache,
+)
 from .stages.summary import run_stage_summary
 from .stages.synthesis import MIN_PLAYLIST_SIZE, log_synthesis_preflight, run_stage_synthesis
 from .stats import record_transcript_stat
@@ -90,6 +94,9 @@ class CliConfig:
     cache_max_video_bytes: int = DEFAULT_MAX_VIDEO_BYTES
     # Max concurrent Whisper transcriptions (GPU/RAM bound). None → keep default.
     whisper_concurrency: int | None = None
+    # Fan-out for the upfront transcript cache warm-up (network-bound).
+    # None → use scripts.DEFAULT_TRANSCRIPT_CONCURRENCY.
+    transcript_concurrency: int | None = None
 
 
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
@@ -191,6 +198,14 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     else:
         raise click.UsageError("config.json: whisper_concurrency must be a positive integer")
 
+    transcript_conc_raw = data.get("transcript_concurrency")
+    if transcript_conc_raw is None:
+        transcript_concurrency: int | None = None
+    elif isinstance(transcript_conc_raw, int) and transcript_conc_raw > 0:
+        transcript_concurrency = transcript_conc_raw
+    else:
+        raise click.UsageError("config.json: transcript_concurrency must be a positive integer")
+
     return CliConfig(
         vault_root=path,
         models=models,
@@ -202,6 +217,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         cache_dir=cache_dir,
         cache_max_video_bytes=cache_max_video_bytes,
         whisper_concurrency=whisper_concurrency,
+        transcript_concurrency=transcript_concurrency,
     )
 
 
@@ -621,6 +637,16 @@ async def _run_videos_concurrent(
     help="Videos in parallel (1-8). Higher is faster but raises API-rate/CPU load.",
 )
 @click.option(
+    "--transcript-concurrency",
+    type=click.IntRange(1, 16),
+    default=None,
+    help=(
+        "Fan-out for the upfront caption-transcript cache warm-up (1-16). "
+        "Network-bound, so it can run higher than --concurrency. "
+        "Default 8 (or config.json transcript_concurrency)."
+    ),
+)
+@click.option(
     "--cache-dir",
     type=click.Path(path_type=Path),
     default=None,
@@ -735,6 +761,7 @@ def cli(
     url: str | None,
     dry_run: bool,
     concurrency: int,
+    transcript_concurrency: int | None,
     cache_dir: Path | None,
     no_cache: bool,
     cache_llm_synthesis: bool,
@@ -935,6 +962,20 @@ def cli(
         if resume_reviewed:
             # Phase 3: filter to videos whose 02_Summary.md has `reviewed: true`.
             to_process = _filter_to_reviewed(to_process, playlist_title, run_time)
+
+        # Warm the transcript cache for all to-be-processed videos up front,
+        # at a higher fan-out than --concurrency. Skipped under
+        # --resume-reviewed (Stage 01 doesn't run) and a no-op when the cache
+        # is disabled or Whisper is the only available tier.
+        if to_process and not resume_reviewed:
+            warm_conc = (
+                transcript_concurrency
+                or cfg.transcript_concurrency
+                or DEFAULT_TRANSCRIPT_CONCURRENCY
+            )
+            warmed = warm_transcript_cache([v for _, v in to_process], concurrency=warm_conc)
+            if warmed:
+                click.echo(f"transcript warm-up: cached {warmed}/{len(to_process)} captions")
 
         # Process remaining videos
         if to_process and concurrency > 1:
