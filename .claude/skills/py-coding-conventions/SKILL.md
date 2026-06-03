@@ -1,7 +1,11 @@
 ---
 name: py-coding-conventions
 description: pipeline-youtube-SDK (Python + Pydantic) のコーディング規約。型優先 (Tier1=Pydantic スキーマ) / 型ヒント徹底 / エラー全送 / メタデータ削減 / 品質ゲート3層 (ruff→Pyright→mypy strict) / LSP で決定論的型情報を記述時注入。**このリポの Python を書く・直す・レビューする前に必ずこの Skill をロードしてから**着手せよ。規約原本は `docs/ai-coding-conventions.md`。常時 CLAUDE.md に @import するとトークンを食うため、発火条件付きで分離している。
-# allowed-tools: 規約原本 docs/ai-coding-conventions.md を読むため Read のみ。
+# allowed-tools は Read のみを事前承認する (規約原本 docs/ai-coding-conventions.md 読取のため)。
+# これは「事前承認の最小化」であって他ツールの禁止ではない。allowed-tools は列挙ツールを
+# 承認なしで使えるようにするだけで、未列挙ツールはセッション通常の permission 設定に従う
+# (= 本 Skill 中も Bash/Edit 等は通常どおり都度承認で使える)。Read-only 境界が要るなら
+# deny / disallowed 設定で別途強制すること。
 allowed-tools: Read
 ---
 
