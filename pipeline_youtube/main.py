@@ -58,6 +58,7 @@ from .stages.capture import (
     sweep_stale_tmp,
 )
 from .stages.capture_backend import DockerBackendNotReady, DockerCaptureBackend
+from .stages.evaluation import run_stage_evaluation
 from .stages.learning import run_stage_learning
 from .stages.scripts import (
     DEFAULT_TRANSCRIPT_CONCURRENCY,
@@ -71,7 +72,19 @@ from .synthesis.agents import compute_synthesis_timeouts
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
-_MODEL_KEYS = frozenset({"router", "stage_02", "stage_04", "alpha", "beta", "leader", "reviewer"})
+_MODEL_KEYS = frozenset(
+    {
+        "router",
+        "stage_02",
+        "stage_04",
+        "alpha",
+        "beta",
+        "leader",
+        "reviewer",
+        "eval_coverage",
+        "eval_pedagogy",
+    }
+)
 # "gamma" accepted silently for backward-compat with existing config.json,
 # but the γ LLM role has been replaced by a Python set diff — the value is ignored.
 _DEPRECATED_MODEL_KEYS = frozenset({"gamma"})
@@ -413,22 +426,49 @@ def _summary_folder_candidates(
         return
 
 
+def _videos_from_learning_folder(folder_name: str) -> list[VideoMeta]:
+    """Reconstruct the video list from an explicit 04_Learning_Material folder.
+
+    Used by URL-free resume (``--synthesis-only --folder-name <NAME>``).
+    Reads each ``*.md``'s trusted frontmatter (video_id + title + url) so no
+    playlist URL is required. Resolves ``base_dir / <validated folder_name>``
+    exactly (no date derivation), enabling resume of a past-date folder.
+
+    TODO(scaffold): validate ``folder_name`` (no path traversal — reuse
+    ``ensure_safe_path``), iterate ``*.md``, build ``VideoMeta`` from
+    frontmatter (``extract_trusted_video_id`` for the id), set
+    ``playlist_title`` to the folder name as a fallback.
+    """
+    raise NotImplementedError("scaffold: URL-free resume video reconstruction TODO")
+
+
 def _collect_existing_learning_bodies(
     videos: list[VideoMeta],
     playlist_title: str,
     run_time: datetime,
+    folder_name: str | None = None,
 ) -> tuple[list[VideoMeta], list[str], str]:
     """Scan the existing 04_Learning_Material folder for the given playlist date
     and return `(videos, bodies, folder_name)` aligned by input video_id order.
 
     Also returns the resolved folder name so stage 05 can reuse the exact
     legacy name instead of creating a new one next to it.
+
+    When ``folder_name`` is given, resolve ``base_dir / <folder_name>``
+    EXACTLY — skipping the date-derivation and same-date fallback — so an
+    explicitly named, possibly past-date, folder can be resumed.
     """
     from .config import get_vault_root
 
     rel_base = f"{LEARNING_BASE}/{UNIT_DIRS['learning']}"
     safe_rel_base = ensure_safe_path(rel_base)
     base_dir = get_vault_root() / safe_rel_base
+
+    if folder_name is not None:
+        # TODO(scaffold): validate folder_name (no traversal) and use
+        # `base_dir / folder_name` directly, then fall through to the
+        # body-collection loop below (date constraint intentionally dropped).
+        raise NotImplementedError("scaffold: explicit --folder-name resume TODO")
 
     preferred = format_playlist_folder_name(run_time, playlist_title)
     learning_dir = base_dir / preferred
@@ -735,6 +775,30 @@ async def _run_videos_concurrent(
     help="Skip stages 01-04 and re-run only stage 05 against existing 04 md files for today's date.",
 )
 @click.option(
+    "--folder-name",
+    default=None,
+    help=(
+        "Explicit 04_Learning_Material/<NAME> playlist folder to resume from "
+        "(e.g. 'YYYY-MM-DD-HHmm <playlist>'). With --synthesis-only this loads "
+        "that exact folder regardless of date and lets the URL argument be "
+        "omitted (videos are reconstructed from 04 frontmatter). Stage 05 and "
+        "the evaluation phase write into the matching 05_Synthesis/<NAME>."
+    ),
+)
+@click.option(
+    "--eval-loop",
+    type=click.IntRange(0, 2),
+    default=0,
+    show_default=True,
+    help=(
+        "Run the evaluation feedback loop after synthesis, up to N iterations "
+        "(max 2). Each iteration runs 2 fixed-role evaluators (coverage + "
+        "pedagogy), auto-routes findings to regenerate Stage 04 material or "
+        "re-run Stage 05, and stops early when no blocking findings remain. "
+        "0 = disabled."
+    ),
+)
+@click.option(
     "--force-video",
     multiple=True,
     help="Force reprocess specific video IDs even if checkpoint shows complete. Repeatable.",
@@ -828,6 +892,8 @@ def cli(
     cache_llm_synthesis: bool,
     skip_synthesis: bool,
     synthesis_only: bool,
+    folder_name: str | None,
+    eval_loop: int,
     force_video: tuple[str, ...],
     capture_format: str,
     model: str,
@@ -841,14 +907,23 @@ def cli(
     synthesis_profile: str | None,
 ) -> None:
     """Process a YouTube playlist or single-video URL end-to-end."""
-    if not url:
+    # --folder-name with --synthesis-only allows a URL-free resume: the video
+    # list is reconstructed from the 04 folder's frontmatter.
+    url_optional = bool(folder_name) and synthesis_only
+    if not url and not url_optional:
         click.echo("Usage: pipeline-youtube <playlist-or-video-url> [options]")
         sys.exit(2)
 
-    try:
-        validate_youtube_url(url)
-    except ValueError as exc:
-        raise click.UsageError(str(exc)) from exc
+    if url:
+        try:
+            validate_youtube_url(url)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+
+    if folder_name and not synthesis_only:
+        raise click.UsageError(
+            "--folder-name is currently supported only together with --synthesis-only."
+        )
 
     # Mutually-exclusive phase flags
     phase_flags = sum(bool(x) for x in (stop_after_capture, resume_reviewed, synthesis_only))
@@ -965,7 +1040,12 @@ def cli(
     click.echo(f"synthesis_profile: {effective_synthesis_profile}")
 
     click.echo("fetching metadata...")
-    videos = fetch_metadata(url)
+    if url:
+        videos = fetch_metadata(url)
+    else:
+        # URL-free resume: reconstruct the video list from the 04 folder.
+        assert folder_name is not None  # guaranteed by url_optional guard above
+        videos = _videos_from_learning_folder(folder_name)
     if not videos:
         click.echo("No videos found.")
         sys.exit(1)
@@ -997,7 +1077,7 @@ def cli(
     if synthesis_only:
         click.echo("\n=== --synthesis-only: loading existing 04 md files ===")
         matched_videos, matched_bodies, folder_override = _collect_existing_learning_bodies(
-            videos, playlist_title, run_time
+            videos, playlist_title, run_time, folder_name=folder_name
         )
         click.echo(f"matched: {len(matched_videos)}/{len(videos)} videos")
         if len(matched_videos) < min_playlist_size:
@@ -1147,6 +1227,31 @@ def cli(
         )
         click.echo(f"cost:      ${synthesis_result.total_cost_usd:.3f}")
         click.echo(f"duration:  {synthesis_result.total_duration_ms / 1000:.1f}s")
+
+    # Evaluation phase (separate from 01–05): runs AFTER synthesis, leaves the
+    # existing Reviewer ε untouched. Default --eval-loop 0 keeps it disabled.
+    if eval_loop > 0 and not synthesis_result.skipped and not synthesis_result.error:
+        click.echo("\n=== Evaluation Loop ===")
+        eval_result = run_stage_evaluation(
+            synthesis_videos,
+            synthesis_bodies,
+            synthesis_result,
+            run_time=run_time,
+            playlist_title=playlist_title,
+            max_loops=eval_loop,
+            model=model,
+            eval_models={k: models[k] for k in ("eval_coverage", "eval_pedagogy")},
+            agent_models={k: models[k] for k in ("alpha", "beta", "leader", "reviewer")},
+            folder_name_override=folder_override,
+            code_bearing=code_bearing,
+            synthesis_timeout=effective_synthesis_timeout,
+            profile=effective_synthesis_profile,
+            dry_run=dry_run,
+        )
+        synthesis_result = eval_result.synthesis_result
+        click.echo(f"eval loops run: {eval_result.loop_result.loops_run}")
+        if eval_result.summary_path is not None:
+            click.echo(f"eval summary: {eval_result.summary_path}")
 
     if not synthesis_only:
         _print_cost_breakdown(results, synthesis_result)
