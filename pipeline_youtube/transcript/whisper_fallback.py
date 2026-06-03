@@ -19,6 +19,19 @@ Optional dependency
 `TranscriptNotAvailable("whisper_not_installed")` immediately so the
 fallback chain terminates gracefully.
 
+Long-form guard
+---------------
+Multi-hour audio (e.g. day-long livestream VODs) transcribed on CPU runs
+for hours and, since Whisper concurrency is bounded (default 1), a single
+such video blocks the whole transcription queue. ``fetch_whisper`` probes
+the duration from yt-dlp metadata *before* downloading and, if it exceeds
+``DEFAULT_WHISPER_MAX_AUDIO_SECONDS`` (override via
+``configure_whisper_max_audio_seconds`` / ``config.json
+whisper_max_audio_seconds``), bails out via the normal
+``TranscriptNotAvailable("audio_too_long: ...")`` fallback path instead of
+occupying a Whisper slot. Videos whose duration metadata is unavailable
+(some live streams) are not blocked — they proceed as before.
+
 Model integrity (L2)
 --------------------
 `whisper.load_model()` verifies SHA256 **only during the initial
@@ -47,6 +60,7 @@ import hashlib
 import os
 import re
 import threading
+import warnings
 from pathlib import Path
 from typing import Any, cast
 
@@ -78,6 +92,23 @@ def configure_whisper_concurrency(n: int) -> None:
     """Set the max number of concurrent Whisper transcriptions."""
     global _whisper_semaphore
     _whisper_semaphore = threading.BoundedSemaphore(max(1, n))
+
+
+# Upper bound on audio length Whisper will attempt. CPU transcription of
+# multi-hour audio runs for hours and blocks the bounded Whisper queue, so
+# anything longer is skipped via the normal fallback path. 2h is generous
+# for typical YouTube content while still excluding day-long VODs.
+DEFAULT_WHISPER_MAX_AUDIO_SECONDS = 2 * 60 * 60
+_max_audio_seconds = DEFAULT_WHISPER_MAX_AUDIO_SECONDS
+
+
+def configure_whisper_max_audio_seconds(seconds: int) -> None:
+    """Set the max audio duration (seconds) Whisper will attempt.
+
+    Non-positive values disable the guard (no upper bound).
+    """
+    global _max_audio_seconds
+    _max_audio_seconds = seconds
 
 
 # Default whisper model — "small" balances speed and accuracy for most
@@ -140,6 +171,58 @@ def _download_audio(video_id: str) -> Path:
     if not candidates:
         raise TranscriptNotAvailable("audio_file_not_found_after_download")
     return candidates[0]
+
+
+def _probe_duration_seconds(video_id: str) -> float | None:
+    """Return the video duration in seconds from yt-dlp metadata.
+
+    Uses ``extract_info(download=False)`` so the (potentially large) audio
+    track is never fetched for a video we are going to reject. Returns None
+    when the duration is unavailable (e.g. some live streams) or the probe
+    fails — the caller then proceeds rather than blocking on a metadata gap.
+    """
+    try:
+        import yt_dlp  # type: ignore[import-untyped]
+    except ImportError as e:
+        raise TranscriptNotAvailable("yt_dlp_not_installed") from e
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    ydl_opts: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "skip_download": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception:
+        return None
+
+    if not isinstance(info, dict):
+        return None
+    duration = info.get("duration")
+    if isinstance(duration, (int, float)) and not isinstance(duration, bool) and duration > 0:
+        return float(duration)
+    return None
+
+
+def _guard_audio_duration(video_id: str) -> None:
+    """Raise if the video exceeds the configured Whisper duration cap.
+
+    Probes the duration *before* download (see ``_probe_duration_seconds``)
+    and raises ``TranscriptNotAvailable("audio_too_long: ...")`` so an
+    over-long video ends the fallback chain gracefully without ever
+    occupying a bounded Whisper slot. A non-positive cap disables the guard.
+    """
+    limit = _max_audio_seconds
+    if limit <= 0:
+        return
+    duration = _probe_duration_seconds(video_id)
+    if duration is not None and duration > limit:
+        raise TranscriptNotAvailable(
+            f"audio_too_long: {duration:.0f}s exceeds whisper limit {limit}s"
+        )
 
 
 def _whisper_cache_dir() -> Path:
@@ -260,11 +343,17 @@ def _run_whisper(
 
     try:
         model = _load_model_cached(model_name)
-        result = model.transcribe(
-            str(audio_path),
-            language=language,
-            verbose=False,
-        )
+        # verbose=None suppresses whisper's own tqdm progress bar (verbose=False
+        # still draws it), matching the pipeline's noprogress policy. The FP16
+        # UserWarning on CPU-only hosts is expected and silenced to keep logs
+        # clean — CPU transcription correctly falls back to FP32 regardless.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="FP16 is not supported on CPU.*")
+            result = model.transcribe(
+                str(audio_path),
+                language=language,
+                verbose=None,
+            )
     except Exception as e:
         raise TranscriptNotAvailable(f"whisper_transcribe_failed: {e}") from e
 
@@ -318,6 +407,10 @@ def fetch_whisper(
         raise TranscriptNotAvailable("whisper_not_installed") from e
 
     _ensure_tmp()
+
+    # Skip over-long audio before touching the bounded Whisper queue: a
+    # multi-hour CPU transcription would block every other video behind it.
+    _guard_audio_duration(video_id)
 
     # Bounded in-process concurrency (default 1) instead of a cross-process
     # file lock: the pipeline is single-process with thread workers.

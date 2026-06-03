@@ -99,6 +99,9 @@ class CliConfig:
     cache_max_video_bytes: int = DEFAULT_MAX_VIDEO_BYTES
     # Max concurrent Whisper transcriptions (GPU/RAM bound). None → keep default.
     whisper_concurrency: int | None = None
+    # Skip Whisper for audio longer than this (seconds). None → keep default
+    # (DEFAULT_WHISPER_MAX_AUDIO_SECONDS). Guards against multi-hour CPU runs.
+    whisper_max_audio_seconds: int | None = None
     # Fan-out for the upfront transcript cache warm-up (network-bound).
     # None → use scripts.DEFAULT_TRANSCRIPT_CONCURRENCY.
     transcript_concurrency: int | None = None
@@ -225,6 +228,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
 
     llm_concurrency = _positive_int_or_none("llm_concurrency")
     download_concurrency = _positive_int_or_none("download_concurrency")
+    whisper_max_audio_seconds = _positive_int_or_none("whisper_max_audio_seconds")
 
     return CliConfig(
         vault_root=path,
@@ -237,6 +241,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         cache_dir=cache_dir,
         cache_max_video_bytes=cache_max_video_bytes,
         whisper_concurrency=whisper_concurrency,
+        whisper_max_audio_seconds=whisper_max_audio_seconds,
         transcript_concurrency=transcript_concurrency,
         llm_concurrency=llm_concurrency,
         download_concurrency=download_concurrency,
@@ -887,7 +892,10 @@ def cli(
     # synthesis is opt-in via ``--cache-llm-synthesis``.
     from .cache import configure_cache
     from .stages.capture import configure_download_concurrency
-    from .transcript.whisper_fallback import configure_whisper_concurrency
+    from .transcript.whisper_fallback import (
+        configure_whisper_concurrency,
+        configure_whisper_max_audio_seconds,
+    )
 
     cache = configure_cache(
         cache_dir or cfg.cache_dir,
@@ -897,6 +905,8 @@ def cli(
     configure_llm_cache(stages=True, synthesis=cache_llm_synthesis)
     if cfg.whisper_concurrency:
         configure_whisper_concurrency(cfg.whisper_concurrency)
+    if cfg.whisper_max_audio_seconds is not None:
+        configure_whisper_max_audio_seconds(cfg.whisper_max_audio_seconds)
     # Resource-class caps (Phase 3 A): CLI flag overrides config; None=unbounded.
     configure_llm_concurrency(llm_concurrency or cfg.llm_concurrency)
     configure_download_concurrency(download_concurrency or cfg.download_concurrency)

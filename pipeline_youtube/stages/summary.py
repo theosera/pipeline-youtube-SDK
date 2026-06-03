@@ -118,6 +118,15 @@ _RANGE_HEADING_RE = re.compile(
     r"^###\s*\[\s*\d{1,2}:\d{2}\s*[~〜～]\s*\d{1,2}:\d{2}\s*\]\s*.+$", re.MULTILINE
 )
 
+# Max repair re-invocations when Stage 02 output fails structural
+# validation. A small stage_02 model on a long transcript sometimes drops
+# a required heading, adds a preamble, or wraps output in a code fence;
+# re-prompting with the exact defect usually fixes it in one or two tries
+# (mirrors the β reflexion loop in stages/synthesis.py). Beyond that the
+# model is genuinely stuck, so we stop burning tokens and write a degraded
+# placeholder instead of losing the whole video.
+MAX_SUMMARY_REPAIR_RETRIES = 2
+
 
 class SummaryOutputError(ValueError):
     """Raised when Stage 02 LLM output fails structural validation."""
@@ -157,15 +166,144 @@ def run_stage_summary(
         role="stage_02",
     )
 
-    body = response.text.strip()
-    if body and not dry_run:
-        one_liner, body_without_marker = _extract_one_liner(body)
-        validated = _validate_summary_output(body_without_marker)
-        _append_body(summary_md_path, validated)
-        if one_liner is not None:
-            _persist_one_liner(summary_md_path, one_liner)
+    if dry_run:
+        return response
+
+    # Validate the output; on structural failure re-prompt the model with the
+    # exact defect (bounded by MAX_SUMMARY_REPAIR_RETRIES) and, if every
+    # attempt still fails, fall back to a degraded placeholder so the video
+    # still produces a note instead of being dropped entirely.
+    body_to_write, one_liner, response = _validate_with_repair(video, chunks, response, model=model)
+    _append_body(summary_md_path, body_to_write)
+    if one_liner is not None:
+        _persist_one_liner(summary_md_path, one_liner)
 
     return response
+
+
+def _validate_with_repair(
+    video: VideoMeta,
+    chunks: list[Chunk],
+    response: ClaudeResponse,
+    *,
+    model: str,
+) -> tuple[str, str | None, ClaudeResponse]:
+    """Validate Stage 02 output, re-prompting the model on structural failure.
+
+    Returns ``(body_to_write, one_liner, response)``:
+
+    - The first response that passes ``_validate_summary_output`` yields its
+      cleaned body and any ``ONE_LINER:`` value.
+    - Otherwise the model is re-invoked with the validation error fed back as
+      a repair instruction, up to ``MAX_SUMMARY_REPAIR_RETRIES`` times.
+    - If every attempt fails, a degraded placeholder body is returned (the
+      caller writes it without re-validation) and ``one_liner`` is ``None``.
+
+    The returned ``response`` aggregates token/cost usage across every attempt
+    so the caller's cost logging reflects the retries.
+    """
+    attempts = [response]
+    body = response.text.strip()
+    last_error = "empty output" if not body else ""
+    for attempt in range(MAX_SUMMARY_REPAIR_RETRIES + 1):
+        if body:
+            one_liner, body_without_marker = _extract_one_liner(body)
+            try:
+                validated = _validate_summary_output(body_without_marker)
+                return validated, one_liner, _aggregate_responses(attempts, model)
+            except SummaryOutputError as e:
+                last_error = str(e)
+        if attempt >= MAX_SUMMARY_REPAIR_RETRIES:
+            break
+        _log.warning(
+            "stage 02 summary validation failed (attempt %d/%d): %s — repairing",
+            attempt + 1,
+            MAX_SUMMARY_REPAIR_RETRIES + 1,
+            last_error,
+        )
+        repair = invoke_claude(
+            prompt=_build_repair_prompt(video, chunks, last_error),
+            append_system_prompt=SUMMARY_SYSTEM_PROMPT,
+            model=model,
+            role="stage_02",
+        )
+        attempts.append(repair)
+        body = repair.text.strip()
+
+    _log.error(
+        "stage 02 summary validation failed after %d attempt(s) (%s); writing degraded placeholder",
+        len(attempts),
+        last_error,
+    )
+    return _degraded_body(last_error), None, _aggregate_responses(attempts, model)
+
+
+def _build_repair_prompt(video: VideoMeta, chunks: list[Chunk], error: str) -> str:
+    """Re-issue the summary request with an explicit repair instruction.
+
+    Prepends the detected structural defect to the original prompt so the
+    model fixes the format without us re-sending its malformed prior output.
+    """
+    base = _build_prompt(video, chunks)
+    return (
+        "前回の出力は必須フォーマットを満たしませんでした。\n"
+        f"検出された問題: {error}\n"
+        "前置き・コードフェンス・後置きを付けず、必ず以下をすべて含めて再出力してください:\n"
+        "- `## 全体サマリ` 見出し\n"
+        "- `## 要点タイムライン` 見出し\n"
+        "- 最低 1 つの `### [MM:SS ~ MM:SS] 見出し` 行 (半角 `[ ] :` 厳守)\n\n"
+        f"{base}"
+    )
+
+
+def _aggregate_responses(responses: list[ClaudeResponse], model: str) -> ClaudeResponse:
+    """Combine token/cost usage across repair attempts into one response.
+
+    Text/model/provider come from the last attempt (the body we acted on);
+    countable fields are summed so cost logging reflects the full retry spend.
+    A single-element list is returned unchanged.
+    """
+    if len(responses) == 1:
+        return responses[0]
+
+    last = responses[-1]
+
+    def _sum_int(values: list[int | None]) -> int | None:
+        present = [v for v in values if v is not None]
+        return sum(present) if present else None
+
+    cost_vals = [r.total_cost_usd for r in responses if r.total_cost_usd is not None]
+
+    return ClaudeResponse(
+        text=last.text,
+        model=model,
+        provider=last.provider,
+        input_tokens=_sum_int([r.input_tokens for r in responses]),
+        output_tokens=_sum_int([r.output_tokens for r in responses]),
+        cache_read_tokens=_sum_int([r.cache_read_tokens for r in responses]),
+        cache_creation_tokens=_sum_int([r.cache_creation_tokens for r in responses]),
+        total_cost_usd=sum(cost_vals) if cost_vals else None,
+        duration_ms=_sum_int([r.duration_ms for r in responses]),
+        stop_reason=last.stop_reason,
+    )
+
+
+def _degraded_body(reason: str) -> str:
+    """Build a structurally-minimal placeholder when repair retries fail.
+
+    Written without re-validation (it intentionally carries no timeline
+    range, so Stage 03 simply extracts no clips for this video) — the point
+    is to keep the note rather than drop the video. The reason is surfaced
+    so a re-run with a larger ``stage_02`` model is an obvious next step.
+    """
+    return (
+        "## 全体サマリ\n\n"
+        f"要約の自動生成に失敗しました ({reason})。"
+        "モデルが必須フォーマットを満たす出力を返さなかったため、"
+        "プレースホルダを書き込んでいます。より大きい stage_02 モデルでの再実行を推奨します。\n\n"
+        "## 要点タイムライン\n\n"
+        "(自動生成に失敗したため、タイムラインはありません)\n"
+    )
 
 
 def _validate_summary_output(body: str) -> str:

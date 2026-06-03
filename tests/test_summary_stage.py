@@ -170,6 +170,83 @@ class TestRunStageSummary:
 # =====================================================
 
 
+_BAD_OUTPUT = "前置きの文章です。\n\nここに本文だけがあり必須見出しがありません。\n"
+
+
+def _sequenced_invoke(texts: list[str]):
+    """Return (fake_invoke, calls) yielding `texts` in order (last repeats)."""
+    calls: dict = {"prompts": [], "n": 0}
+
+    def fake(**kw):
+        calls["prompts"].append(kw.get("prompt", ""))
+        idx = min(calls["n"], len(texts) - 1)
+        calls["n"] += 1
+        return _fake_claude_response(texts[idx])
+
+    return fake, calls
+
+
+class TestRepairRetry:
+    def test_repair_recovers_and_aggregates_cost(self, vault, monkeypatch):
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
+
+        fake, calls = _sequenced_invoke([_BAD_OUTPUT, SAMPLE_SUMMARY_OUTPUT])
+        monkeypatch.setattr(summary_stage, "invoke_claude", fake)
+
+        response = summary_stage.run_stage_summary(video, paths["summary"], transcript)
+
+        assert calls["n"] == 2  # one repair attempt
+        # The repair prompt names the defect and the required structure.
+        assert "検出された問題" in calls["prompts"][1]
+        assert "## 全体サマリ" in calls["prompts"][1]
+        # Cost is aggregated across both attempts.
+        assert response.input_tokens == 240
+        assert response.total_cost_usd == pytest.approx(0.01)
+
+        post = paths["summary"].read_text(encoding="utf-8")
+        assert "[00:00 ~ 01:30]" in post
+        assert "要約の自動生成に失敗しました" not in post
+
+    def test_degraded_fallback_after_exhausting_retries(self, vault, monkeypatch):
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
+
+        fake, calls = _sequenced_invoke([_BAD_OUTPUT])
+        monkeypatch.setattr(summary_stage, "invoke_claude", fake)
+
+        response = summary_stage.run_stage_summary(video, paths["summary"], transcript)
+
+        # Initial call + MAX_SUMMARY_REPAIR_RETRIES repairs.
+        assert calls["n"] == summary_stage.MAX_SUMMARY_REPAIR_RETRIES + 1
+        assert response.input_tokens == 120 * calls["n"]
+
+        post = paths["summary"].read_text(encoding="utf-8")
+        # Degraded body keeps the note alive with both required headings.
+        assert "## 全体サマリ" in post
+        assert "## 要点タイムライン" in post
+        assert "要約の自動生成に失敗しました" in post
+
+    def test_empty_output_triggers_repair(self, vault, monkeypatch):
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
+
+        fake, calls = _sequenced_invoke(["", SAMPLE_SUMMARY_OUTPUT])
+        monkeypatch.setattr(summary_stage, "invoke_claude", fake)
+
+        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+
+        assert calls["n"] == 2
+        post = paths["summary"].read_text(encoding="utf-8")
+        assert "[00:00 ~ 01:30]" in post
+
+
 class TestPromptBuilding:
     def test_prompt_wraps_in_untrusted_content(self, vault, monkeypatch):
         video = _video()
