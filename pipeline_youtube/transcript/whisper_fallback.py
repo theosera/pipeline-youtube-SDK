@@ -48,7 +48,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .base import (
     TranscriptNotAvailable,
@@ -268,7 +268,7 @@ def _run_whisper(
     except Exception as e:
         raise TranscriptNotAvailable(f"whisper_transcribe_failed: {e}") from e
 
-    return result.get("segments", [])
+    return cast(list[dict[str, Any]], result.get("segments", []))
 
 
 def _segments_to_snippets(segments: list[dict[str, Any]]) -> list[TranscriptSnippet]:

@@ -42,7 +42,7 @@ def set_vault_root(path: str | Path, *, strict: bool = False) -> None:
     if strict:
         if resolved == Path(os.path.expanduser("~")).resolve():
             raise VaultRootError(f"vault_root may not be the user's home directory: {resolved}")
-        if resolved == resolved.root or str(resolved) in ("/", "C:\\"):
+        if str(resolved) == resolved.root or str(resolved) in ("/", "C:\\"):
             raise VaultRootError(f"vault_root may not be the filesystem root: {resolved}")
         if not (resolved / ".obsidian").is_dir():
             warnings.warn(

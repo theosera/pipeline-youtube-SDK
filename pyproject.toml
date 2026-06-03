@@ -68,5 +68,11 @@ ignore = [
 
 [tool.mypy]
 # Keep CI and local mypy runs in sync — do not duplicate flags in the workflow.
+# AI-native coding convention: 型優先 / テストより先に型チェック。strict を既定にし、
+# CI の `mypy pipeline_youtube/` が型ゲートとして機能する。
 python_version = "3.13"
+strict = true
 ignore_missing_imports = true
+# whisper は optional extra。`# type: ignore[import-untyped]` は extra の有無で
+# 有効/無効が変わるため unused-ignore は検出しない（環境差での誤検知を回避）。
+warn_unused_ignores = false
