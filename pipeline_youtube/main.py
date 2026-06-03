@@ -24,6 +24,7 @@ import contextlib
 import json
 import sys
 import traceback
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -376,7 +377,9 @@ def _filter_to_reviewed(
     return kept
 
 
-def _summary_folder_candidates(base: Path, playlist_title: str, run_date: datetime):
+def _summary_folder_candidates(
+    base: Path, playlist_title: str, run_date: datetime
+) -> Iterator[Path]:
     """Yield likely playlist folders holding 02_Summary files.
 
     Canonical first, then any date-prefixed folder that contains the

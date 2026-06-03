@@ -150,7 +150,9 @@ def extract_json(raw: str) -> dict[str, Any]:
         raise SynthesisParseError("empty raw response")
 
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
     except json.JSONDecodeError:
         pass
 
@@ -163,7 +165,9 @@ def extract_json(raw: str) -> dict[str, Any]:
     if stripped.endswith("```"):
         stripped = stripped[:-3].strip()
     try:
-        return json.loads(stripped)
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict):
+            return parsed
     except json.JSONDecodeError:
         pass
 
