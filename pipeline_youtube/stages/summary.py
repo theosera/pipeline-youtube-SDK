@@ -173,9 +173,7 @@ def run_stage_summary(
     # exact defect (bounded by MAX_SUMMARY_REPAIR_RETRIES) and, if every
     # attempt still fails, fall back to a degraded placeholder so the video
     # still produces a note instead of being dropped entirely.
-    body_to_write, one_liner, response = _validate_with_repair(
-        video, chunks, response, model=model
-    )
+    body_to_write, one_liner, response = _validate_with_repair(video, chunks, response, model=model)
     _append_body(summary_md_path, body_to_write)
     if one_liner is not None:
         _persist_one_liner(summary_md_path, one_liner)
@@ -233,8 +231,7 @@ def _validate_with_repair(
         body = repair.text.strip()
 
     _log.error(
-        "stage 02 summary validation failed after %d attempt(s) (%s); "
-        "writing degraded placeholder",
+        "stage 02 summary validation failed after %d attempt(s) (%s); writing degraded placeholder",
         len(attempts),
         last_error,
     )
