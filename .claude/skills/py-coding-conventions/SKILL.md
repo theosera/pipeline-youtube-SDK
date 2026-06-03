@@ -37,7 +37,7 @@ Read すること。本 SKILL.md は重複を避けるため**圧縮した発火
 
 ## 品質ゲート3層 (守備範囲が別物。重ねる)
 
-```
+```text
 Layer3 Convention : ruff                    規約・複雑度        =「良く書けてるか」
 Layer2 Semantic   : LSP = Pyright（記述時） 型整合・シンボル解決 =「動くか」
                   + mypy strict（CIゲート / コミット時）
