@@ -81,7 +81,7 @@ Layer1 Syntax     : Python パーサー          構文の正当性
 - Pyright(エディタ即時) と mypy(CIゲート) は補完関係。
 - Claude Code: `npm install -g pyright` → `/plugin` → Discover → "LSP" → Python → user scope。
 
-## 6. 7原則（要約）
+## 6. 原則（要約）
 
 1 エラーは全送  2 型で構造を表現  3 メタデータ削減  4 言語選定にAI相性度
 5 コードの形が説明書  6 テストより先に型チェック  7 コンテキスト圧縮を習慣化
