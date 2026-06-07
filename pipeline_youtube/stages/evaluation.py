@@ -92,8 +92,20 @@ def run_stage_evaluation(
     optional fidelity input.
 
     TODO(scaffold): implement the loop (evaluate→aggregate→route→apply),
-    artifact writing, and stop bookkeeping.
+    artifact writing, and stop bookkeeping. Only the 0-loop short-circuit is
+    implemented below.
     """
+    effective_loops = max(0, min(max_loops, _MAX_LOOPS_HARD_CAP))
+    if effective_loops == 0:
+        return EvaluationStageResult(
+            loop_result=EvaluationLoopResult(
+                loops_run=0,
+                final_synthesis=synthesis_result,
+                skipped=True,
+                skip_reason="eval_loop=0",
+            ),
+            synthesis_result=synthesis_result,
+        )
     raise NotImplementedError("scaffold: evaluation loop TODO")
 
 
