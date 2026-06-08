@@ -71,7 +71,19 @@ from .synthesis.agents import compute_synthesis_timeouts
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
-_MODEL_KEYS = frozenset({"router", "stage_02", "stage_04", "alpha", "beta", "leader", "reviewer"})
+_MODEL_KEYS = frozenset(
+    {
+        "router",
+        "stage_02",
+        "stage_04",
+        "alpha",
+        "beta",
+        "leader",
+        "reviewer",
+        "eval_coverage",
+        "eval_pedagogy",
+    }
+)
 # "gamma" accepted silently for backward-compat with existing config.json,
 # but the γ LLM role has been replaced by a Python set diff — the value is ignored.
 _DEPRECATED_MODEL_KEYS = frozenset({"gamma"})
@@ -413,6 +425,22 @@ def _summary_folder_candidates(
         return
 
 
+def _videos_from_learning_folder(folder_name: str) -> list[VideoMeta]:
+    """Reconstruct the video list from an explicit 04_Learning_Material folder.
+
+    Used by URL-free resume (``--synthesis-only --folder-name <NAME>``).
+    Reads each ``*.md``'s trusted frontmatter (video_id + title + url) so no
+    playlist URL is required. Resolves ``base_dir / <validated folder_name>``
+    exactly (no date derivation), enabling resume of a past-date folder.
+
+    TODO(scaffold): validate ``folder_name`` (no path traversal — reuse
+    ``ensure_safe_path``), iterate ``*.md``, build ``VideoMeta`` from
+    frontmatter (``extract_trusted_video_id`` for the id), set
+    ``playlist_title`` to the folder name as a fallback.
+    """
+    raise NotImplementedError("scaffold: URL-free resume video reconstruction TODO")
+
+
 def _collect_existing_learning_bodies(
     videos: list[VideoMeta],
     playlist_title: str,
@@ -735,6 +763,29 @@ async def _run_videos_concurrent(
     help="Skip stages 01-04 and re-run only stage 05 against existing 04 md files for today's date.",
 )
 @click.option(
+    "--folder-name",
+    default=None,
+    help=(
+        "[scaffolding — not yet functional] Explicit 04_Learning_Material/<NAME> "
+        "playlist folder to resume from (e.g. 'YYYY-MM-DD-HHmm <playlist>'). "
+        "Intended: with --synthesis-only, load that exact folder regardless of "
+        "date and re-run 05→evaluation, writing into 05_Synthesis/<NAME>."
+    ),
+)
+@click.option(
+    "--eval-loop",
+    type=click.IntRange(0, 2),
+    default=0,
+    show_default=True,
+    help=(
+        "[scaffolding — not yet functional] Run the evaluation feedback loop "
+        "after synthesis, up to N iterations (max 2): 2 fixed-role evaluators "
+        "(coverage + pedagogy) auto-route findings to regenerate Stage 04 or "
+        "re-run Stage 05, stopping early when no blocking findings remain. "
+        "0 = disabled."
+    ),
+)
+@click.option(
     "--force-video",
     multiple=True,
     help="Force reprocess specific video IDs even if checkpoint shows complete. Repeatable.",
@@ -828,6 +879,8 @@ def cli(
     cache_llm_synthesis: bool,
     skip_synthesis: bool,
     synthesis_only: bool,
+    folder_name: str | None,
+    eval_loop: int,
     force_video: tuple[str, ...],
     capture_format: str,
     model: str,
@@ -841,6 +894,18 @@ def cli(
     synthesis_profile: str | None,
 ) -> None:
     """Process a YouTube playlist or single-video URL end-to-end."""
+    # The evaluation phase and the explicit-folder resume flow are scaffolded
+    # (schemas, fixed-role agents, package, and these flags exist) but their
+    # execution paths are not implemented yet. Reject them up front so the CLI
+    # never crashes mid-run with NotImplementedError; drop a gate when wiring
+    # its real implementation.
+    if eval_loop > 0:
+        raise click.UsageError("--eval-loop is not implemented yet (scaffolding in progress).")
+    if folder_name:
+        raise click.UsageError(
+            "--folder-name resume is not implemented yet (scaffolding in progress)."
+        )
+
     if not url:
         click.echo("Usage: pipeline-youtube <playlist-or-video-url> [options]")
         sys.exit(2)
@@ -1147,6 +1212,10 @@ def cli(
         )
         click.echo(f"cost:      ${synthesis_result.total_cost_usd:.3f}")
         click.echo(f"duration:  {synthesis_result.total_duration_ms / 1000:.1f}s")
+
+    # NOTE: the evaluation phase (run_stage_evaluation, gated by --eval-loop)
+    # hooks in here after Stage 05 once implemented. It is rejected up front
+    # while scaffolded — see the --eval-loop guard at the top of cli().
 
     if not synthesis_only:
         _print_cost_breakdown(results, synthesis_result)
