@@ -220,12 +220,22 @@ class TestRunStageCapture:
             assert p.exists()
             assert "pipeline-youtube" in p.parent.parts
 
-        # 03_Capture md contains range + embed blocks
+        # ...nested under a per-playlist subfolder whose name matches the
+        # playlist's 01~05 note folder, so deleting the playlist's folders
+        # has a matching assets subfolder to delete.
+        playlist_folder = paths["capture"].parent.name
+        for p in result.image_paths:
+            assert p.parent.name == playlist_folder
+            assert p.parent.parent.name == "pipeline-youtube"
+
+        # 03_Capture md contains range + path-qualified embed blocks. The
+        # embed includes the per-playlist subfolder so duplicate basenames
+        # across playlists/reruns stay unambiguous in Obsidian.
         capture_body = paths["capture"].read_text(encoding="utf-8")
         assert "[00:00 ~ 01:03]" in capture_body
-        assert "![[pyt__h3decBW12Q_00.webp]]" in capture_body
+        assert f"![[{playlist_folder}/pyt__h3decBW12Q_00.webp]]" in capture_body
         assert "[12:50 ~ 15:10]" in capture_body
-        assert "![[pyt__h3decBW12Q_03.webp]]" in capture_body
+        assert f"![[{playlist_folder}/pyt__h3decBW12Q_03.webp]]" in capture_body
 
     def test_dry_run_skips_download_and_write(self, vault, monkeypatch):
         video, paths = _setup_case(vault)
@@ -337,7 +347,8 @@ class TestRunStageCapture:
         ]
 
         body = paths["capture"].read_text(encoding="utf-8")
-        assert "![[pyt__h3decBW12Q_00.webp]]" in body
+        playlist_folder = paths["capture"].parent.name
+        assert f"![[{playlist_folder}/pyt__h3decBW12Q_00.webp]]" in body
         assert "<!-- capture failed:" in body
 
     def test_temp_video_deleted_after_run(self, vault, monkeypatch):

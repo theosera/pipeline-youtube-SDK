@@ -5,11 +5,15 @@ Flow:
     2. Download the video via yt-dlp to pipeline-youtube/tmp/ (480p mp4)
     3. For each range, run ffmpeg to extract an animated clip centered
        on `(start + end) / 2`, duration = `window_seconds`, fps = 5
-    4. Save files into `Permanent Note/_assets/2026/img/` with filenames
-       matching Obsidian's Attachment Management convention
-       (`{note_base}.{ext}`, `{note_base}-1.{ext}`, ...)
-    5. Append `[MM:SS ~ MM:SS]\\n![[filename.ext]]` blocks to the
-       03_Capture placeholder md
+    4. Save files into a per-playlist subfolder of
+       `Permanent Note/_assets/2026/pipeline-youtube/` as
+       `pyt_{video_id}_{idx}.{ext}` — a naming scheme Obsidian's
+       Attachment Management leaves alone, nested under a subfolder whose
+       name matches the playlist's 01~05 note folders so the captures can
+       be deleted alongside them.
+    5. Append `[MM:SS ~ MM:SS]\\n![[{playlist_folder}/filename.ext]]`
+       blocks to the 03_Capture placeholder md (the embed is path-qualified
+       so duplicate basenames across playlists stay unambiguous in Obsidian)
     6. Delete the temp video file
 
 Capture format (WebP vs GIF)
@@ -329,9 +333,12 @@ def run_stage_capture(
     """Download the video, extract animated frames, update the 03 md.
 
     Image files are named `pyt_{video_id}_{idx}.{ext}` and placed in
-    `Permanent Note/_assets/2026/pipeline-youtube/` — a dedicated
-    folder outside Obsidian's Attachment Management `${notename}`
-    auto-rename scope.
+    `Permanent Note/_assets/2026/pipeline-youtube/{playlist_folder}/` — a
+    per-playlist subfolder (named to match the 01~05 unit folders) inside a
+    dedicated assets dir outside Obsidian's Attachment Management
+    `${notename}` auto-rename scope. The per-playlist nesting means
+    deleting a playlist's 01~05 note folders has a matching assets
+    subfolder to drop, so captures never linger as orphans.
 
     Parameters
     ----------
@@ -368,9 +375,14 @@ def run_stage_capture(
 
     ext = choice.ext
 
-    # Resolve the assets dir (subject to path safety)
+    # Resolve the assets dir (subject to path safety). Captures are nested
+    # under a per-playlist subfolder whose name is taken from the 03_Capture
+    # md's parent — i.e. the same `{playlist_folder}` used by the 01~05 unit
+    # dirs. Deleting a playlist's 01~05 note folders then maps to one obvious
+    # assets subfolder, instead of leaving orphaned webp/gif files behind.
     vault_root = get_vault_root()
-    assets_rel = ensure_safe_path(ASSETS_REL_PATH)
+    playlist_folder = capture_md_path.parent.name
+    assets_rel = ensure_safe_path(f"{ASSETS_REL_PATH}/{playlist_folder}")
     assets_dir = vault_root / assets_rel
     assets_dir.mkdir(parents=True, exist_ok=True)
 
@@ -676,7 +688,13 @@ def _render_body(outcomes: list[CaptureOutcome]) -> str:
         rng = outcome.range
         header = f"[{rng.start_mmss} ~ {rng.end_mmss}]"
         if outcome.image_path is not None:
-            blocks.append(f"{header}\n![[{outcome.image_path.name}]]")
+            # Qualify the embed with the per-playlist subfolder. Because the
+            # same video can be captured into multiple playlist folders (e.g.
+            # a rerun creates a new dated folder), bare `![[pyt_<id>_NN.ext]]`
+            # links would collide on basename and Obsidian would resolve them
+            # ambiguously. `{playlist_folder}/{name}` is a unique path suffix.
+            embed = f"{outcome.image_path.parent.name}/{outcome.image_path.name}"
+            blocks.append(f"{header}\n![[{embed}]]")
         else:
             blocks.append(f"{header}\n<!-- capture failed: {outcome.error} -->")
     return "\n\n".join(blocks) + "\n"
