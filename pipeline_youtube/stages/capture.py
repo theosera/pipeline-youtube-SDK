@@ -11,8 +11,9 @@ Flow:
        Attachment Management leaves alone, nested under a subfolder whose
        name matches the playlist's 01~05 note folders so the captures can
        be deleted alongside them.
-    5. Append `[MM:SS ~ MM:SS]\\n![[filename.ext]]` blocks to the
-       03_Capture placeholder md
+    5. Append `[MM:SS ~ MM:SS]\\n![[{playlist_folder}/filename.ext]]`
+       blocks to the 03_Capture placeholder md (the embed is path-qualified
+       so duplicate basenames across playlists stay unambiguous in Obsidian)
     6. Delete the temp video file
 
 Capture format (WebP vs GIF)
@@ -687,7 +688,13 @@ def _render_body(outcomes: list[CaptureOutcome]) -> str:
         rng = outcome.range
         header = f"[{rng.start_mmss} ~ {rng.end_mmss}]"
         if outcome.image_path is not None:
-            blocks.append(f"{header}\n![[{outcome.image_path.name}]]")
+            # Qualify the embed with the per-playlist subfolder. Because the
+            # same video can be captured into multiple playlist folders (e.g.
+            # a rerun creates a new dated folder), bare `![[pyt_<id>_NN.ext]]`
+            # links would collide on basename and Obsidian would resolve them
+            # ambiguously. `{playlist_folder}/{name}` is a unique path suffix.
+            embed = f"{outcome.image_path.parent.name}/{outcome.image_path.name}"
+            blocks.append(f"{header}\n![[{embed}]]")
         else:
             blocks.append(f"{header}\n<!-- capture failed: {outcome.error} -->")
     return "\n\n".join(blocks) + "\n"
