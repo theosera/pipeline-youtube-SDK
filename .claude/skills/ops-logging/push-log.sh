@@ -8,8 +8,11 @@ set -euo pipefail
 LOG_REPO="${OPS_LOG_REPO:-$HOME/terminal-ops-logs}"
 [ -d "$LOG_REPO/.git" ] || exit 0
 
-# Stage only generated markdown logs — never `git add -A` (3-repo culture).
-find "$LOG_REPO" -name '*.md' -not -path '*/.git/*' -print0 \
+# Stage ONLY generated dated log files (<target_repo>/YYYY-MM-DD.md) — never
+# `git add -A`, and never other markdown (README, manual notes) that may be
+# half-finished in the log repo.
+find "$LOG_REPO" -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md' \
+  -not -path '*/.git/*' -print0 \
   | xargs -0 -r git -C "$LOG_REPO" add --
 
 # Nothing staged → done.
