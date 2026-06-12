@@ -10,10 +10,15 @@ LOG_REPO="${OPS_LOG_REPO:-$HOME/terminal-ops-logs}"
 
 # Stage ONLY generated dated log files (<target_repo>/YYYY-MM-DD.md) — never
 # `git add -A`, and never other markdown (README, manual notes) that may be
-# half-finished in the log repo.
-find "$LOG_REPO" -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md' \
-  -not -path '*/.git/*' -print0 \
-  | xargs -0 -r git -C "$LOG_REPO" add --
+# half-finished in the log repo. Run from inside the repo so pathspecs are
+# repo-relative, and never let a staging failure abort the hook (the turn must
+# not be blocked).
+(
+  cd "$LOG_REPO" || exit 0
+  find . -type f -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md' \
+    -not -path './.git/*' -print0 \
+    | xargs -0 -r git add --
+) || true
 
 # Nothing staged → done.
 git -C "$LOG_REPO" diff --cached --quiet && exit 0
