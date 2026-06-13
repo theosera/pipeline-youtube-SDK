@@ -15,11 +15,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 | 発火条件 (このタスクを始める前に) | 必ずロードするスキル |
 |---|---|
 | このリポの Python を書く / 直す / レビューする | `py-coding-conventions` |
+| コマンド学習ログ機能の hook 設定 (`.claude/settings.json`) を書く・直す / マスキング規則・ログ出力先を変える / `capture-command.sh`・`push-log.sh` を触る | `ops-logging` |
 
 ## See also
 
 - `CLAUDE.global.md` — 全リポ共通のグローバル層 (行動原則 / セキュリティ境界 / 発火規律)
 - `.claude/skills/py-coding-conventions/` — コーディング規約 (発火時ロード)
+- `.claude/skills/ops-logging/SKILL.md` — git/shell/MCP 操作の学習ログ hook (設定の正典)
 - `README.md` — 概要・セットアップ
 - `docs/ai-coding-conventions.md` — AI-native コーディング規約 (原本。skill が参照)
 - `pyproject.toml` — 依存・ruff/mypy 設定
