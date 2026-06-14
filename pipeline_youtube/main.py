@@ -41,6 +41,7 @@ from .checkpoint import (
 from .config import VaultRootError, set_dry_run, set_vault_root
 from .genres import CODE_BEARING_GENRES, classify_playlist_genre
 from .obsidian import format_playlist_folder_name
+from .parallel import orchestrate_sub_agents, parse_video_range, strip_cli_option
 from .path_safety import ensure_safe_path
 from .pipeline import LEARNING_BASE, UNIT_DIRS, compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta, fetch_metadata, validate_youtube_url
@@ -284,6 +285,16 @@ def _strip_frontmatter(text: str) -> str:
     if end == -1:
         return text.strip()
     return text[end + 4 :].lstrip()
+
+
+def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
+    """Resolve the shared run_time, surfacing a bad --run-timestamp as a clean CLI error."""
+    if not run_timestamp:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(run_timestamp)
+    except ValueError as exc:
+        raise click.UsageError(f"invalid --run-timestamp: {run_timestamp!r}") from exc
 
 
 def _load_existing_04_body(video_id: str, playlist_title: str, run_date: datetime) -> str | None:
@@ -705,6 +716,37 @@ async def _run_videos_concurrent(
     help="Videos in parallel (1-8). Higher is faster but raises API-rate/CPU load.",
 )
 @click.option(
+    "--sub-agents",
+    type=click.IntRange(1, 8),
+    default=1,
+    show_default=True,
+    help=(
+        "Run stages 01-04 as N parallel sub-agent processes, each owning a "
+        "contiguous slice of the playlist (remainder on the last shard); Stage "
+        "05 runs once afterwards. Default 1 = original single-process flow. "
+        "Opt in with e.g. --sub-agents 3. See docs/sub-agents.md."
+    ),
+)
+@click.option(
+    "--video-range",
+    default=None,
+    hidden=True,
+    help="Internal: 0-based half-open 'start:end' slice processed by one sub-agent shard.",
+)
+@click.option(
+    "--run-timestamp",
+    default=None,
+    hidden=True,
+    help="Internal: ISO run_time shared across sub-agent shards so they write one playlist folder.",
+)
+@click.option(
+    "--code-bearing/--no-code-bearing",
+    "code_bearing_override",
+    default=None,
+    hidden=True,
+    help="Internal: parent-pinned genre decision passed to sub-agent shards (skips the router).",
+)
+@click.option(
     "--transcript-concurrency",
     type=click.IntRange(1, 16),
     default=None,
@@ -871,6 +913,10 @@ def cli(
     url: str | None,
     dry_run: bool,
     concurrency: int,
+    sub_agents: int,
+    video_range: str | None,
+    run_timestamp: str | None,
+    code_bearing_override: bool | None,
     transcript_concurrency: int | None,
     llm_concurrency: int | None,
     download_concurrency: int | None,
@@ -920,6 +966,15 @@ def cli(
     if phase_flags > 1:
         raise click.UsageError(
             "--stop-after-capture, --resume-reviewed, and --synthesis-only are mutually exclusive."
+        )
+
+    # Sub-agent orchestration owns the full 01-04 → 05 flow; it is incompatible
+    # with the alternate phase flags and with --dry-run (workers write the 04
+    # files that the post-merge Stage 05 reads back).
+    if sub_agents > 1 and (dry_run or synthesis_only or resume_reviewed or stop_after_capture):
+        raise click.UsageError(
+            "--sub-agents > 1 cannot be combined with --dry-run or the "
+            "--synthesis-only / --resume-reviewed / --stop-after-capture phase flags."
         )
 
     cfg_path = config_path or DEFAULT_CONFIG_PATH
@@ -1041,10 +1096,52 @@ def cli(
 
     # Stage 00.5: Router. One cheap haiku call decides whether downstream
     # code-bearing features (GitHub URL extraction, concept/practice split)
-    # apply. Errors collapse to Genre.OTHER → default behavior.
-    genre, genre_rationale = classify_playlist_genre(playlist_title, videos, model=models["router"])
-    code_bearing = genre in CODE_BEARING_GENRES
-    click.echo(f"genre: {genre.value} (code_bearing={code_bearing}) — {genre_rationale[:120]}")
+    # apply. Errors collapse to Genre.OTHER → default behavior. The parent
+    # classifies once and pins the result for every sub-agent shard (internal
+    # --code-bearing/--no-code-bearing), so a transient router error on one
+    # worker can't leave shards disagreeing on code_bearing.
+    if code_bearing_override is not None:
+        code_bearing = code_bearing_override
+        click.echo(f"genre: (inherited from parent) code_bearing={code_bearing}")
+    else:
+        genre, genre_rationale = classify_playlist_genre(
+            playlist_title, videos, model=models["router"]
+        )
+        code_bearing = genre in CODE_BEARING_GENRES
+        click.echo(f"genre: {genre.value} (code_bearing={code_bearing}) — {genre_rationale[:120]}")
+
+    # Sub-agent orchestration (opt-in via --sub-agents N; default 1 keeps the
+    # original single-process flow). Splits the playlist into N contiguous
+    # shards, runs stages 01-04 as independent parallel worker processes, then
+    # runs Stage 05 once over the merged output. See docs/sub-agents.md.
+    if sub_agents > 1:
+        orchestrator_run_time = _parse_run_timestamp(run_timestamp)
+        click.echo(f"run_time: {orchestrator_run_time.isoformat(timespec='seconds')}")
+        exit_code = orchestrate_sub_agents(
+            total_videos=len(videos),
+            shard_count=sub_agents,
+            run_time=orchestrator_run_time,
+            logs_dir=logs_dir,
+            base_argv=strip_cli_option(sys.argv[1:], "--sub-agents"),
+            run_synthesis=not skip_synthesis,
+            code_bearing=code_bearing,
+        )
+        sys.exit(exit_code)
+
+    # Sub-agent shard slicing (internal --video-range). Restricts the per-video
+    # work below to this shard's contiguous slice; genre above is already pinned.
+    if video_range is not None:
+        try:
+            shard_start, shard_end = parse_video_range(video_range)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+        videos = videos[shard_start:shard_end]
+        click.echo(
+            f"sub-agent shard: videos [{shard_start}:{shard_end}] → {len(videos)} this shard"
+        )
+        if not videos:
+            click.echo("No videos in this shard; nothing to do.")
+            return
 
     est_timeouts = compute_synthesis_timeouts(len(videos), override=effective_synthesis_timeout)
     total_duration = sum(v.duration or 0 for v in videos)
@@ -1055,7 +1152,7 @@ def cli(
         + (f", total_duration={total_duration // 60}min" if total_duration else "")
     )
 
-    run_time = datetime.now()
+    run_time = _parse_run_timestamp(run_timestamp)
     click.echo(f"run_time: {run_time.isoformat(timespec='seconds')}")
 
     folder_override: str | None = None
