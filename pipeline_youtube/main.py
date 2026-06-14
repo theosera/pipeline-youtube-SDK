@@ -287,6 +287,16 @@ def _strip_frontmatter(text: str) -> str:
     return text[end + 4 :].lstrip()
 
 
+def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
+    """Resolve the shared run_time, surfacing a bad --run-timestamp as a clean CLI error."""
+    if not run_timestamp:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(run_timestamp)
+    except ValueError as exc:
+        raise click.UsageError(f"invalid --run-timestamp: {run_timestamp!r}") from exc
+
+
 def _load_existing_04_body(video_id: str, playlist_title: str, run_date: datetime) -> str | None:
     """Read the stage 04 body for a checkpoint-skipped video.
 
@@ -730,6 +740,13 @@ async def _run_videos_concurrent(
     help="Internal: ISO run_time shared across sub-agent shards so they write one playlist folder.",
 )
 @click.option(
+    "--code-bearing/--no-code-bearing",
+    "code_bearing_override",
+    default=None,
+    hidden=True,
+    help="Internal: parent-pinned genre decision passed to sub-agent shards (skips the router).",
+)
+@click.option(
     "--transcript-concurrency",
     type=click.IntRange(1, 16),
     default=None,
@@ -899,6 +916,7 @@ def cli(
     sub_agents: int,
     video_range: str | None,
     run_timestamp: str | None,
+    code_bearing_override: bool | None,
     transcript_concurrency: int | None,
     llm_concurrency: int | None,
     download_concurrency: int | None,
@@ -1076,14 +1094,28 @@ def cli(
     click.echo(f"playlist: {playlist_title!r}")
     click.echo(f"videos: {len(videos)}")
 
+    # Stage 00.5: Router. One cheap haiku call decides whether downstream
+    # code-bearing features (GitHub URL extraction, concept/practice split)
+    # apply. Errors collapse to Genre.OTHER → default behavior. The parent
+    # classifies once and pins the result for every sub-agent shard (internal
+    # --code-bearing/--no-code-bearing), so a transient router error on one
+    # worker can't leave shards disagreeing on code_bearing.
+    if code_bearing_override is not None:
+        code_bearing = code_bearing_override
+        click.echo(f"genre: (inherited from parent) code_bearing={code_bearing}")
+    else:
+        genre, genre_rationale = classify_playlist_genre(
+            playlist_title, videos, model=models["router"]
+        )
+        code_bearing = genre in CODE_BEARING_GENRES
+        click.echo(f"genre: {genre.value} (code_bearing={code_bearing}) — {genre_rationale[:120]}")
+
     # Sub-agent orchestration (opt-in via --sub-agents N; default 1 keeps the
     # original single-process flow). Splits the playlist into N contiguous
     # shards, runs stages 01-04 as independent parallel worker processes, then
     # runs Stage 05 once over the merged output. See docs/sub-agents.md.
     if sub_agents > 1:
-        orchestrator_run_time = (
-            datetime.fromisoformat(run_timestamp) if run_timestamp else datetime.now()
-        )
+        orchestrator_run_time = _parse_run_timestamp(run_timestamp)
         click.echo(f"run_time: {orchestrator_run_time.isoformat(timespec='seconds')}")
         exit_code = orchestrate_sub_agents(
             total_videos=len(videos),
@@ -1092,21 +1124,17 @@ def cli(
             logs_dir=logs_dir,
             base_argv=strip_cli_option(sys.argv[1:], "--sub-agents"),
             run_synthesis=not skip_synthesis,
+            code_bearing=code_bearing,
         )
         sys.exit(exit_code)
 
-    # Stage 00.5: Router. One cheap haiku call decides whether downstream
-    # code-bearing features (GitHub URL extraction, concept/practice split)
-    # apply. Errors collapse to Genre.OTHER → default behavior.
-    genre, genre_rationale = classify_playlist_genre(playlist_title, videos, model=models["router"])
-    code_bearing = genre in CODE_BEARING_GENRES
-    click.echo(f"genre: {genre.value} (code_bearing={code_bearing}) — {genre_rationale[:120]}")
-
-    # Sub-agent shard slicing (internal --video-range). Genre is classified on
-    # the full playlist above, so every shard shares one consistent genre; only
-    # the per-video work below is restricted to this shard's contiguous slice.
+    # Sub-agent shard slicing (internal --video-range). Restricts the per-video
+    # work below to this shard's contiguous slice; genre above is already pinned.
     if video_range is not None:
-        shard_start, shard_end = parse_video_range(video_range)
+        try:
+            shard_start, shard_end = parse_video_range(video_range)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
         videos = videos[shard_start:shard_end]
         click.echo(
             f"sub-agent shard: videos [{shard_start}:{shard_end}] → {len(videos)} this shard"
@@ -1124,7 +1152,7 @@ def cli(
         + (f", total_duration={total_duration // 60}min" if total_duration else "")
     )
 
-    run_time = datetime.fromisoformat(run_timestamp) if run_timestamp else datetime.now()
+    run_time = _parse_run_timestamp(run_timestamp)
     click.echo(f"run_time: {run_time.isoformat(timespec='seconds')}")
 
     folder_override: str | None = None

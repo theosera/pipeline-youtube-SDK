@@ -21,6 +21,7 @@ The pure helpers (`split_into_shards`, `strip_cli_option`, `parse_video_range`,
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -94,15 +95,20 @@ def strip_cli_option(argv: list[str], option: str) -> list[str]:
     return out
 
 
+def _code_bearing_flag(code_bearing: bool) -> str:
+    return "--code-bearing" if code_bearing else "--no-code-bearing"
+
+
 def build_worker_argv(
-    base_argv: list[str], *, run_timestamp: str, start: int, end: int
+    base_argv: list[str], *, run_timestamp: str, start: int, end: int, code_bearing: bool
 ) -> list[str]:
     """Build the argv for a single shard worker process.
 
     ``base_argv`` is the user's original CLI args with ``--sub-agents`` already
     stripped. ``--sub-agents 1`` prevents recursive orchestration;
-    ``--run-timestamp`` pins the shared playlist folder; ``--skip-synthesis``
-    leaves Stage 05 to the single post-merge pass.
+    ``--run-timestamp`` pins the shared playlist folder; ``--code-bearing`` /
+    ``--no-code-bearing`` pins the parent's single genre decision so shards
+    cannot diverge; ``--skip-synthesis`` leaves Stage 05 to the post-merge pass.
     """
     return [
         sys.executable,
@@ -113,13 +119,16 @@ def build_worker_argv(
         "1",
         "--run-timestamp",
         run_timestamp,
+        _code_bearing_flag(code_bearing),
         "--video-range",
         f"{start}:{end}",
         "--skip-synthesis",
     ]
 
 
-def build_synthesis_argv(base_argv: list[str], *, run_timestamp: str) -> list[str]:
+def build_synthesis_argv(
+    base_argv: list[str], *, run_timestamp: str, code_bearing: bool
+) -> list[str]:
     """Build the argv for the post-merge Stage 05 pass (``--synthesis-only``)."""
     return [
         sys.executable,
@@ -130,6 +139,7 @@ def build_synthesis_argv(base_argv: list[str], *, run_timestamp: str) -> list[st
         "1",
         "--run-timestamp",
         run_timestamp,
+        _code_bearing_flag(code_bearing),
         "--synthesis-only",
     ]
 
@@ -144,6 +154,17 @@ class _Worker:
     log_file: BinaryIO
 
 
+def _terminate_workers(workers: list[_Worker]) -> None:
+    """Best-effort teardown: stop every started worker and close its log file."""
+    for worker in workers:
+        with contextlib.suppress(Exception):
+            worker.proc.terminate()
+        with contextlib.suppress(Exception):
+            worker.proc.wait(timeout=5)
+        with contextlib.suppress(Exception):
+            worker.log_file.close()
+
+
 def orchestrate_sub_agents(
     *,
     total_videos: int,
@@ -152,6 +173,7 @@ def orchestrate_sub_agents(
     logs_dir: Path,
     base_argv: list[str],
     run_synthesis: bool,
+    code_bearing: bool,
 ) -> int:
     """Run stages 01-04 across parallel shard workers, then Stage 05 once.
 
@@ -170,14 +192,29 @@ def orchestrate_sub_agents(
         f"for stages 01-04 ({total_videos} videos) ==="
     )
 
+    # Launch all shards, rolling back already-started workers if any fails to
+    # spawn — otherwise a mid-launch error would orphan live workers (still
+    # writing to the vault) and leak their log file handles.
     workers: list[_Worker] = []
-    for idx, (start, end) in enumerate(shards, 1):
-        argv = build_worker_argv(base_argv, run_timestamp=ts_iso, start=start, end=end)
-        log_path = logs_dir / f"sub_agent_{idx}_{stamp}.log"
-        log_file = log_path.open("wb")
-        click.echo(f"  [agent {idx}] videos {start + 1}-{end} ({end - start}) → {log_path.name}")
-        proc = subprocess.Popen(argv, stdout=log_file, stderr=subprocess.STDOUT)
-        workers.append(_Worker(idx, start, end, proc, log_path, log_file))
+    try:
+        for idx, (start, end) in enumerate(shards, 1):
+            argv = build_worker_argv(
+                base_argv, run_timestamp=ts_iso, start=start, end=end, code_bearing=code_bearing
+            )
+            log_path = logs_dir / f"sub_agent_{idx}_{stamp}.log"
+            log_file = log_path.open("wb")
+            click.echo(
+                f"  [agent {idx}] videos {start + 1}-{end} ({end - start}) → {log_path.name}"
+            )
+            try:
+                proc = subprocess.Popen(argv, stdout=log_file, stderr=subprocess.STDOUT)
+            except Exception:
+                log_file.close()
+                raise
+            workers.append(_Worker(idx, start, end, proc, log_path, log_file))
+    except Exception:
+        _terminate_workers(workers)
+        raise
 
     failures: list[int] = []
     for worker in workers:
@@ -207,7 +244,7 @@ def orchestrate_sub_agents(
 
     click.echo("\n=== Stage 05 Synthesis (post sub-agents) ===")
     synth_returncode = subprocess.run(  # noqa: S603 — argv is built from our own tokens
-        build_synthesis_argv(base_argv, run_timestamp=ts_iso),
+        build_synthesis_argv(base_argv, run_timestamp=ts_iso, code_bearing=code_bearing),
         check=False,
     ).returncode
     if synth_returncode != 0:

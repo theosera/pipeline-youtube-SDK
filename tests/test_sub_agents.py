@@ -85,14 +85,17 @@ class TestStripCliOption:
 class TestBuildArgv:
     def test_worker_argv_appends_shard_flags(self) -> None:
         base = ["https://yt/playlist", "--concurrency", "2"]
-        argv = build_worker_argv(base, run_timestamp="2026-06-14T13:00:00", start=8, end=16)
+        argv = build_worker_argv(
+            base, run_timestamp="2026-06-14T13:00:00", start=8, end=16, code_bearing=True
+        )
         assert argv[:3] == [sys.executable, "-m", "pipeline_youtube.main"]
         assert argv[3:5] == ["https://yt/playlist", "--concurrency"]
-        assert argv[-7:] == [
+        assert argv[-8:] == [
             "--sub-agents",
             "1",
             "--run-timestamp",
             "2026-06-14T13:00:00",
+            "--code-bearing",
             "--video-range",
             "8:16",
             "--skip-synthesis",
@@ -100,10 +103,18 @@ class TestBuildArgv:
         # Recursion guard: exactly one --sub-agents, pinned to 1.
         assert argv.count("--sub-agents") == 1
 
+    def test_worker_argv_pins_no_code_bearing(self) -> None:
+        argv = build_worker_argv(
+            ["url"], run_timestamp="2026-06-14T13:00:00", start=0, end=8, code_bearing=False
+        )
+        assert "--no-code-bearing" in argv
+        assert "--code-bearing" not in argv
+
     def test_synthesis_argv_is_synthesis_only(self) -> None:
         base = ["https://yt/playlist", "--model", "opus"]
-        argv = build_synthesis_argv(base, run_timestamp="2026-06-14T13:00:00")
+        argv = build_synthesis_argv(base, run_timestamp="2026-06-14T13:00:00", code_bearing=True)
         assert argv[-1] == "--synthesis-only"
         assert "--skip-synthesis" not in argv
+        assert "--code-bearing" in argv
         assert argv[argv.index("--sub-agents") + 1] == "1"
         assert "--run-timestamp" in argv
