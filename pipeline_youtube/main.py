@@ -57,6 +57,7 @@ from .providers.registry import (
     configure_llm_concurrency,
     configure_providers,
 )
+from .providers.selection import apply_selection
 from .sanitize import configure_alert_sink
 from .stages.capture import (
     ASSETS_REL_PATH,
@@ -956,6 +957,26 @@ async def _run_videos_concurrent(
         "(>30). 'full' adds a Reviewer pass. Overrides config.json."
     ),
 )
+@click.option(
+    "--provider",
+    type=click.Choice(["anthropic", "ollama", "lmstudio"]),
+    default=None,
+    help=(
+        "Runtime backend override: route EVERY stage to this provider's "
+        "default model for this run, ignoring config.json's per-stage models. "
+        "Omit to use config.json as-is (config is the source of truth). "
+        "Forwarded automatically to --sub-agents workers."
+    ),
+)
+@click.option(
+    "--hybrid",
+    is_flag=True,
+    help=(
+        "Keep the heavy stages (stage_04, leader) on Anthropic even when an "
+        "open/local provider is selected. Requires the 'anthropic' provider "
+        "in config.json. Pairs well with --provider ollama."
+    ),
+)
 def cli(
     url: str | None,
     dry_run: bool,
@@ -985,6 +1006,8 @@ def cli(
     capture_backend: str | None,
     synthesis_timeout: int | None,
     synthesis_profile: str | None,
+    provider: str | None,
+    hybrid: bool,
 ) -> None:
     """Process a YouTube playlist or single-video URL end-to-end."""
     # The evaluation phase and the explicit-folder resume flow are scaffolded
@@ -1044,10 +1067,24 @@ def cli(
     if swept:
         click.echo(f"swept {swept} stale tmp video file(s)")
 
-    # Initialize LLM providers from config.json.
-    providers_raw = json.loads(cfg_path.read_text(encoding="utf-8")).get("providers", {})
-    models_raw = json.loads(cfg_path.read_text(encoding="utf-8")).get("models", {})
-    configure_providers(providers_raw, models_raw)
+    # Initialize LLM providers from config.json, applying the runtime
+    # --provider / --hybrid overrides (config is the source of truth when
+    # neither is given). See providers/selection.py.
+    config_data = json.loads(cfg_path.read_text(encoding="utf-8"))
+    providers_raw = config_data.get("providers", {})
+    models_raw = config_data.get("models", {})
+    if (provider == "anthropic" or hybrid) and "anthropic" not in providers_raw:
+        raise click.UsageError(
+            "--provider anthropic / --hybrid requires the 'anthropic' provider in config.json."
+        )
+    effective_models, model_warnings = apply_selection(
+        models_raw, providers_raw, _MODEL_KEYS, provider=provider, hybrid=hybrid
+    )
+    for warning in model_warnings:
+        click.echo(warning)
+    configure_providers(providers_raw, effective_models)
+    if provider or hybrid:
+        click.echo(f"model selection: provider={provider or 'config'} hybrid={hybrid}")
     click.echo(
         f"providers: {', '.join(providers_raw.keys()) if providers_raw else 'default (ollama)'}"
     )
