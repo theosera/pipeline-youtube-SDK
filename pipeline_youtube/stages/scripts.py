@@ -31,7 +31,7 @@ from ..code_fetch import (
 )
 from ..playlist import VideoMeta
 from ..transcript.auto import fetch_auto
-from ..transcript.base import Fetcher, TranscriptResult, fetch_with_fallback
+from ..transcript.base import TranscriptResult, fetch_with_fallback
 from ..transcript.chunking import Chunk, chunk_by_window
 from ..transcript.official import fetch_official
 
@@ -114,16 +114,12 @@ def run_stage_scripts(
     languages: list[str] | None = None,
     dry_run: bool = False,
     include_code_blocks: bool = False,
-    media_path: Path | None = None,
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
     - Uses the tier 1 → tier 2 fallback chain (Whisper is added in a
       later step via a lazy import so the optional dependency stays
       optional).
-    - When `media_path` is set (``--local-media`` / fully offline), skips the
-      caption tiers entirely and transcribes that local file with Whisper —
-      so YouTube is never contacted for this video.
     - Does NOT overwrite the frontmatter already present; appends below.
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
@@ -140,38 +136,20 @@ def run_stage_scripts(
     except ImportError:
         pass
 
-    if media_path is not None:
-        # Local-media mode: Whisper on the local file only (no YouTube).
-        if whisper_fetcher is not None:
-            captured = whisper_fetcher
-            source = media_path
-
-            def _local_whisper(video_id: str, langs_: list[str]) -> TranscriptResult:
-                return captured(video_id, langs_, media_path=source)
-
-            local_fetcher: Fetcher | None = _local_whisper
-        else:
-            local_fetcher = None
-        result = fetch_with_fallback(
-            video.video_id, langs, fetchers=[("whisper-local", local_fetcher)]
-        )
-    else:
-        result = fetch_with_fallback(
-            video.video_id,
-            langs,
-            fetchers=[
-                ("official", fetch_official),
-                ("auto", fetch_auto),
-                ("whisper", whisper_fetcher),
-            ],
-        )
+    result = fetch_with_fallback(
+        video.video_id,
+        langs,
+        fetchers=[
+            ("official", fetch_official),
+            ("auto", fetch_auto),
+            ("whisper", whisper_fetcher),
+        ],
+    )
 
     body = _render_chunks(video, chunk_by_window(result.snippets, window_seconds))
 
     code_section = ""
-    # Skip the description fetch under --local-media: it hits YouTube (yt-dlp),
-    # defeating the fully-offline guarantee this mode provides.
-    if include_code_blocks and media_path is None:
+    if include_code_blocks:
         # Fetching description + raw code is best-effort. If anything
         # fails, we silently skip — the transcript is the primary asset.
         description = fetch_video_description(video.video_id)

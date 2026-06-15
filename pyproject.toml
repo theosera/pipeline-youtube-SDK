@@ -19,13 +19,6 @@ whisper = [
     "openai-whisper>=20240930",
     "filelock>=3.13",
 ]
-# Apple-Silicon GPU backend — much faster and lighter than openai-whisper on
-# CPU (recommended on M-series Macs). The platform marker makes it a no-op on
-# Linux/CI, so `uv sync --extra mlx` is safe everywhere.
-#   uv sync --extra mlx
-mlx = [
-    "mlx-whisper>=0.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
-]
 
 [project.scripts]
 pipeline-youtube = "pipeline_youtube.main:cli"
