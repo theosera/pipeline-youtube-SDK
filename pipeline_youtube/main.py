@@ -348,6 +348,8 @@ class VideoRunResult:
     learning_md_body: str | None = None
     error: str | None = None
     # Per-stage cost tracking (populated by `_process_video`).
+    transcript_cost_usd: float | None = None
+    transcript_model: str | None = None
     summary_cost_usd: float | None = None
     summary_model: str | None = None
     learning_cost_usd: float | None = None
@@ -441,6 +443,7 @@ def _print_cost_breakdown(
         stage_totals[label] = (prev_model or model or "?", prev_cost + cost)
 
     for r in video_results:
+        _add("stage_01", r.transcript_model, r.transcript_cost_usd)
         _add("stage_02", r.summary_model, r.summary_cost_usd)
         _add("stage_04", r.learning_model, r.learning_cost_usd)
 
@@ -644,10 +647,19 @@ def _process_video(
         reason = sanitize_untrusted_text(
             transcript.fallback_reason, 500, context="transcript.fallback_reason"
         )
+        # Stage 01b correction is the only paid work Stage 01 does; surface its
+        # cost inline like Stage 02/04 (None ⇒ correction disabled, omit it).
+        cost_suffix = (
+            f" cost=${transcript.correction_cost_usd:.3f}"
+            if transcript.correction_cost_usd is not None
+            else ""
+        )
         click.echo(
             f" source={transcript.source.value}"
             f" snippets={len(transcript.snippets)}"
-            f" lang={transcript.language or '-'}" + (f" reason=({reason})" if reason else "")
+            f" lang={transcript.language or '-'}"
+            + cost_suffix
+            + (f" reason=({reason})" if reason else "")
         )
 
         if not transcript.snippets:
@@ -736,6 +748,8 @@ def _process_video(
             return VideoRunResult(
                 video=video,
                 learning_md_body=None,
+                transcript_cost_usd=transcript.correction_cost_usd,
+                transcript_model=correct_model,
                 summary_cost_usd=summary_resp.total_cost_usd,
                 summary_model=summary_resp.model,
             )
@@ -766,6 +780,8 @@ def _process_video(
             video=video,
             learning_md_path=paths["learning"],
             learning_md_body=body,
+            transcript_cost_usd=transcript.correction_cost_usd,
+            transcript_model=correct_model,
             summary_cost_usd=summary_resp.total_cost_usd,
             summary_model=summary_resp.model,
             learning_cost_usd=learning_resp.total_cost_usd,

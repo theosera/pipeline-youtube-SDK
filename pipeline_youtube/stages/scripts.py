@@ -189,10 +189,13 @@ def run_stage_scripts(
     # text is folded back into `result.snippets` so Stage 02/03/04 (which
     # re-chunk the TranscriptResult) consume the correction, not just the 01 md.
     if correct_model and not dry_run and chunks:
-        chunks = correct_chunks(chunks, model=correct_model)
+        correction = correct_chunks(chunks, model=correct_model)
+        chunks = correction.chunks
         last = result.snippets[-1]
         result = replace(
-            result, snippets=chunks_to_snippets(chunks, last_end=last.start + last.duration)
+            result,
+            snippets=chunks_to_snippets(chunks, last_end=last.start + last.duration),
+            correction_cost_usd=correction.cost_usd,
         )
     body = _render_chunks(video, chunks)
 

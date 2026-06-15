@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from ..providers.base import LLMError, LLMResponse
 from ..providers.registry import invoke_llm
@@ -57,6 +58,20 @@ CORRECTION_SYSTEM_PROMPT = (
 # An invoke callable matching `invoke_llm`'s keyword interface — injectable
 # so tests can stub the LLM without touching the network.
 InvokeFn = Callable[..., LLMResponse]
+
+
+@dataclass(frozen=True)
+class CorrectionResult:
+    """Outcome of a Stage 01b correction pass.
+
+    ``chunks`` are the corrected chunks (timestamps preserved). ``cost_usd`` is
+    the summed billed cost of every LLM call made during the pass, so Stage 01
+    can surface a ``cost=$...`` figure like Stage 02/04 do (it is the only paid
+    work Stage 01 does). A pass that makes no billed calls reports ``0.0``.
+    """
+
+    chunks: list[Chunk]
+    cost_usd: float
 
 
 def _build_prompt(batch: list[tuple[int, Chunk]]) -> str:
@@ -106,8 +121,8 @@ def correct_chunks(
     invoke: InvokeFn = invoke_llm,
     batch_size: int = DEFAULT_BATCH_SIZE,
     timeout: int = DEFAULT_TIMEOUT,
-) -> list[Chunk]:
-    """Return chunks with corrected text and unchanged timestamps.
+) -> CorrectionResult:
+    """Return corrected chunks (timestamps unchanged) plus the total LLM cost.
 
     Processes ``chunks`` in batches; each batch is corrected by one LLM call
     with web search + extended thinking enabled (Anthropic, via the
@@ -115,11 +130,16 @@ def correct_chunks(
     JSON) is left untouched. Per-chunk: if the model returned a non-empty
     correction for that index, use it; otherwise keep the original text. The
     ``start`` of every chunk is preserved verbatim.
+
+    ``cost_usd`` sums the billed cost of every LLM call that actually executed
+    (a batch whose ``invoke`` raised before returning contributes nothing; a
+    batch that returned but failed to parse still counts, since it was billed).
     """
     if not chunks:
-        return chunks
+        return CorrectionResult(chunks=chunks, cost_usd=0.0)
 
     corrected: list[Chunk] = list(chunks)
+    total_cost = 0.0
     for batch_start in range(0, len(chunks), batch_size):
         batch = [
             (i, chunks[i]) for i in range(batch_start, min(batch_start + batch_size, len(chunks)))
@@ -134,8 +154,13 @@ def correct_chunks(
                 thinking=True,
                 timeout=timeout,
             )
+        except LLMError:
+            # The call never produced a (billable) response — keep raw chunks.
+            continue
+        total_cost += response.total_cost_usd or 0.0
+        try:
             mapping = _parse_corrections(response.text)
-        except (LLMError, ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError):
             # Best-effort: a failed batch keeps its raw chunks rather than
             # breaking Stage 01 or shifting the timeline.
             continue
@@ -143,7 +168,7 @@ def correct_chunks(
             new_text = mapping.get(idx)
             if new_text:
                 corrected[idx] = Chunk(start=chunk.start, text=new_text)
-    return corrected
+    return CorrectionResult(chunks=corrected, cost_usd=total_cost)
 
 
 def chunks_to_snippets(chunks: list[Chunk], *, last_end: float) -> list[TranscriptSnippet]:
