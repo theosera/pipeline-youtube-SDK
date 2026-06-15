@@ -31,6 +31,18 @@ class TestConfigureWhisper:
             wf.configure_whisper(backend="bogus")
 
 
+class TestWhisperCacheTag:
+    def test_tag_reflects_backend_and_model(self) -> None:
+        wf.configure_whisper(backend="openai", model="small")
+        assert wf.whisper_cache_tag() == "openai-small"
+
+    def test_tag_changes_with_model(self) -> None:
+        wf.configure_whisper(backend="openai", model="small")
+        small = wf.whisper_cache_tag()
+        wf.configure_whisper(backend="openai", model="medium")
+        assert wf.whisper_cache_tag() != small  # switching model → new cache key
+
+
 class TestResolveBackend:
     def test_explicit_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(wf, "_mlx_available", lambda: True)  # ignored when explicit

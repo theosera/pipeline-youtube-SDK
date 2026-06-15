@@ -188,6 +188,20 @@ def describe_whisper() -> str:
     return f"{prefix} ({model})"
 
 
+def whisper_cache_tag() -> str:
+    """Stable ``{backend}-{model}`` tag for transcript cache keys.
+
+    The persistent transcript cache keys whisper output by tier name; including
+    the resolved backend+model means switching ``whisper_backend`` /
+    ``whisper_model`` produces a *different* key, so a re-run actually
+    re-transcribes with the new model instead of silently reusing the stale
+    cached transcript (the issue Codex flagged on the cache key).
+    """
+    backend = _resolve_backend()
+    model = (_MODEL or DEFAULT_MLX_MODEL) if backend == "mlx" else _resolve_openai_model()
+    return f"{backend}-{model}"
+
+
 # Each whisper `_MODELS` URL is of the form:
 #   https://openaipublic.azureedge.net/main/whisper/models/<sha256>/<name>.pt
 # where `<sha256>` is the expected 64-char hex hash of the .pt file.

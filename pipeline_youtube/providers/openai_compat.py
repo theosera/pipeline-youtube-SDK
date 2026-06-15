@@ -60,7 +60,13 @@ class OpenAICompatibleProvider(LLMProvider):
         max_retries: int = 3,
         retry_base_delay: float = 5.0,
         messages: list[dict[str, str]] | None = None,
+        web_search: bool = False,
+        thinking: bool = False,
     ) -> LLMResponse:
+        # web_search / thinking are Anthropic-only; OpenAI-compatible backends
+        # (ollama, lmstudio, openai, gemini) ignore them. Stage 01b correction
+        # is pinned to Anthropic, so this no-op is not hit in normal use.
+        del web_search, thinking
         effective_model = model if model != "default" else self._default_model
 
         # Build messages list.

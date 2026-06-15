@@ -82,6 +82,20 @@ def apply_selection(
         for stage in HEAVY_STAGES:
             effective[stage] = {"provider": "anthropic", "model": anthropic_model}
 
+    # Stage 01b web-search correction is Anthropic-only — pin it to Anthropic
+    # regardless of --provider/--hybrid. Read the model from the *original*
+    # config (not `effective`, which a --provider override may have rewritten to
+    # a local model like qwen3:8b) and only keep it when the user explicitly
+    # configured an Anthropic correction model; otherwise default to opus. This
+    # prevents sending a local model name to the Anthropic API.
+    orig_01 = models_cfg.get("stage_01_correct")
+    model_01 = (
+        orig_01.get("model")
+        if isinstance(orig_01, dict) and orig_01.get("provider") == "anthropic"
+        else None
+    )
+    effective["stage_01_correct"] = {"provider": "anthropic", "model": model_01 or "opus"}
+
     warnings: list[str] = []
     if provider in OPEN_PROVIDERS and not hybrid:
         warnings.append(

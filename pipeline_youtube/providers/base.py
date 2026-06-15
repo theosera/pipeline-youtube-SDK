@@ -82,6 +82,8 @@ class LLMProvider(ABC):
         max_retries: int = 3,
         retry_base_delay: float = 5.0,
         messages: list[dict[str, str]] | None = None,
+        web_search: bool = False,
+        thinking: bool = False,
     ) -> LLMResponse:
         """Send a prompt to the LLM and return a structured response.
 
@@ -102,6 +104,13 @@ class LLMProvider(ABC):
         messages:
             Optional conversation history for multi-turn. When provided,
             ``prompt`` is appended as the latest user message.
+        web_search:
+            Enable the provider's server-side web-search tool so the model can
+            fact-check autonomously (Stage 01b correction). Only Anthropic
+            supports it; other providers ignore the flag.
+        thinking:
+            Enable extended thinking where the provider supports it (Anthropic).
+            Ignored by providers without a thinking mode.
         """
 
     def health_check(self) -> bool:

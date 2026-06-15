@@ -29,7 +29,10 @@ from .base import LLMError, LLMProvider, LLMResponse
 _MODEL_ALIASES: dict[str, str] = {
     "sonnet": "claude-sonnet-4-20250514",
     "haiku": "claude-haiku-4-20250514",
-    "opus": "claude-4-opus-20250514",
+    # Anthropic's Opus 4 API id is `claude-opus-4-…` (the `claude-4-opus-…`
+    # ordering is not a valid model id and 4xx's — Stage 01b defaults to opus
+    # so a malformed id would silently disable correction).
+    "opus": "claude-opus-4-20250514",
 }
 
 # Known transient Anthropic error types.
@@ -75,8 +78,14 @@ class AnthropicProvider(LLMProvider):
         max_retries: int = 3,
         retry_base_delay: float = 5.0,
         messages: list[dict[str, str]] | None = None,
+        web_search: bool = False,
+        thinking: bool = False,
     ) -> LLMResponse:
         effective_model = _resolve_model(model)
+
+        # Extended thinking needs headroom: max_tokens must exceed the thinking
+        # budget. Bump the ceiling when thinking is on.
+        max_tokens = 16000 if thinking else 8192
 
         # Build messages. Anthropic uses a separate `system` parameter.
         msgs: list[dict[str, str]] = []
@@ -91,10 +100,19 @@ class AnthropicProvider(LLMProvider):
 
                 kwargs: dict[str, Any] = {
                     "model": effective_model,
-                    "max_tokens": 8192,
+                    "max_tokens": max_tokens,
                     "messages": msgs,
                     "timeout": timeout,
                 }
+                if web_search:
+                    # Server-side web search tool: the model decides when to
+                    # search and Anthropic runs it server-side, returning the
+                    # final text. Used by Stage 01b to fact-check terms.
+                    kwargs["tools"] = [
+                        {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+                    ]
+                if thinking:
+                    kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4096}
                 if system_prompt:
                     # Mark the system prompt as an ephemeral prompt-cache
                     # breakpoint. Stage system prompts (e.g. SUMMARY_SYSTEM_PROMPT)
@@ -204,7 +222,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     # (input_per_million, output_per_million)
     "claude-sonnet-4-20250514": (3.0, 15.0),
     "claude-haiku-4-20250514": (0.80, 4.0),
-    "claude-4-opus-20250514": (15.0, 75.0),
+    "claude-opus-4-20250514": (15.0, 75.0),
 }
 
 

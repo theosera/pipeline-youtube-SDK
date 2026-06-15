@@ -27,8 +27,25 @@ def _all_ollama() -> dict[str, dict[str, str]]:
 def test_no_flags_leaves_effective_unchanged_no_warning() -> None:
     models = _all_ollama()
     effective, warnings = apply_selection(models, _PROVIDERS, _STAGES)
-    assert effective == models
+    # stage_01_correct is always pinned to Anthropic (web-search correction is
+    # Anthropic-only); everything else is left untouched on the no-flag path.
+    assert effective == {**models, "stage_01_correct": {"provider": "anthropic", "model": "opus"}}
     assert warnings == []  # no warning on the config (no-flag) path
+
+
+def test_stage_01_correct_always_pinned_to_anthropic() -> None:
+    # Even with --provider ollama (no --hybrid), correction must stay Anthropic,
+    # and must NOT carry the local model name (qwen3:8b) — it defaults to opus.
+    effective, _ = apply_selection(_all_ollama(), _PROVIDERS, _STAGES, provider="ollama")
+    assert effective["stage_01_correct"] == {"provider": "anthropic", "model": "opus"}
+
+
+def test_stage_01_correct_preserves_user_anthropic_model() -> None:
+    # A user-configured Anthropic correction model is preserved.
+    models = _all_ollama()
+    models["stage_01_correct"] = {"provider": "anthropic", "model": "sonnet"}
+    effective, _ = apply_selection(models, _PROVIDERS, _STAGES, provider="ollama")
+    assert effective["stage_01_correct"] == {"provider": "anthropic", "model": "sonnet"}
 
 
 def test_provider_anthropic_overrides_all_stages() -> None:

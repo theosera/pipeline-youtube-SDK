@@ -50,7 +50,7 @@ _provider_lock = threading.Lock()
 # fixed input deterministically, so caching them makes re-runs / --synthesis-only
 # near-instant. Stage 05 synthesis is creative/cross-video — users iterate on it,
 # so fresh output is the sane default. ``--no-cache`` disables everything.
-_LLM_CACHE_STAGE_ROLES = frozenset({"router", "stage_02", "stage_04"})
+_LLM_CACHE_STAGE_ROLES = frozenset({"router", "stage_01_correct", "stage_02", "stage_04"})
 _LLM_CACHE_SYNTHESIS_ROLES = frozenset({"alpha", "beta", "leader", "reviewer"})
 _llm_cache_stages_enabled = True
 _llm_cache_synthesis_enabled = False
@@ -206,6 +206,8 @@ def invoke_llm(
     max_retries: int = 3,
     retry_base_delay: float = 5.0,
     messages: list[dict[str, str]] | None = None,
+    web_search: bool = False,
+    thinking: bool = False,
     # Legacy kwargs (accepted but ignored for backward compat).
     append_system_prompt: str | None = None,
     disallow_tools: bool = True,
@@ -269,6 +271,8 @@ def invoke_llm(
                 max_retries=max_retries,
                 retry_base_delay=retry_base_delay,
                 messages=messages,
+                web_search=web_search,
+                thinking=thinking,
             )
     else:
         response = provider.invoke(
@@ -279,6 +283,8 @@ def invoke_llm(
             max_retries=max_retries,
             retry_base_delay=retry_base_delay,
             messages=messages,
+            web_search=web_search,
+            thinking=thinking,
         )
     if use_cache:
         cache.put_llm(key, _llm_response_to_cache(response))
