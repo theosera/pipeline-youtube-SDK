@@ -61,6 +61,24 @@ def test_evaluation_report_partitions_by_scope() -> None:
     assert {f.finding_id for f in report.blocking_findings} == {"f1", "f2"}
 
 
+def test_fidelity_slot_defaults_to_empty_and_merges_into_findings() -> None:
+    cov = EvaluatorReport(perspective="coverage", findings=[_finding("f1", scope="05")])
+    ped = EvaluatorReport(perspective="pedagogy")
+    # Constructed WITHOUT fidelity (backward compat) -> empty fidelity slot.
+    report = EvaluationReport(iteration=0, coverage=cov, pedagogy=ped)
+    assert report.fidelity.perspective == "fidelity"
+    assert report.fidelity.findings == []
+
+    fid = EvaluatorReport(
+        perspective="fidelity",
+        findings=[_finding("f9", perspective="fidelity", scope="04", video_id="vid000")],
+    )
+    report2 = EvaluationReport(iteration=0, coverage=cov, pedagogy=ped, fidelity=fid)
+    assert {f.finding_id for f in report2.all_findings} == {"f1", "f9"}
+    assert [f.finding_id for f in report2.findings_for_04] == ["f9"]
+    assert [f.finding_id for f in report2.blocking_findings] == ["f1", "f9"]
+
+
 @pytest.mark.skip(reason="scaffold: parser logic TODO")
 def test_parse_coverage_round_trip() -> None:
     raw = '{"summary": "s", "findings": [{"finding_id": "f001", '

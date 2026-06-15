@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from ..stages.synthesis import SynthesisStageResult
 
 Severity = Literal["info", "low", "high"]  # "high" == blocking (drives regen)
-Perspective = Literal["coverage", "pedagogy"]
+Perspective = Literal["coverage", "pedagogy", "fidelity"]
 TargetScope = Literal["04", "05"]  # write-back target for a finding's fix
 
 
@@ -87,15 +87,24 @@ class EvaluatorReport:
 
 @dataclass(frozen=True)
 class EvaluationReport:
-    """Aggregate of both evaluators for a single iteration."""
+    """Aggregate of the evaluators for a single iteration.
+
+    ``fidelity`` (proper-noun / mis-transcription perspective) is the
+    third evaluator slot. It defaults to an empty report so callers that
+    only run coverage + pedagogy (and the existing scaffold tests) keep
+    constructing this without change.
+    """
 
     iteration: int  # 0-based
     coverage: EvaluatorReport
     pedagogy: EvaluatorReport
+    fidelity: EvaluatorReport = field(
+        default_factory=lambda: EvaluatorReport(perspective="fidelity")
+    )
 
     @property
     def all_findings(self) -> list[Finding]:
-        return [*self.coverage.findings, *self.pedagogy.findings]
+        return [*self.coverage.findings, *self.pedagogy.findings, *self.fidelity.findings]
 
     @property
     def blocking_findings(self) -> list[Finding]:

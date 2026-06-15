@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from .schema import Glossary, GlossaryEntry
 
 
-def _fold_key(term: str) -> str:
+def fold_term(term: str) -> str:
     """Fold a term into its match key (NFKC + casefold + strip).
 
     NFKC normalizes half/full-width forms; ``casefold`` removes case
@@ -62,7 +62,7 @@ class Normalizer:
         a canonical that also appears in its own alias list is fine.
         """
         for surface in (entry.canonical, *entry.aliases):
-            key = _fold_key(surface)
+            key = fold_term(surface)
             if not key:
                 continue
             existing = self._index.get(key)
@@ -80,7 +80,7 @@ class Normalizer:
         normalizer can be applied anywhere without risk of inventing
         content.
         """
-        return self._index.get(_fold_key(term), term)
+        return self._index.get(fold_term(term), term)
 
     def canonical_for(self, term: str) -> str | None:
         """Return the canonical for ``term`` if known, else ``None``.
@@ -89,11 +89,11 @@ class Normalizer:
         canonical / aliased" from "unknown" — useful for the fidelity
         evaluator, which must tell whether a term is in scope at all.
         """
-        return self._index.get(_fold_key(term))
+        return self._index.get(fold_term(term))
 
     def is_known(self, term: str) -> bool:
         """True iff ``term`` (folded) appears in the glossary."""
-        return _fold_key(term) in self._index
+        return fold_term(term) in self._index
 
     def is_variant(self, term: str) -> bool:
         """True iff ``term`` is a known *non-canonical* spelling.
@@ -110,4 +110,4 @@ class Normalizer:
         return len(self._index)
 
 
-__all__ = ["Normalizer"]
+__all__ = ["Normalizer", "fold_term"]
