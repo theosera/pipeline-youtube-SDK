@@ -51,25 +51,67 @@ def variant_surfaces(glossary: Glossary) -> list[str]:
     return surfaces
 
 
+# Only ASCII alphanumerics (+ underscore) can form a larger corrupted word
+# around an ASCII alias; CJK neighbors cannot. Guards therefore reject only
+# adjacent ASCII word chars, NOT Python's Unicode ``\b`` (which counts kana
+# as word chars and would block legitimate CJK-adjacent matches such as the
+# trailing digit in "へんかん0へんかん1").
+_ASCII_WORD = "A-Za-z0-9_"
+
+
+def _is_ascii_word_char(ch: str) -> bool:
+    return bool(ch) and ch.isascii() and (ch.isalnum() or ch == "_")
+
+
+def _bounded(surface: str) -> str:
+    """Escape ``surface`` and guard its ASCII-word edges with lookarounds.
+
+    Short ASCII aliases (``"AI"``, ``"Go"``) must NOT match inside larger
+    ASCII words (``"said"``, ``"Google"``) — raw substring replacement
+    there corrupts prose. A negative ASCII-word lookbehind/lookahead is
+    added only when the corresponding edge character is itself ASCII, so a
+    CJK alias (or an ASCII-ending alias sitting next to kana) still matches
+    by substring.
+    """
+    esc = re.escape(surface)
+    lead = rf"(?<![{_ASCII_WORD}])" if _is_ascii_word_char(surface[:1]) else ""
+    trail = rf"(?![{_ASCII_WORD}])" if _is_ascii_word_char(surface[-1:]) else ""
+    return f"{lead}{esc}{trail}"
+
+
+def compile_variant_pattern(surfaces: list[str]) -> re.Pattern[str] | None:
+    """Compile the shared variant matcher used by BOTH the rewriter and scanner.
+
+    Longest surfaces first (so an overlapping shorter variant never
+    partially clobbers a longer one), ``re.IGNORECASE``, with per-surface
+    ASCII word-boundary guards (see ``_bounded``). Returns ``None`` when
+    there are no variants. Keeping detection (``evaluation.fidelity``) and
+    rewriting (``normalize_text``) on the *same* pattern guarantees they
+    agree on what counts as a match.
+    """
+    if not surfaces:
+        return None
+    ordered = sorted(surfaces, key=len, reverse=True)
+    return re.compile("|".join(_bounded(s) for s in ordered), re.IGNORECASE)
+
+
 def normalize_text(text: str, glossary: Glossary) -> str:
     """Rewrite every known variant spelling in ``text`` to its canonical.
 
-    Non-destructive: only glossary-known variants are touched; all other
-    text is returned unchanged. Longest surfaces are matched first so an
-    overlapping shorter variant never partially clobbers a longer one.
-    Idempotent for a conflict-free glossary whose canonicals are not
-    themselves variants of other entries.
+    Non-destructive: only glossary-known variants are touched (with ASCII
+    word-boundary guards so short aliases never corrupt larger words); all
+    other text is returned unchanged. Idempotent for a conflict-free
+    glossary whose canonicals are not themselves variants of other
+    entries.
 
     Raises ``GlossaryConflictError`` (via ``Normalizer``) if the glossary
     maps one variant to two canonicals.
     """
     normalizer = Normalizer(glossary)  # revalidate + single resolution path
-    surfaces = variant_surfaces(glossary)
-    if not surfaces:
+    pattern = compile_variant_pattern(variant_surfaces(glossary))
+    if pattern is None:
         return text
-    surfaces.sort(key=len, reverse=True)
-    pattern = re.compile("|".join(re.escape(s) for s in surfaces), re.IGNORECASE)
     return pattern.sub(lambda m: normalizer.normalize(m.group(0)), text)
 
 
-__all__ = ["normalize_text", "variant_surfaces"]
+__all__ = ["compile_variant_pattern", "normalize_text", "variant_surfaces"]

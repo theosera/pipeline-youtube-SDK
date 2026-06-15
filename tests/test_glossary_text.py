@@ -59,6 +59,16 @@ def test_longest_surface_matches_first() -> None:
     assert normalize_text("ビブコーディング入門", glossary) == "Vibe Coding入門"
 
 
+def test_ascii_alias_does_not_corrupt_substrings() -> None:
+    # Short ASCII aliases must use word boundaries so they never rewrite
+    # letters inside unrelated words (the "AI" in "said"/"maintain").
+    glossary = Glossary(
+        entries=(GlossaryEntry(canonical="Artificial Intelligence", aliases=["AI"]),)
+    )
+    assert normalize_text("He said we maintain it", glossary) == "He said we maintain it"
+    assert normalize_text("Use AI now", glossary) == "Use Artificial Intelligence now"
+
+
 def test_normalization_is_idempotent() -> None:
     once = normalize_text("ビブコーディングとバイブコーディング", _GLOSSARY)
     assert normalize_text(once, _GLOSSARY) == once

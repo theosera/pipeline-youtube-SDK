@@ -106,6 +106,16 @@ def test_bool_version_rejected() -> None:
         parse_glossary({"version": True, "entries": []})
 
 
+def test_unknown_root_key_rejected() -> None:
+    with pytest.raises(GlossaryParseError, match="unknown top-level keys"):
+        parse_glossary({"entries": [], "verison": 1})  # typo'd "version"
+
+
+def test_unknown_entry_key_rejected() -> None:
+    with pytest.raises(GlossaryParseError, match="unknown keys"):
+        parse_glossary({"entries": [{"canonical": "x", "alias": ["y"]}]})  # typo'd "aliases"
+
+
 def test_load_glossary_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "glossary.json"
     path.write_text(json.dumps(_VALID, ensure_ascii=False), encoding="utf-8")

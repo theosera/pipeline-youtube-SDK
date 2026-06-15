@@ -84,14 +84,16 @@ def test_findings_route_to_the_correct_video() -> None:
     assert "Obsidian" in report.findings[0].description
 
 
-def test_width_insensitive_match_on_genuine_variant() -> None:
-    # "Vibecoding" (no space) folds to "vibecoding" != canonical
-    # "vibe coding", so it is a real variant. A FULL-WIDTH occurrence in
-    # the body must still match (NFKC folding), proving width-insensitivity
-    # without colliding with the canonical's own folded form.
-    glossary = Glossary(entries=(GlossaryEntry(canonical="Vibe Coding", aliases=["Vibecoding"]),))
-    report = scan_fidelity([_video(0)], ["use Ｖｉｂｅｃｏｄｉｎｇ now"], glossary)
-    assert len(report.findings) == 1
+def test_ascii_alias_uses_word_boundaries() -> None:
+    # Short ASCII aliases must match whole tokens only, never inside a
+    # larger word — otherwise a clean note is wrongly routed to 04 regen.
+    glossary = Glossary(
+        entries=(GlossaryEntry(canonical="Artificial Intelligence", aliases=["AI"]),)
+    )
+    # standalone token (any case) -> flagged
+    assert len(scan_fidelity([_video(0)], ["He said AI loudly"], glossary).findings) == 1
+    # "ai" inside "said"/"maintain" -> NOT flagged
+    assert scan_fidelity([_video(0)], ["She said we maintain it"], glossary).findings == []
 
 
 def test_case_or_width_only_alias_is_treated_as_canonical() -> None:

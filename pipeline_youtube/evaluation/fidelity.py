@@ -21,8 +21,9 @@ canonical is skipped so a redundantly-listed canonical never self-flags.
 
 from __future__ import annotations
 
-from ..glossary.normalizer import fold_term
+from ..glossary.normalizer import Normalizer
 from ..glossary.schema import Glossary
+from ..glossary.text import compile_variant_pattern, variant_surfaces
 from ..playlist import VideoMeta
 from .schemas import EvaluatorReport, Finding
 
@@ -57,24 +58,31 @@ def scan_fidelity(
             f"length mismatch: {len(videos)} videos vs {len(learning_md_bodies)} bodies"
         )
 
-    # Precompute (canonical, [variant_surfaces]) once. A variant whose
-    # folded form equals the canonical's folded form is not a defect.
-    variant_index = _build_variant_index(glossary)
+    # Use the SAME matcher as the Stage 02 rewriter (word-boundary-guarded,
+    # IGNORECASE) so detection and rewriting agree on what is a variant.
+    pattern = compile_variant_pattern(variant_surfaces(glossary))
+    normalizer = Normalizer(glossary)  # resolve match → canonical (+ conflict check)
 
     findings: list[Finding] = []
     counter = 0
     for video, body in zip(videos, learning_md_bodies, strict=True):
-        folded_body = fold_term(body)
-        per_video = 0
-        for canonical, variants in variant_index:
+        if pattern is None:
+            continue
+        # Group matched surfaces by canonical, in first-seen (text) order.
+        matched_by_canonical: dict[str, list[str]] = {}
+        for match in pattern.finditer(body):
+            surface = match.group(0)
+            canonical = normalizer.canonical_for(surface)
+            if canonical is None:  # defensive: pattern built from known surfaces
+                continue
+            seen = matched_by_canonical.setdefault(canonical, [])
+            if surface not in seen:
+                seen.append(surface)
+        for per_video, (canonical, surfaces_hit) in enumerate(matched_by_canonical.items()):
             if per_video >= max_findings_per_video:
                 break
-            matched = [v for v, folded_v in variants if folded_v in folded_body]
-            if not matched:
-                continue
             counter += 1
-            per_video += 1
-            findings.append(_make_finding(counter, video, canonical, matched))
+            findings.append(_make_finding(counter, video, canonical, surfaces_hit))
 
     summary = (
         f"{len(findings)} 件の固有名詞誤変換を {len(videos)} 動画から検出"
@@ -82,29 +90,6 @@ def scan_fidelity(
         else "既知の固有名詞誤変換は検出されませんでした"
     )
     return EvaluatorReport(perspective="fidelity", findings=findings, summary=summary)
-
-
-def _build_variant_index(
-    glossary: Glossary,
-) -> list[tuple[str, list[tuple[str, str]]]]:
-    """Return ``[(canonical, [(variant_surface, folded_variant), ...]), ...]``.
-
-    Skips any variant whose folded form is empty or equals the
-    canonical's folded form (a redundantly-listed canonical is not a
-    mis-transcription). Entries left without usable variants are dropped.
-    """
-    index: list[tuple[str, list[tuple[str, str]]]] = []
-    for entry in glossary.entries:
-        canonical_fold = fold_term(entry.canonical)
-        variants: list[tuple[str, str]] = []
-        for alias in entry.aliases:
-            folded = fold_term(alias)
-            if not folded or folded == canonical_fold:
-                continue
-            variants.append((alias, folded))
-        if variants:
-            index.append((entry.canonical, variants))
-    return index
 
 
 def _make_finding(

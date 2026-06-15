@@ -86,6 +86,10 @@ def parse_glossary(data: object) -> Glossary:
     if not isinstance(data, dict):
         raise GlossaryParseError(f"glossary root must be a JSON object, got {type(data).__name__}")
 
+    unknown_root = set(data) - {"version", "entries"}
+    if unknown_root:
+        raise GlossaryParseError(f"unknown top-level keys: {sorted(unknown_root)!r}")
+
     version_raw = data.get("version", 1)
     if not isinstance(version_raw, int) or isinstance(version_raw, bool):
         raise GlossaryParseError(f"version must be an integer, got {version_raw!r}")
@@ -105,6 +109,10 @@ def _parse_entry(item: object, *, index: int) -> GlossaryEntry:
     """Parse and validate one entry object; raise on any defect."""
     if not isinstance(item, dict):
         raise GlossaryParseError(f"entries[{index}] must be an object, got {type(item).__name__}")
+
+    unknown_keys = set(item) - {"canonical", "aliases", "reading", "category"}
+    if unknown_keys:
+        raise GlossaryParseError(f"entries[{index}] has unknown keys: {sorted(unknown_keys)!r}")
 
     canonical = item.get("canonical")
     if not isinstance(canonical, str) or not canonical.strip():

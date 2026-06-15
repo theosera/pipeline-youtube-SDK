@@ -40,7 +40,13 @@ from .checkpoint import (
 )
 from .config import VaultRootError, set_dry_run, set_vault_root
 from .genres import CODE_BEARING_GENRES, classify_playlist_genre
-from .glossary import Glossary, GlossaryParseError, load_glossary
+from .glossary import (
+    Glossary,
+    GlossaryConflictError,
+    GlossaryParseError,
+    Normalizer,
+    load_glossary,
+)
 from .obsidian import format_playlist_folder_name
 from .parallel import orchestrate_sub_agents, parse_video_range, strip_cli_option
 from .path_safety import ensure_safe_path
@@ -286,9 +292,16 @@ def _load_glossary_from_config(data: dict[str, Any], config_path: Path) -> Gloss
     if not glossary_path.is_absolute():
         glossary_path = (config_path.parent / glossary_path).resolve()
     try:
-        return load_glossary(glossary_path)
+        glossary = load_glossary(glossary_path)
     except (GlossaryParseError, OSError) as exc:
         raise click.UsageError(f"config.json: glossary_path could not be loaded: {exc}") from exc
+    # Fail fast on variant conflicts now (build the index once at startup)
+    # rather than deep inside per-video Stage 02, after transcript + LLM work.
+    try:
+        Normalizer(glossary)
+    except GlossaryConflictError as exc:
+        raise click.UsageError(f"config.json: glossary_path has a variant conflict: {exc}") from exc
+    return glossary
 
 
 @dataclass
