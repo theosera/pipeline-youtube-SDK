@@ -1081,13 +1081,17 @@ def cli(
     # neither is given). See providers/selection.py.
     config_data = json.loads(cfg_path.read_text(encoding="utf-8"))
     providers_raw = config_data.get("providers", {})
-    models_raw = config_data.get("models", {})
     if (provider == "anthropic" or hybrid) and "anthropic" not in providers_raw:
         raise click.UsageError(
             "--provider anthropic / --hybrid requires the 'anthropic' provider in config.json."
         )
+    # Seed from cfg.models — the NORMALIZED map _load_config builds with the
+    # per-stage fallbacks already applied (router→"haiku", other unspecified
+    # stages→the --model value). Using it (not the raw config) keeps --model
+    # and partial-config fallbacks honored for missing roles; resolve_role
+    # handles both the object ({provider, model}) and legacy string forms.
     effective_models, model_warnings = apply_selection(
-        models_raw, providers_raw, _MODEL_KEYS, provider=provider, hybrid=hybrid
+        cfg.models, providers_raw, _MODEL_KEYS, provider=provider, hybrid=hybrid
     )
     for warning in model_warnings:
         click.echo(warning)

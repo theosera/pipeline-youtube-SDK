@@ -110,3 +110,16 @@ def test_object_config_sends_model_NAME_not_dict(monkeypatch) -> None:
 def test_provider_override_sends_selected_model_name(monkeypatch) -> None:
     effective, _ = apply_selection(_all_ollama(), _PROVIDERS, _STAGES, provider="anthropic")
     assert _resolved_model_sent_to_provider(monkeypatch, effective, "stage_02") == "sonnet"
+
+
+def test_string_fallback_is_preserved_not_dropped_to_default() -> None:
+    # cfg.models supplies per-stage fallbacks as strings (router→"haiku",
+    # unspecified stages→the --model value). apply_selection must keep them so
+    # missing roles still honor --model instead of the registry default.
+    models = _all_ollama()
+    models["router"] = "haiku"  # _load_config's router fallback (string form)
+    effective, _ = apply_selection(models, _PROVIDERS, _STAGES)
+    assert effective["router"] == "haiku"
+    registry_mod.configure_providers(_PROVIDERS, effective)
+    # resolve_role treats a known Anthropic alias string as anthropic.
+    assert registry_mod.resolve_role("router") == ("anthropic", "haiku")
