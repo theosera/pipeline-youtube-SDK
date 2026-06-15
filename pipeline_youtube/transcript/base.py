@@ -67,6 +67,9 @@ class TranscriptResult:
     # no correction was attempted (Stage 01a only); a float (possibly 0.0) once
     # correction ran so Stage 01 can echo ``cost=$...`` like Stage 02/04.
     correction_cost_usd: float | None = None
+    # Proper nouns Stage 01b confirmed for this video (deduped). Written into the
+    # per-playlist proper-noun sheet for human review and next-run reuse.
+    confirmed_terms: tuple[str, ...] = ()
 
 
 Fetcher = Callable[[str, list[str]], TranscriptResult]

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..providers.base import LLMError, LLMResponse
 from ..providers.registry import invoke_llm
@@ -50,14 +50,49 @@ CORRECTION_SYSTEM_PROMPT = (
     "- 文脈推論でも検索でも判別不能な深刻な欠落のみ、捏造せず `[聴取不能]` とする。\n"
     "- 行の統合・分割・並べ替え・idx や時刻の改変は禁止。入力の idx と1:1で対応させる。\n"
     "\n"
-    "出力は **JSON 配列のみ**（前置き・コードフェンス・説明文を一切付けない）。"
-    'スキーマ: [{"idx": <int>, "text": "<校正後テキスト>"}, ...]。'
-    "入力の各 idx をちょうど1回ずつ含めること。"
+    "出力は **JSON オブジェクトのみ**（前置き・コードフェンス・説明文を一切付けない）。\n"
+    'スキーマ: {"corrections": [{"idx": <int>, "text": "<校正後テキスト>"}, ...], '
+    '"terms": ["<確定した固有名詞の正しい表記>", ...]}。\n'
+    "corrections は入力の各 idx をちょうど1回ずつ含めること。"
+    "terms には、このバッチで登場し表記を確定（特に検索や校正で直した）固有名詞・専門用語・"
+    "製品名を、確定後の正しい表記で列挙する（該当なしなら空配列）。"
 )
 
 # An invoke callable matching `invoke_llm`'s keyword interface — injectable
 # so tests can stub the LLM without touching the network.
 InvokeFn = Callable[..., LLMResponse]
+
+
+def _known_terms_block(known_terms: list[tuple[str, str]] | None) -> str:
+    """Render a confirmed-vocabulary block to append to the system prompt.
+
+    On a later run, terms already in the per-playlist sheet are passed here so
+    the model reuses the resolved spelling **without** spending a web search —
+    the cost-reduction lever the user asked for. Empty/None → no block.
+    """
+    if not known_terms:
+        return ""
+    lines = [
+        "",
+        "## 確定済み固有名詞辞書（再検索は不要。これらの表記をそのまま使うこと）",
+    ]
+    for system_term, resolved in known_terms:
+        lines.append(
+            f"- {system_term} → {resolved}" if system_term != resolved else f"- {resolved}"
+        )
+    return "\n".join(lines)
+
+
+def _dedup_terms(terms: list[str]) -> list[str]:
+    """Order-preserving dedup of confirmed terms (exact match, stripped)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in terms:
+        term = raw.strip()
+        if term and term not in seen:
+            seen.add(term)
+            out.append(term)
+    return out
 
 
 @dataclass(frozen=True)
@@ -68,10 +103,13 @@ class CorrectionResult:
     the summed billed cost of every LLM call made during the pass, so Stage 01
     can surface a ``cost=$...`` figure like Stage 02/04 do (it is the only paid
     work Stage 01 does). A pass that makes no billed calls reports ``0.0``.
+    ``confirmed_terms`` are the proper nouns the model resolved (deduped),
+    written into the per-playlist proper-noun sheet for human review + reuse.
     """
 
     chunks: list[Chunk]
     cost_usd: float
+    confirmed_terms: list[str] = field(default_factory=list)
 
 
 def _build_prompt(batch: list[tuple[int, Chunk]]) -> str:
@@ -92,14 +130,8 @@ def _strip_code_fence(text: str) -> str:
     return stripped
 
 
-def _parse_corrections(text: str) -> dict[int, str]:
-    """Parse the model's JSON array into ``{idx: corrected_text}``.
-
-    Raises ``ValueError`` if the payload is not a JSON array of
-    ``{"idx": int, "text": str}`` objects, so the caller can fall back to the
-    raw chunks for this batch.
-    """
-    payload = json.loads(_strip_code_fence(text))
+def _corrections_from_list(payload: object) -> dict[int, str]:
+    """Validate a JSON array of ``{idx, text}`` into ``{idx: corrected_text}``."""
     if not isinstance(payload, list):
         raise ValueError(f"expected a JSON array, got {type(payload).__name__}")
     mapping: dict[int, str] = {}
@@ -114,6 +146,39 @@ def _parse_corrections(text: str) -> dict[int, str]:
     return mapping
 
 
+def _parse_terms(value: object) -> list[str]:
+    """Coerce the optional ``terms`` field into a list of non-empty strings."""
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _parse_corrections(text: str) -> dict[int, str]:
+    """Parse the model's JSON array into ``{idx: corrected_text}`` (legacy form).
+
+    Raises ``ValueError``/``JSONDecodeError`` on a malformed payload so the
+    caller can fall back to the raw chunks for this batch.
+    """
+    return _corrections_from_list(json.loads(_strip_code_fence(text)))
+
+
+def _parse_response(text: str) -> tuple[dict[int, str], list[str]]:
+    """Parse a correction response into ``(corrections, confirmed_terms)``.
+
+    Accepts both the object form ``{"corrections": [...], "terms": [...]}`` and
+    the bare-array legacy form ``[{idx, text}, ...]`` (no terms). Raises on a
+    structurally invalid payload so the batch falls back to raw text.
+    """
+    payload = json.loads(_strip_code_fence(text))
+    if isinstance(payload, list):
+        return _corrections_from_list(payload), []
+    if isinstance(payload, dict):
+        return _corrections_from_list(payload.get("corrections", [])), _parse_terms(
+            payload.get("terms", [])
+        )
+    raise ValueError(f"expected a JSON object or array, got {type(payload).__name__}")
+
+
 def correct_chunks(
     chunks: list[Chunk],
     *,
@@ -121,8 +186,9 @@ def correct_chunks(
     invoke: InvokeFn = invoke_llm,
     batch_size: int = DEFAULT_BATCH_SIZE,
     timeout: int = DEFAULT_TIMEOUT,
+    known_terms: list[tuple[str, str]] | None = None,
 ) -> CorrectionResult:
-    """Return corrected chunks (timestamps unchanged) plus the total LLM cost.
+    """Return corrected chunks (timestamps unchanged), total cost, and terms.
 
     Processes ``chunks`` in batches; each batch is corrected by one LLM call
     with web search + extended thinking enabled (Anthropic, via the
@@ -131,6 +197,11 @@ def correct_chunks(
     correction for that index, use it; otherwise keep the original text. The
     ``start`` of every chunk is preserved verbatim.
 
+    ``known_terms`` is a confirmed ``(system, resolved)`` vocabulary from the
+    per-playlist sheet; it is injected into the prompt so the model reuses those
+    spellings without re-searching (cost reduction). The proper nouns the model
+    reports back are deduped into ``CorrectionResult.confirmed_terms``.
+
     ``cost_usd`` sums the billed cost of every LLM call that actually executed
     (a batch whose ``invoke`` raised before returning contributes nothing; a
     batch that returned but failed to parse still counts, since it was billed).
@@ -138,8 +209,10 @@ def correct_chunks(
     if not chunks:
         return CorrectionResult(chunks=chunks, cost_usd=0.0)
 
+    system_prompt = CORRECTION_SYSTEM_PROMPT + _known_terms_block(known_terms)
     corrected: list[Chunk] = list(chunks)
     total_cost = 0.0
+    terms: list[str] = []
     for batch_start in range(0, len(chunks), batch_size):
         batch = [
             (i, chunks[i]) for i in range(batch_start, min(batch_start + batch_size, len(chunks)))
@@ -147,7 +220,7 @@ def correct_chunks(
         try:
             response = invoke(
                 prompt=_build_prompt(batch),
-                system_prompt=CORRECTION_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 role=CORRECTION_ROLE,
                 model=model,
                 web_search=True,
@@ -159,16 +232,19 @@ def correct_chunks(
             continue
         total_cost += response.total_cost_usd or 0.0
         try:
-            mapping = _parse_corrections(response.text)
+            mapping, batch_terms = _parse_response(response.text)
         except (ValueError, json.JSONDecodeError):
             # Best-effort: a failed batch keeps its raw chunks rather than
             # breaking Stage 01 or shifting the timeline.
             continue
+        terms.extend(batch_terms)
         for idx, chunk in batch:
             new_text = mapping.get(idx)
             if new_text:
                 corrected[idx] = Chunk(start=chunk.start, text=new_text)
-    return CorrectionResult(chunks=corrected, cost_usd=total_cost)
+    return CorrectionResult(
+        chunks=corrected, cost_usd=total_cost, confirmed_terms=_dedup_terms(terms)
+    )
 
 
 def chunks_to_snippets(chunks: list[Chunk], *, last_end: float) -> list[TranscriptSnippet]:

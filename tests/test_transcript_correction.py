@@ -11,6 +11,7 @@ from pipeline_youtube.providers.base import LLMError, LLMResponse
 from pipeline_youtube.transcript.chunking import Chunk
 from pipeline_youtube.transcript.correction import (
     _parse_corrections,
+    _parse_response,
     chunks_to_snippets,
     correct_chunks,
 )
@@ -51,6 +52,29 @@ class TestParseCorrections:
     def test_bad_json_raises(self) -> None:
         with pytest.raises(json.JSONDecodeError):
             _parse_corrections("not json")
+
+
+class TestParseResponse:
+    def test_object_form_returns_corrections_and_terms(self) -> None:
+        mapping, terms = _parse_response(
+            '{"corrections": [{"idx": 0, "text": "A"}], "terms": ["Anthropic", " Claude "]}'
+        )
+        assert mapping == {0: "A"}
+        assert terms == ["Anthropic", "Claude"]
+
+    def test_array_form_has_no_terms(self) -> None:
+        mapping, terms = _parse_response('[{"idx": 0, "text": "A"}]')
+        assert mapping == {0: "A"}
+        assert terms == []
+
+    def test_object_without_terms_is_lenient(self) -> None:
+        mapping, terms = _parse_response('{"corrections": [{"idx": 0, "text": "A"}]}')
+        assert mapping == {0: "A"}
+        assert terms == []
+
+    def test_non_object_non_array_raises(self) -> None:
+        with pytest.raises(ValueError, match="object or array"):
+            _parse_response('"a string"')
 
 
 class TestCorrectChunks:
@@ -116,6 +140,32 @@ class TestCorrectChunks:
             raise LLMError("boom")
 
         assert correct_chunks(self._chunks(), model="opus", invoke=invoke).cost_usd == 0.0
+
+    def test_collects_confirmed_terms_deduped(self) -> None:
+        invoke = _stub_invoke(
+            '{"corrections": [{"idx": 0, "text": "Google"}, {"idx": 1, "text": "x"}], '
+            '"terms": ["Google", "Google", "TensorFlow"]}'
+        )
+        result = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        assert result.confirmed_terms == ["Google", "TensorFlow"]
+
+    def test_known_terms_injected_into_system_prompt(self) -> None:
+        invoke = _stub_invoke('{"corrections": [{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]}')
+        correct_chunks(
+            self._chunks(),
+            model="opus",
+            invoke=invoke,
+            known_terms=[("ぐぐる", "Google"), ("Anthropic", "Anthropic")],
+        )
+        sys_prompt = invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
+        assert "確定済み固有名詞辞書" in sys_prompt
+        assert "ぐぐる → Google" in sys_prompt
+        assert "- Anthropic" in sys_prompt
+
+    def test_no_known_terms_leaves_base_prompt(self) -> None:
+        invoke = _stub_invoke('[{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]')
+        correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        assert "確定済み固有名詞辞書" not in invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
 
     def test_chunks_to_snippets_preserves_timeline(self) -> None:
         chunks = [

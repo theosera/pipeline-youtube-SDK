@@ -118,6 +118,7 @@ def run_stage_scripts(
     include_code_blocks: bool = False,
     media_path: Path | None = None,
     correct_model: str | None = None,
+    known_terms: list[tuple[str, str]] | None = None,
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
@@ -131,7 +132,10 @@ def run_stage_scripts(
       passed through an LLM + web-search correction pass (timestamps
       preserved) and the corrected text is folded back into the returned
       ``TranscriptResult.snippets`` so Stage 02/03/04 consume it. Skipped
-      under `dry_run`.
+      under `dry_run`. `known_terms` (the per-playlist confirmed vocabulary)
+      is forwarded so already-known proper nouns skip the web search; the
+      proper nouns the pass confirms are returned on
+      ``TranscriptResult.confirmed_terms``.
     - Does NOT overwrite the frontmatter already present; appends below.
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
@@ -189,13 +193,14 @@ def run_stage_scripts(
     # text is folded back into `result.snippets` so Stage 02/03/04 (which
     # re-chunk the TranscriptResult) consume the correction, not just the 01 md.
     if correct_model and not dry_run and chunks:
-        correction = correct_chunks(chunks, model=correct_model)
+        correction = correct_chunks(chunks, model=correct_model, known_terms=known_terms)
         chunks = correction.chunks
         last = result.snippets[-1]
         result = replace(
             result,
             snippets=chunks_to_snippets(chunks, last_end=last.start + last.duration),
             correction_cost_usd=correction.cost_usd,
+            confirmed_terms=tuple(correction.confirmed_terms),
         )
     body = _render_chunks(video, chunks)
 

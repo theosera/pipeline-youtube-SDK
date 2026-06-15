@@ -114,9 +114,10 @@ class TestRunStageScripts:
         monkeypatch.setattr(
             scripts_stage,
             "correct_chunks",
-            lambda chunks, *, model: CorrectionResult(
+            lambda chunks, *, model, known_terms=None: CorrectionResult(
                 chunks=[Chunk(start=c.start, text=c.text + " [FIX]") for c in chunks],
                 cost_usd=0.42,
+                confirmed_terms=["Anthropic"],
             ),
         )
 
@@ -128,6 +129,7 @@ class TestRunStageScripts:
         assert all("[FIX]" in s.text for s in result.snippets)
         assert result.snippets[0].start == 0.0
         assert result.correction_cost_usd == 0.42
+        assert result.confirmed_terms == ("Anthropic",)
         assert "[FIX]" in scripts_path.read_text(encoding="utf-8")
 
     def test_dry_run_does_not_touch_file(self, vault, monkeypatch):

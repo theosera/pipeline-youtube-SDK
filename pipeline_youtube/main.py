@@ -41,11 +41,21 @@ from .checkpoint import (
 from .config import VaultRootError, set_dry_run, set_vault_root
 from .genres import CODE_BEARING_GENRES, classify_playlist_genre
 from .glossary import (
+    SHEET_FILENAME,
     Glossary,
     GlossaryConflictError,
     GlossaryParseError,
     Normalizer,
+    ProperNounSheet,
+    correction_entries,
+    correction_glossary,
+    known_pairs,
     load_glossary,
+    load_sheet,
+    merge_glossary,
+    upsert_video_terms,
+    write_glossary,
+    write_sheet,
 )
 from .obsidian import format_playlist_folder_name
 from .parallel import orchestrate_sub_agents, parse_video_range, strip_cli_option
@@ -136,6 +146,10 @@ class CliConfig:
     # Proper-noun normalization glossary (Stage 02). None → no normalization
     # (prior behavior); set via config.json "glossary_path".
     glossary: Glossary | None = None
+    # Resolved path of the glossary.json above (when configured), so user
+    # corrections from the per-playlist proper-noun sheet can be promoted back
+    # into it. None when no glossary_path is configured.
+    glossary_path: Path | None = None
     # Local-transcription backend/model (Stage 01 Whisper tier). backend:
     # "auto" (MLX on Apple Silicon, else openai), "mlx", or "openai".
     # model: None → backend default. Set via config.json
@@ -269,7 +283,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     download_concurrency = _positive_int_or_none("download_concurrency")
     whisper_max_audio_seconds = _positive_int_or_none("whisper_max_audio_seconds")
 
-    glossary = _load_glossary_from_config(data, config_path)
+    glossary, glossary_path = _load_glossary_from_config(data, config_path)
 
     whisper_backend = str(data.get("whisper_backend") or "auto").lower()
     if whisper_backend not in {"auto", "mlx", "openai"}:
@@ -305,24 +319,28 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         llm_concurrency=llm_concurrency,
         download_concurrency=download_concurrency,
         glossary=glossary,
+        glossary_path=glossary_path,
         whisper_backend=whisper_backend,
         whisper_model=whisper_model,
         transcript_correction=transcript_correction_raw,
     )
 
 
-def _load_glossary_from_config(data: dict[str, Any], config_path: Path) -> Glossary | None:
+def _load_glossary_from_config(
+    data: dict[str, Any], config_path: Path
+) -> tuple[Glossary | None, Path | None]:
     """Load the optional proper-noun glossary referenced by ``glossary_path``.
 
-    ``glossary_path`` is optional (absent → ``None`` → Stage 02 normalization
-    disabled). A relative path resolves against config.json's directory so the
-    glossary travels with the config. A malformed/missing file is a
-    configuration error surfaced as ``UsageError`` (fail fast, not silently
-    skipped).
+    Returns ``(glossary, resolved_path)``. ``glossary_path`` is optional (absent
+    → ``(None, None)`` → Stage 02 normalization disabled). A relative path
+    resolves against config.json's directory so the glossary travels with the
+    config. A malformed/missing file is a configuration error surfaced as
+    ``UsageError`` (fail fast, not silently skipped). The resolved path is
+    returned so user corrections can later be promoted back into the file.
     """
     raw = data.get("glossary_path")
     if raw is None:
-        return None
+        return None, None
     if not isinstance(raw, str) or not raw.strip():
         raise click.UsageError("config.json: glossary_path must be a non-empty string")
     glossary_path = Path(raw).expanduser()
@@ -338,7 +356,7 @@ def _load_glossary_from_config(data: dict[str, Any], config_path: Path) -> Gloss
         Normalizer(glossary)
     except GlossaryConflictError as exc:
         raise click.UsageError(f"config.json: glossary_path has a variant conflict: {exc}") from exc
-    return glossary
+    return glossary, glossary_path
 
 
 @dataclass
@@ -354,6 +372,9 @@ class VideoRunResult:
     summary_model: str | None = None
     learning_cost_usd: float | None = None
     learning_model: str | None = None
+    # Proper nouns Stage 01b confirmed for this video, written into the
+    # per-playlist proper-noun sheet after all videos are processed.
+    confirmed_terms: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -604,6 +625,64 @@ def _collect_existing_learning_bodies(
     return matched_videos, matched_bodies, folder_name
 
 
+def _proper_noun_sheet_path(video: VideoMeta, run_time: datetime) -> Path:
+    """Path of the per-playlist proper-noun sheet (under the 01_Scripts folder).
+
+    Every video in a playlist shares the same 01_Scripts playlist folder, so the
+    sheet's parent is stable regardless of which video is used to derive it.
+    """
+    scripts_path = compute_note_paths(video, run_time, units=("scripts",))["scripts"]
+    return scripts_path.parent / SHEET_FILENAME
+
+
+def _promote_corrections_to_glossary(sheet: ProperNounSheet, glossary_path: Path) -> int:
+    """Promote user-corrected sheet rows into ``glossary.json``; return # added.
+
+    Only rows the user actually corrected (right column filled) are promoted —
+    the correction becomes the ``canonical`` and the system spelling its
+    ``alias``. The merge is non-destructive and conflict-tolerant; the file is
+    rewritten only on a real change. All I/O is best-effort (a broken/locked
+    glossary never aborts the run).
+    """
+    new_entries = correction_entries(sheet)
+    if not new_entries:
+        return 0
+    try:
+        base = load_glossary(glossary_path) if glossary_path.exists() else Glossary()
+    except (GlossaryParseError, OSError):
+        return 0
+    merged = merge_glossary(base, new_entries)
+    if merged == base:
+        return 0
+    try:
+        write_glossary(glossary_path, merged)
+    except OSError:
+        return 0
+    return len(merged.entries) - len(base.entries)
+
+
+def _update_proper_noun_sheet(sheet_path: Path, results: list[VideoRunResult]) -> None:
+    """Merge each video's confirmed terms into the on-disk sheet and rewrite it.
+
+    Existing user corrections are preserved (``upsert_video_terms``). The file is
+    left untouched when no video contributed new terms, so a user's hand edits
+    are never clobbered by an empty rewrite.
+    """
+    contributing = [r for r in results if r.confirmed_terms]
+    if not contributing:
+        return
+    sheet = load_sheet(sheet_path)
+    for result in contributing:
+        sheet = upsert_video_terms(
+            sheet,
+            video_id=result.video.video_id,
+            title=result.video.title or "",
+            terms=list(result.confirmed_terms),
+        )
+    sheet_path.parent.mkdir(parents=True, exist_ok=True)
+    write_sheet(sheet_path, sheet)
+
+
 def _process_video(
     video: VideoMeta,
     run_time: datetime,
@@ -618,6 +697,7 @@ def _process_video(
     glossary: Glossary | None = None,
     media_path: Path | None = None,
     correct_transcript: bool = False,
+    known_terms: list[tuple[str, str]] | None = None,
 ) -> VideoRunResult:
     try:
         paths = compute_note_paths(video, run_time)
@@ -635,6 +715,7 @@ def _process_video(
             include_code_blocks=code_bearing,
             media_path=media_path,
             correct_model=correct_model,
+            known_terms=known_terms,
         )
         with contextlib.suppress(Exception):
             record_transcript_stat(video, transcript)
@@ -752,6 +833,7 @@ def _process_video(
                 transcript_model=correct_model,
                 summary_cost_usd=summary_resp.total_cost_usd,
                 summary_model=summary_resp.model,
+                confirmed_terms=transcript.confirmed_terms,
             )
 
         click.echo(f"  [04] learning (model={models['stage_04']})...", nl=False)
@@ -786,6 +868,7 @@ def _process_video(
             summary_model=summary_resp.model,
             learning_cost_usd=learning_resp.total_cost_usd,
             learning_model=learning_resp.model,
+            confirmed_terms=transcript.confirmed_terms,
         )
     except Exception as e:
         traceback.print_exc()
@@ -807,6 +890,7 @@ async def _run_videos_concurrent(
     glossary: Glossary | None = None,
     media_map: dict[str, Path] | None = None,
     correct_transcript: bool = False,
+    known_terms: list[tuple[str, str]] | None = None,
 ) -> list[VideoRunResult]:
     """Process multiple videos concurrently with bounded parallelism."""
     sem = asyncio.Semaphore(concurrency)
@@ -829,6 +913,7 @@ async def _run_videos_concurrent(
                 glossary=glossary,
                 media_path=media.get(video.video_id),
                 correct_transcript=correct_transcript,
+                known_terms=known_terms,
             )
 
     tasks = [_task(i, v) for i, v in enumerate(videos, 1)]
@@ -1380,6 +1465,24 @@ def cli(
     run_time = _parse_run_timestamp(run_timestamp)
     click.echo(f"run_time: {run_time.isoformat(timespec='seconds')}")
 
+    # Per-playlist proper-noun sheet (a byproduct of Stage 01b correction).
+    # Gated on transcript_correction. On load we (a) feed already-known terms to
+    # Stage 01b so they skip the web search, and (b) promote the user's
+    # corrections into glossary.json. The sheet's resolved spellings are applied
+    # to the Stage 05 output further below.
+    proper_noun_sheet_path: Path | None = None
+    known_terms: list[tuple[str, str]] | None = None
+    if cfg.transcript_correction and not dry_run:
+        proper_noun_sheet_path = _proper_noun_sheet_path(videos[0], run_time)
+        start_sheet = load_sheet(proper_noun_sheet_path)
+        known_terms = known_pairs(start_sheet) or None
+        if cfg.glossary_path is not None:
+            promoted = _promote_corrections_to_glossary(start_sheet, cfg.glossary_path)
+            if promoted:
+                click.echo(
+                    f"glossary: promoted {promoted} corrected term(s) into {cfg.glossary_path.name}"
+                )
+
     folder_override: str | None = None
     if synthesis_only:
         click.echo("\n=== --synthesis-only: loading existing 04 md files ===")
@@ -1454,6 +1557,7 @@ def cli(
                     glossary=cfg.glossary,
                     media_map=media_map,
                     correct_transcript=cfg.transcript_correction,
+                    known_terms=known_terms,
                 )
             )
             results.extend(concurrent_results)
@@ -1473,8 +1577,16 @@ def cli(
                     glossary=cfg.glossary,
                     media_path=media_map.get(video.video_id),
                     correct_transcript=cfg.transcript_correction,
+                    known_terms=known_terms,
                 )
                 results.append(result)
+
+        # Write the proper nouns Stage 01b confirmed into the per-playlist sheet
+        # (preserving any user corrections) so they can be reviewed before
+        # Stage 05 and reused on the next run. Done before the stop-after-capture
+        # return so the sheet is available during a manual review pause.
+        if proper_noun_sheet_path is not None:
+            _update_proper_noun_sheet(proper_noun_sheet_path, results)
 
         if stop_after_capture:
             click.echo(
@@ -1504,6 +1616,15 @@ def cli(
         synthesis_videos = [r.video for r in succeeded]
         synthesis_bodies = [r.learning_md_body or "" for r in succeeded]
 
+    # Apply the user's proper-noun corrections to the Stage 05 output: build a
+    # glossary from the sheet's user-corrected rows (correction = canonical,
+    # system spelling = alias) and rewrite the MOC + chapters with it.
+    proper_noun_glossary: Glossary | None = None
+    if proper_noun_sheet_path is not None:
+        sheet_glossary = correction_glossary(load_sheet(proper_noun_sheet_path))
+        if sheet_glossary.entries:
+            proper_noun_glossary = sheet_glossary
+
     click.echo("\n=== Stage 05 Synthesis (Agent Teams) ===")
     synth_timeouts = compute_synthesis_timeouts(
         len(synthesis_videos), override=effective_synthesis_timeout
@@ -1522,6 +1643,7 @@ def cli(
         folder_name_override=folder_override,
         synthesis_timeout=effective_synthesis_timeout,
         profile=effective_synthesis_profile,
+        proper_noun_glossary=proper_noun_glossary,
     )
 
     if synthesis_result.skipped:
