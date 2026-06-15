@@ -147,13 +147,11 @@ class TestPrefetchSkippedOnCacheHit:
         monkeypatch.setattr(
             main_mod,
             "run_stage_scripts",
-            lambda video, path, *, dry_run, include_code_blocks=False, media_path=None: (
-                build_result(
-                    video_id=video.video_id,
-                    source=TranscriptSource.OFFICIAL,
-                    language="ja",
-                    snippets=[TranscriptSnippet("字幕", 0.0, 30.0)],
-                )
+            lambda video, path, *, dry_run, include_code_blocks=False: build_result(
+                video_id=video.video_id,
+                source=TranscriptSource.OFFICIAL,
+                language="ja",
+                snippets=[TranscriptSnippet("字幕", 0.0, 30.0)],
             ),
         )
         monkeypatch.setattr(main_mod, "record_transcript_stat", lambda *a, **kw: None)
