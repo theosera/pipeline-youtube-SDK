@@ -1,45 +1,48 @@
 """Stage 06 — Evaluation phase orchestrator (separate from linear 01–05).
 
-SCAFFOLD — signatures + control-flow contract are complete; bodies are
-stubs (TODO). No real LLM logic yet.
+ADVISORY MODE (current): runs the evaluators ONCE after Stage 05 and
+writes a report; it does NOT regenerate 04/05 and returns the synthesis
+result unchanged. Rationale: Stage 02's deterministic glossary
+normalization already fixes proper nouns at the source, so the
+cost/regression risk of an LLM-driven regeneration loop is not justified
+— "detect and record" captures the value at zero risk. The per-video 04
+regeneration + 05 re-synthesis helpers below remain as documented future
+stubs (an opt-in regen mode), unused by the advisory path.
 
-The bounded feedback loop (max 2 iterations) runs AFTER Stage 05:
+One advisory pass::
 
-    for each iteration (≤ max_loops, hard cap 2):
-        run 2 evaluators in parallel  → aggregate → route findings
-        apply: regen targeted 04 subset (then 05) and/or regen 05 only
-        re-evaluate
-    stop when no blocking (high) findings remain OR max_loops reached
+    run coverage (LLM) + pedagogy (LLM) + fidelity (deterministic)
+      → aggregate (routing) → write loop_0.json + summary.md
+      → return synthesis_result unchanged
 
 It does NOT modify the existing Reviewer (ε). ``learning_md_bodies`` is
-treated as an index-aligned, copy-on-write working list: when a 04 subset
-is regenerated, only the targeted indices are replaced, preserving the
-1:1 alignment with ``videos`` that ``run_stage_synthesis`` /
-``format_learning_materials`` require.
-
-04 subset regen + checkpoint: the 04 checkpoint is a filesystem-presence
-check read only at the START of a ``main.py`` run — there is no in-loop
-checkpoint gate here. So regen needs NO checkpoint mutation: calling
-``run_stage_learning`` overwrites the 04 md atomically (precedent:
-``--force-video``), leaving a valid checkpoint marker.
-
-Cost envelope: worst case ≈ ``max_loops × (K stage_04 calls + 1 full
-synthesis)`` where K = deduped targeted videos. Bounded by the hard
-``max_loops ≤ 2`` cap; mitigate K by acting only on ``high`` findings.
+index-aligned with ``videos`` (the 1:1 contract ``format_learning_materials``
+requires). Every evaluator is advisory: any failure degrades to an empty
+report rather than aborting the stage.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from ..evaluation.schemas import EvaluationLoopResult
+from ..evaluation.evaluators import call_coverage_evaluator, call_pedagogy_evaluator
+from ..evaluation.fidelity import scan_fidelity
+from ..evaluation.report import resolve_eval_dir, write_evaluation_loop, write_evaluation_summary
+from ..evaluation.routing import aggregate_reports
+from ..evaluation.schemas import (
+    EvaluationIteration,
+    EvaluationLoopResult,
+    EvaluatorReport,
+    Perspective,
+)
+from ..glossary.schema import Glossary
+from ..obsidian import format_playlist_folder_name
 from ..playlist import VideoMeta
 from ..synthesis.agents import AgentCallResult
 from .synthesis import SynthesisStageResult
-
-_MAX_LOOPS_HARD_CAP = 2
 
 
 @dataclass(frozen=True)
@@ -64,39 +67,30 @@ def run_stage_evaluation(
     *,
     run_time: datetime,
     playlist_title: str,
-    summary_md_paths: dict[str, Path] | None = None,
-    capture_md_paths: dict[str, Path] | None = None,
-    learning_md_paths: dict[str, Path] | None = None,
-    max_loops: int = 2,
+    max_loops: int = 0,
     model: str = "sonnet",
     eval_models: dict[str, str] | None = None,
-    agent_models: dict[str, str] | None = None,
+    glossary: Glossary | None = None,
+    summary_bodies: dict[str, str] | None = None,
     folder_name_override: str | None = None,
-    code_bearing: bool = False,
-    synthesis_timeout: int | None = None,
-    profile: str | None = None,
     dry_run: bool = False,
 ) -> EvaluationStageResult:
-    """Run the bounded evaluation feedback loop after Stage 05.
+    """Run ONE advisory evaluation pass after Stage 05 (no regeneration).
 
-    See module docstring for the loop contract and stop conditions
-    (``no_blocking_findings`` / ``max_loops_reached`` / ``regen_failed``).
+    ``max_loops <= 0`` short-circuits to a passthrough (``skipped=True``)
+    leaving ``synthesis_result`` untouched. Any positive value enables the
+    single advisory pass (there is no loop — advisory mode never mutates,
+    so re-evaluating would be redundant).
 
-    ``max_loops`` is clamped to ``[0, _MAX_LOOPS_HARD_CAP]``; 0 short-circuits
-    to a passthrough (``skipped=True``) leaving ``synthesis_result`` untouched.
+    Runs coverage (LLM) + pedagogy (LLM) + fidelity (deterministic, only
+    when ``glossary`` is given), aggregates them, and — unless ``dry_run``
+    — writes ``loop_0.json`` + ``summary.md`` under the Stage 05
+    ``_meta/evaluation`` dir. ``synthesis_result`` is returned unchanged.
 
-    Degraded resume mode: under ``--synthesis-only`` the 02/03/04 source
-    paths may be absent. When ``learning_md_paths`` is ``None`` a 04-scoped
-    finding cannot be applied, so it is safely downgraded to a 05-only regen
-    (logged), and ``summary_md_paths=None`` disables the coverage evaluator's
-    optional fidelity input.
-
-    TODO(scaffold): implement the loop (evaluate→aggregate→route→apply),
-    artifact writing, and stop bookkeeping. Only the 0-loop short-circuit is
-    implemented below.
+    Every evaluator is advisory: a failure degrades to an empty report for
+    that perspective rather than aborting the stage.
     """
-    effective_loops = max(0, min(max_loops, _MAX_LOOPS_HARD_CAP))
-    if effective_loops == 0:
+    if max_loops <= 0:
         return EvaluationStageResult(
             loop_result=EvaluationLoopResult(
                 loops_run=0,
@@ -106,57 +100,98 @@ def run_stage_evaluation(
             ),
             synthesis_result=synthesis_result,
         )
-    raise NotImplementedError("scaffold: evaluation loop TODO")
+
+    em = eval_models or {}
+    agent_results: list[AgentCallResult] = []
+
+    coverage = _safe_evaluate(
+        "coverage",
+        lambda: call_coverage_evaluator(
+            videos,
+            learning_md_bodies,
+            synthesis_result,
+            model=em.get("coverage", model),
+            playlist_title=playlist_title,
+            summary_bodies=summary_bodies,
+        ),
+        agent_results,
+    )
+    pedagogy = _safe_evaluate(
+        "pedagogy",
+        lambda: call_pedagogy_evaluator(
+            videos,
+            learning_md_bodies,
+            synthesis_result,
+            model=em.get("pedagogy", model),
+            playlist_title=playlist_title,
+        ),
+        agent_results,
+    )
+    fidelity = _run_fidelity(videos, learning_md_bodies, glossary)
+
+    report = aggregate_reports(0, coverage, pedagogy, fidelity)
+    iteration = EvaluationIteration(
+        iteration=0,
+        report=report,
+        regenerated_video_ids=[],
+        synthesis_rerun=False,
+        stopped=True,
+        stop_reason="advisory: report only, no regeneration",
+    )
+    loop_result = EvaluationLoopResult(
+        iterations=[iteration],
+        loops_run=1,
+        final_synthesis=synthesis_result,
+    )
+
+    report_paths: list[Path] = []
+    summary_path: Path | None = None
+    if not dry_run:
+        folder = folder_name_override or format_playlist_folder_name(run_time, playlist_title)
+        eval_dir = resolve_eval_dir(folder)
+        report_paths.append(write_evaluation_loop(iteration, eval_dir))
+        summary_path = write_evaluation_summary(loop_result, eval_dir)
+
+    return EvaluationStageResult(
+        loop_result=loop_result,
+        synthesis_result=synthesis_result,
+        report_paths=report_paths,
+        summary_path=summary_path,
+        agent_results=agent_results,
+    )
 
 
-def _regen_learning_subset(
-    videos: list[VideoMeta],
-    bodies: list[str],
-    target_video_ids: list[str],
-    learning_md_paths: dict[str, Path] | None,
-    *,
-    run_time: datetime,
-    code_bearing: bool,
-    model: str,
-    dry_run: bool,
-) -> list[str]:
-    """Re-run Stage 04 for ONLY ``target_video_ids``; return a new
-    index-aligned ``bodies`` list (untargeted entries copied unchanged).
+def _safe_evaluate(
+    perspective: Perspective,
+    call: Callable[[], tuple[EvaluatorReport, AgentCallResult]],
+    agent_results: list[AgentCallResult],
+) -> EvaluatorReport:
+    """Run one LLM evaluator; on ANY failure return an empty report.
 
-    Resolves each target's 02/03/04 paths the way ``main.py`` does
-    (``_find_summary_md`` for 02; ``pipeline.compute_note_paths`` for
-    03/04), calls ``stages.learning.run_stage_learning`` (atomic overwrite,
-    bypasses the presence-based checkpoint), then stores
-    ``learning._strip_frontmatter(learning_md_path.read_text())`` back at
-    the SAME index (resolve id→index via ``videos``, never by finding order).
-
-    Correctness invariant: ``len(result) == len(videos)`` always.
-
-    TODO(scaffold): implement subset regen with copy-on-write alignment.
+    Advisory contract: a crashed/timed-out evaluator must never abort the
+    evaluation stage (the broad ``except`` mirrors the Reviewer fallback in
+    ``stages/synthesis.py``).
     """
-    raise NotImplementedError("scaffold: 04 subset regen TODO")
+    try:
+        report, result = call()
+    except Exception:
+        return EvaluatorReport(perspective=perspective)
+    agent_results.append(result)
+    return report
 
 
-def _regen_synthesis(
+def _run_fidelity(
     videos: list[VideoMeta],
-    bodies: list[str],
-    *,
-    run_time: datetime,
-    playlist_title: str,
-    folder_name_override: str | None,
-    model: str,
-    agent_models: dict[str, str] | None,
-    synthesis_timeout: int | None,
-    profile: str | None,
-    dry_run: bool,
-) -> SynthesisStageResult:
-    """Thin wrapper over ``run_stage_synthesis`` that re-runs Stage 05 with
-    the current working ``bodies`` into the SAME playlist folder
-    (``folder_name_override``), overwriting MOC/chapters in place.
-
-    TODO(scaffold): forward to ``run_stage_synthesis``.
-    """
-    raise NotImplementedError("scaffold: 05 regen TODO")
+    learning_md_bodies: list[str],
+    glossary: Glossary | None,
+) -> EvaluatorReport:
+    """Deterministic fidelity scan; empty report when no glossary / on error."""
+    if glossary is None:
+        return EvaluatorReport(perspective="fidelity")
+    try:
+        return scan_fidelity(videos, learning_md_bodies, glossary)
+    except Exception:
+        return EvaluatorReport(perspective="fidelity")
 
 
 __all__ = [
