@@ -47,6 +47,14 @@ class TestPerRolePolicy:
         assert provider.calls == 1  # second call served from cache
         assert r1.text == r2.text
 
+    def test_stage_01_correct_cached_by_default(self, provider):
+        # Stage 01b correction is a paid web-search call — re-runs must hit the
+        # LLM cache instead of repeating it.
+        registry.configure_llm_cache(stages=True, synthesis=False)
+        registry.invoke_llm("p", system_prompt="s", role="stage_01_correct", provider_name="fake")
+        registry.invoke_llm("p", system_prompt="s", role="stage_01_correct", provider_name="fake")
+        assert provider.calls == 1  # second call served from cache
+
     def test_synthesis_not_cached_by_default(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=False)
         registry.invoke_llm("p", system_prompt="s", role="alpha", provider_name="fake")

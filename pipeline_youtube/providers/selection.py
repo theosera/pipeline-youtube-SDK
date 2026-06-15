@@ -83,11 +83,17 @@ def apply_selection(
             effective[stage] = {"provider": "anthropic", "model": anthropic_model}
 
     # Stage 01b web-search correction is Anthropic-only — pin it to Anthropic
-    # regardless of --provider/--hybrid, preserving any user-set model (else
-    # default opus). This keeps the WebSearch tool available even when the rest
-    # of the pipeline runs on a local/open backend.
-    existing_01 = effective.get("stage_01_correct")
-    model_01 = existing_01.get("model") if isinstance(existing_01, dict) else None
+    # regardless of --provider/--hybrid. Read the model from the *original*
+    # config (not `effective`, which a --provider override may have rewritten to
+    # a local model like qwen3:8b) and only keep it when the user explicitly
+    # configured an Anthropic correction model; otherwise default to opus. This
+    # prevents sending a local model name to the Anthropic API.
+    orig_01 = models_cfg.get("stage_01_correct")
+    model_01 = (
+        orig_01.get("model")
+        if isinstance(orig_01, dict) and orig_01.get("provider") == "anthropic"
+        else None
+    )
     effective["stage_01_correct"] = {"provider": "anthropic", "model": model_01 or "opus"}
 
     warnings: list[str] = []

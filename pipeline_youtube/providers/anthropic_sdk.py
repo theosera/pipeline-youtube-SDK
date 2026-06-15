@@ -29,7 +29,10 @@ from .base import LLMError, LLMProvider, LLMResponse
 _MODEL_ALIASES: dict[str, str] = {
     "sonnet": "claude-sonnet-4-20250514",
     "haiku": "claude-haiku-4-20250514",
-    "opus": "claude-4-opus-20250514",
+    # Anthropic's Opus 4 API id is `claude-opus-4-…` (the `claude-4-opus-…`
+    # ordering is not a valid model id and 4xx's — Stage 01b defaults to opus
+    # so a malformed id would silently disable correction).
+    "opus": "claude-opus-4-20250514",
 }
 
 # Known transient Anthropic error types.
@@ -219,7 +222,7 @@ _PRICING: dict[str, tuple[float, float]] = {
     # (input_per_million, output_per_million)
     "claude-sonnet-4-20250514": (3.0, 15.0),
     "claude-haiku-4-20250514": (0.80, 4.0),
-    "claude-4-opus-20250514": (15.0, 75.0),
+    "claude-opus-4-20250514": (15.0, 75.0),
 }
 
 
