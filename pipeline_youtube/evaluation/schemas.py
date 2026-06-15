@@ -27,7 +27,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from ..synthesis.scoring import extract_json  # reuse robust JSON extractor (DRY)
+from ..synthesis.scoring import (  # reuse robust JSON extractor (DRY)
+    SynthesisParseError,
+    extract_json,
+)
 
 if TYPE_CHECKING:
     from ..stages.synthesis import SynthesisStageResult
@@ -154,20 +157,32 @@ def parse_coverage_evaluator_output(raw: str) -> EvaluatorReport:
     Defensive (advisory): a non-dict / malformed payload yields an empty
     report rather than raising, so one bad evaluator can never abort the
     loop. Mirrors ``synthesis.scoring.parse_reviewer_output``.
-
-    TODO(scaffold): implement via ``extract_json(raw)`` + ``_parse_findings``.
     """
-    raise NotImplementedError("scaffold: coverage parser TODO")
+    return _parse_evaluator_output(raw, "coverage")
 
 
 def parse_pedagogy_evaluator_output(raw: str) -> EvaluatorReport:
     """Parse the PedagogyEvaluator JSON into an ``EvaluatorReport``.
 
     Same defensive contract as ``parse_coverage_evaluator_output``.
-
-    TODO(scaffold): implement via ``extract_json(raw)`` + ``_parse_findings``.
     """
-    raise NotImplementedError("scaffold: pedagogy parser TODO")
+    return _parse_evaluator_output(raw, "pedagogy")
+
+
+def _parse_evaluator_output(raw: str, perspective: Perspective) -> EvaluatorReport:
+    """Shared defensive parse for any single-perspective evaluator output.
+
+    Never raises: a missing/garbled JSON payload (``extract_json`` raising
+    ``SynthesisParseError``) yields an empty report for ``perspective`` so
+    one bad evaluator can never abort the bounded loop.
+    """
+    try:
+        data = extract_json(raw)
+    except SynthesisParseError:
+        return EvaluatorReport(perspective=perspective)
+    summary = str(data.get("summary") or "")
+    findings = _parse_findings(data, perspective)
+    return EvaluatorReport(perspective=perspective, findings=findings, summary=summary)
 
 
 def _parse_findings(
@@ -176,15 +191,65 @@ def _parse_findings(
 ) -> list[Finding]:
     """Coerce a parsed JSON object into a list of ``Finding``.
 
-    Coerce every field with ``str(...)`` / ``int(...)``; clamp unknown
-    ``severity``/``target_scope`` to safe defaults; and DEMOTE any
+    Coerces every field defensively; clamps unknown ``severity`` to
+    ``"info"`` and unknown ``target_scope`` to ``"05"`` (both non-blocking
+    / safe); forces ``perspective`` to the evaluator's fixed role
+    (ignoring any self-reported value); and DEMOTES any
     ``target_scope == "04"`` finding that lacks ``target_video_id`` to
-    ``"05"`` (safety: never trigger an under-specified 04 regen).
-
-    TODO(scaffold): implement coercion + demotion. ``extract_json`` already
-    guarantees ``data`` is a dict.
+    ``"05"`` so a malformed finding can never trigger an under-specified
+    04 regen. A non-list ``findings`` or a non-dict element is skipped.
     """
-    raise NotImplementedError("scaffold: finding coercion TODO")
+    raw_findings = data.get("findings")
+    if not isinstance(raw_findings, list):
+        return []
+    findings: list[Finding] = []
+    for i, item in enumerate(raw_findings):
+        if not isinstance(item, dict):
+            continue
+        findings.append(_coerce_finding(item, perspective, index=i))
+    return findings
+
+
+def _coerce_finding(
+    item: dict[str, object],
+    perspective: Perspective,
+    *,
+    index: int,
+) -> Finding:
+    """Build one ``Finding`` from a raw dict with safe coercion + demotion."""
+    severity_raw = str(item.get("severity") or "").lower()
+    severity: Severity = severity_raw if severity_raw in {"info", "low", "high"} else "info"  # type: ignore[assignment]
+
+    scope_raw = str(item.get("target_scope") or "").strip()
+    target_scope: TargetScope = scope_raw if scope_raw in {"04", "05"} else "05"  # type: ignore[assignment]
+
+    video_raw = item.get("target_video_id")
+    target_video_id = str(video_raw) if isinstance(video_raw, str) and video_raw.strip() else None
+
+    # Safety demotion: a 04-scoped finding with no concrete video target
+    # cannot drive a 04 regen — downgrade it to a 05-only finding.
+    if target_scope == "04" and target_video_id is None:
+        target_scope = "05"
+
+    chapter_raw = item.get("chapter_index")
+    chapter_index = (
+        chapter_raw if isinstance(chapter_raw, int) and not isinstance(chapter_raw, bool) else None
+    )
+
+    topic_ids_raw = item.get("topic_ids")
+    topic_ids = [str(t) for t in topic_ids_raw if t] if isinstance(topic_ids_raw, list) else []
+
+    return Finding(
+        finding_id=str(item.get("finding_id") or f"f{index + 1:03d}"),
+        perspective=perspective,
+        severity=severity,
+        target_scope=target_scope,
+        description=str(item.get("description") or ""),
+        suggested_fix=str(item.get("suggested_fix") or ""),
+        target_video_id=target_video_id,
+        topic_ids=topic_ids,
+        chapter_index=chapter_index,
+    )
 
 
 __all__ = [
