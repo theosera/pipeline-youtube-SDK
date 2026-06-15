@@ -56,6 +56,7 @@ from .providers.registry import (
     configure_llm_cache,
     configure_llm_concurrency,
     configure_providers,
+    resolve_role,
 )
 from .providers.selection import apply_selection
 from .sanitize import configure_alert_sink, sanitize_untrusted_text
@@ -1064,7 +1065,6 @@ def cli(
         raise click.UsageError(str(exc)) from exc
     set_dry_run(dry_run)
     vault_root = cfg.vault_root
-    models = cfg.models
     filler_words = cfg.filler_words
 
     project_root = Path(__file__).resolve().parent.parent
@@ -1086,19 +1086,19 @@ def cli(
         raise click.UsageError(
             "--provider anthropic / --hybrid requires the 'anthropic' provider in config.json."
         )
-    effective_models, model_overrides, model_warnings = apply_selection(
+    effective_models, model_warnings = apply_selection(
         models_raw, providers_raw, _MODEL_KEYS, provider=provider, hybrid=hybrid
     )
     for warning in model_warnings:
         click.echo(warning)
     configure_providers(providers_raw, effective_models)
-    # Overlay the selected model NAMES onto the map passed to stages as an
-    # explicit `model=` arg: invoke_llm resolves the provider from the role
-    # but only swaps the model when the caller passes "default", so without
-    # this overlay an override would send the config model to the selected
-    # provider. Empty overlay (no flag) leaves `models` exactly as-is.
-    if model_overrides:
-        models = {**models, **model_overrides}
+    # Resolve each stage's concrete model NAME from the SAME effective map that
+    # drives provider resolution, and pass THAT as the explicit `model=` arg.
+    # invoke_llm only substitutes the role-resolved model when the caller
+    # passes "default", so a per-stage object config (`{provider, model}`) or a
+    # --provider override must be flattened to a model-name string here — else
+    # the dict / a mismatched config model name would reach the provider.
+    models = {stage: resolve_role(stage)[1] for stage in _MODEL_KEYS}
     if provider or hybrid:
         click.echo(f"model selection: provider={provider or 'config'} hybrid={hybrid}")
     click.echo(
