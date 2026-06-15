@@ -94,6 +94,37 @@ class TestRunStageScripts:
         assert "[01:07](https://www.youtube.com/watch?v=_h3decBW12Q&t=67)" in post
         assert "本さん、最近ハーネス エンジニアリングが話題" in post
 
+    def test_correction_feeds_corrected_text_downstream(self, vault, monkeypatch):
+        """When correct_model is set, the corrected text must land in the
+        returned TranscriptResult.snippets (consumed by Stage 02), not only in
+        the rendered 01 markdown."""
+        from pipeline_youtube.transcript.chunking import Chunk
+
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        scripts_path = paths["scripts"]
+
+        monkeypatch.setattr(
+            scripts_stage,
+            "fetch_with_fallback",
+            lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
+        )
+        monkeypatch.setattr(
+            scripts_stage,
+            "correct_chunks",
+            lambda chunks, *, model: [Chunk(start=c.start, text=c.text + " [FIX]") for c in chunks],
+        )
+
+        result = scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, correct_model="opus"
+        )
+
+        assert result.snippets
+        assert all("[FIX]" in s.text for s in result.snippets)
+        assert result.snippets[0].start == 0.0
+        assert "[FIX]" in scripts_path.read_text(encoding="utf-8")
+
     def test_dry_run_does_not_touch_file(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)

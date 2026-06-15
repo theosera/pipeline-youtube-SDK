@@ -75,8 +75,14 @@ class AnthropicProvider(LLMProvider):
         max_retries: int = 3,
         retry_base_delay: float = 5.0,
         messages: list[dict[str, str]] | None = None,
+        web_search: bool = False,
+        thinking: bool = False,
     ) -> LLMResponse:
         effective_model = _resolve_model(model)
+
+        # Extended thinking needs headroom: max_tokens must exceed the thinking
+        # budget. Bump the ceiling when thinking is on.
+        max_tokens = 16000 if thinking else 8192
 
         # Build messages. Anthropic uses a separate `system` parameter.
         msgs: list[dict[str, str]] = []
@@ -91,10 +97,19 @@ class AnthropicProvider(LLMProvider):
 
                 kwargs: dict[str, Any] = {
                     "model": effective_model,
-                    "max_tokens": 8192,
+                    "max_tokens": max_tokens,
                     "messages": msgs,
                     "timeout": timeout,
                 }
+                if web_search:
+                    # Server-side web search tool: the model decides when to
+                    # search and Anthropic runs it server-side, returning the
+                    # final text. Used by Stage 01b to fact-check terms.
+                    kwargs["tools"] = [
+                        {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+                    ]
+                if thinking:
+                    kwargs["thinking"] = {"type": "enabled", "budget_tokens": 4096}
                 if system_prompt:
                     # Mark the system prompt as an ephemeral prompt-cache
                     # breakpoint. Stage system prompts (e.g. SUMMARY_SYSTEM_PROMPT)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import replace
 from pathlib import Path
 
 from ..code_fetch import (
@@ -33,6 +34,7 @@ from ..playlist import VideoMeta
 from ..transcript.auto import fetch_auto
 from ..transcript.base import Fetcher, TranscriptResult, fetch_with_fallback
 from ..transcript.chunking import Chunk, chunk_by_window
+from ..transcript.correction import chunks_to_snippets, correct_chunks
 from ..transcript.official import fetch_official
 
 DEFAULT_LANGUAGES: list[str] = ["ja", "en"]
@@ -115,6 +117,7 @@ def run_stage_scripts(
     dry_run: bool = False,
     include_code_blocks: bool = False,
     media_path: Path | None = None,
+    correct_model: str | None = None,
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
@@ -124,6 +127,11 @@ def run_stage_scripts(
     - When `media_path` is set (``--local-media`` / fully offline), skips the
       caption tiers entirely and transcribes that local file with Whisper —
       so YouTube is never contacted for this video.
+    - When `correct_model` is set (Stage 01b), the chunked transcript is
+      passed through an LLM + web-search correction pass (timestamps
+      preserved) and the corrected text is folded back into the returned
+      ``TranscriptResult.snippets`` so Stage 02/03/04 consume it. Skipped
+      under `dry_run`.
     - Does NOT overwrite the frontmatter already present; appends below.
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
@@ -133,10 +141,18 @@ def run_stage_scripts(
     # Whisper is an optional dependency — import dynamically so the
     # fallback chain degrades gracefully when not installed.
     whisper_fetcher = None
+    # Qualify the whisper cache tier with the resolved backend+model so changing
+    # whisper_backend/whisper_model re-transcribes instead of reusing a stale
+    # cached transcript (Codex cache-key concern).
+    whisper_tier = "whisper"
+    whisper_local_tier = "whisper-local"
     try:
-        from ..transcript.whisper_fallback import fetch_whisper
+        from ..transcript.whisper_fallback import fetch_whisper, whisper_cache_tag
 
         whisper_fetcher = fetch_whisper
+        tag = whisper_cache_tag()
+        whisper_tier = f"whisper-{tag}"
+        whisper_local_tier = f"whisper-local-{tag}"
     except ImportError:
         pass
 
@@ -153,7 +169,7 @@ def run_stage_scripts(
         else:
             local_fetcher = None
         result = fetch_with_fallback(
-            video.video_id, langs, fetchers=[("whisper-local", local_fetcher)]
+            video.video_id, langs, fetchers=[(whisper_local_tier, local_fetcher)]
         )
     else:
         result = fetch_with_fallback(
@@ -162,11 +178,23 @@ def run_stage_scripts(
             fetchers=[
                 ("official", fetch_official),
                 ("auto", fetch_auto),
-                ("whisper", whisper_fetcher),
+                (whisper_tier, whisper_fetcher),
             ],
         )
 
-    body = _render_chunks(video, chunk_by_window(result.snippets, window_seconds))
+    chunks = chunk_by_window(result.snippets, window_seconds)
+    # Stage 01b: repair ASR/caption errors with an LLM + web search. Best-effort
+    # and timestamp-preserving — never blocks the run. Skipped on dry runs (it
+    # is a paid LLM call) and when there is nothing to correct. The corrected
+    # text is folded back into `result.snippets` so Stage 02/03/04 (which
+    # re-chunk the TranscriptResult) consume the correction, not just the 01 md.
+    if correct_model and not dry_run and chunks:
+        chunks = correct_chunks(chunks, model=correct_model)
+        last = result.snippets[-1]
+        result = replace(
+            result, snippets=chunks_to_snippets(chunks, last_end=last.start + last.duration)
+        )
+    body = _render_chunks(video, chunks)
 
     code_section = ""
     # Skip the description fetch under --local-media: it hits YouTube (yt-dlp),

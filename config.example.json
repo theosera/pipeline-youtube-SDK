@@ -25,6 +25,7 @@
   },
   "models": {
     "router":   {"provider": "ollama", "model": "qwen3:8b"},
+    "stage_01_correct": {"provider": "anthropic", "model": "opus"},
     "stage_02": {"provider": "ollama", "model": "qwen3:8b"},
     "stage_04": {"provider": "ollama", "model": "qwen3:8b"},
     "alpha":    {"provider": "ollama", "model": "qwen3:8b"},
@@ -41,5 +42,6 @@
   "download_concurrency": null,
   "glossary_path": null,
   "whisper_backend": "auto",
-  "whisper_model": null
+  "whisper_model": null,
+  "transcript_correction": false
 }

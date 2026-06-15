@@ -37,6 +37,7 @@ class TestLoadConfig:
         assert result.vault_root == vault
         assert result.models == {
             "router": "haiku",  # router defaults to haiku regardless of fallback
+            "stage_01_correct": "opus",  # 01b correction defaults to opus
             "stage_02": "sonnet",
             "stage_04": "sonnet",
             "alpha": "sonnet",
@@ -46,6 +47,23 @@ class TestLoadConfig:
             "eval_coverage": "sonnet",
             "eval_pedagogy": "sonnet",
         }
+
+    def test_transcript_correction_defaults_false(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        cfg = _write_config(tmp_path / "config.json", {"vault_root": str(vault)})
+        result = _load_config(cfg, fallback_model="sonnet")
+        assert result.transcript_correction is False
+
+    def test_transcript_correction_non_bool_rejected(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        cfg = _write_config(
+            tmp_path / "config.json",
+            {"vault_root": str(vault), "transcript_correction": "yes"},
+        )
+        with pytest.raises(click.UsageError, match="transcript_correction"):
+            _load_config(cfg, fallback_model="sonnet")
 
     def test_partial_models_filled_with_fallback(self, tmp_path: Path):
         vault = tmp_path / "vault"

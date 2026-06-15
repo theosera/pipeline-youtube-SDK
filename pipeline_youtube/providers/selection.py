@@ -82,6 +82,14 @@ def apply_selection(
         for stage in HEAVY_STAGES:
             effective[stage] = {"provider": "anthropic", "model": anthropic_model}
 
+    # Stage 01b web-search correction is Anthropic-only — pin it to Anthropic
+    # regardless of --provider/--hybrid, preserving any user-set model (else
+    # default opus). This keeps the WebSearch tool available even when the rest
+    # of the pipeline runs on a local/open backend.
+    existing_01 = effective.get("stage_01_correct")
+    model_01 = existing_01.get("model") if isinstance(existing_01, dict) else None
+    effective["stage_01_correct"] = {"provider": "anthropic", "model": model_01 or "opus"}
+
     warnings: list[str] = []
     if provider in OPEN_PROVIDERS and not hybrid:
         warnings.append(
