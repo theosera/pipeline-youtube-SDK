@@ -142,6 +142,26 @@ export ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 
 > **混合構成の例**: Router は Ollama のローカルモデル (高速・無料)、Leader は Anthropic Claude (高品質) のように、ステージごとに異なるプロバイダーを使い分けられます。
 
+### ランタイムのモデル選択 (`--provider` / `--hybrid`)
+
+config.json を編集せずに、**その実行だけ**バックエンドを切り替えられます。**config.json が真実**で、フラグはその上に乗る粗い上書きです。
+
+- **無指定**: config.json の `models`（工程別指定）をそのまま使用。**Anthropic を既定にしたいなら `models` を Anthropic で書く**（下の例）。
+- **`--provider {anthropic|ollama|lmstudio}`**: 全工程をそのプロバイダの既定モデルに上書き（= 単一モデル実行）。`providers.<名前>.default_model` があればそれを、無ければ内蔵フォールバック（anthropic→`sonnet` 等）を使用。
+- **`--hybrid`**: 重い工程（`stage_04` / `leader`）だけ Anthropic に引き上げ（要 `providers.anthropic`）。`--provider ollama --hybrid` で「軽い工程はローカル・重い工程は Anthropic」。
+- 重い工程がオープン/ローカル backend になる場合、起動時に**品質低下の警告**を表示（自動では再ルートしない）。
+- これらのフラグは **`--sub-agents` の各ワーカーへ自動的に引き継がれます**。
+
+```bash
+# config をいじらず、この実行だけ全工程 Anthropic
+uv run python -m pipeline_youtube.main "URL" --provider anthropic
+
+# 軽い工程はローカル Ollama、重い工程 (04/Leader) だけ Anthropic
+uv run python -m pipeline_youtube.main "URL" --provider ollama --hybrid
+```
+
+> **Anthropic を既定にする (config が真実)**: `models` の各工程を `{"provider": "anthropic", "model": "sonnet"}` 等にしておけば、フラグ無しで Anthropic。ローカルで回したい時だけ `--provider ollama` を付けます。
+
 ### 固有名詞の正規化 (任意)
 
 `glossary_path` に固有名詞辞書 (JSON) を指定すると、Stage 02 が出力本文・ONE_LINER の
@@ -186,6 +206,10 @@ uv run python -m pipeline_youtube.main "URL" --synthesis-only
 
 # 単一動画
 uv run python -m pipeline_youtube.main "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# ランタイムでバックエンドを上書き (config はいじらない)
+uv run python -m pipeline_youtube.main "URL" --provider anthropic        # 全工程 Anthropic
+uv run python -m pipeline_youtube.main "URL" --provider ollama --hybrid  # 軽=ローカル / 重=Anthropic
 ```
 
 CLI オプションは元リポジトリと同一です。詳細は [docs/cli.md](docs/cli.md) を参照。
