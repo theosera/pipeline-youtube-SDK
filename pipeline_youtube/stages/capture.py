@@ -329,6 +329,8 @@ def run_stage_capture(
     dry_run: bool = False,
     prefetched_video_path: Path | None = None,
     backend: CaptureBackend | None = None,
+    allow_download: bool = True,
+    delete_video: bool = True,
 ) -> CaptureResult:
     """Download the video, extract animated frames, update the 03 md.
 
@@ -350,6 +352,12 @@ def run_stage_capture(
         Optional existing mp4 file prepared by a background thread
         (see `prefetch_video_download`). When supplied and present,
         the internal yt-dlp download is skipped.
+    allow_download:
+        Set to `False` for caller-owned local media (``--local-media``). If
+        the provided source is missing, Stage 03 fails closed instead of
+        consulting the cache or reaching out to YouTube — preserving the
+        offline contract and never mixing a downloaded video with
+        locally-sourced transcripts.
     """
     if not summary_md_path.exists():
         return CaptureResult(ranges=[], error="summary_md_not_found")
@@ -395,9 +403,21 @@ def run_stage_capture(
 
     if prefetched_video_path is not None and prefetched_video_path.exists():
         tmp_video_path = prefetched_video_path
-        cleanup_path = prefetched_video_path
-        cache.put_video(video.video_id, resolution, prefetched_video_path)
+        # delete_video=False (a caller-owned --local-media file): use it in
+        # place — never schedule it for deletion, and don't move it into the
+        # cache (cache.put_video may relocate the file).
+        if delete_video:
+            cleanup_path = prefetched_video_path
+            cache.put_video(video.video_id, resolution, prefetched_video_path)
     else:
+        if not allow_download:
+            # Local media is offline-only: a missing source must not silently
+            # fall back to a cached or freshly-downloaded YouTube video.
+            return CaptureResult(
+                ranges=ranges,
+                capture_format=ext,
+                error=f"local_media_file_missing: {prefetched_video_path}",
+            )
         cached_video = cache.get_video(video.video_id, resolution)
         if cached_video is not None:
             tmp_video_path = cached_video  # reuse persistent copy; do not delete

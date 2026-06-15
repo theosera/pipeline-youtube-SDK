@@ -189,7 +189,7 @@ def vault(tmp_path: Path):
 class TestE2EPlaylist:
     def test_full_cli_3_videos(self, vault: Path, monkeypatch):
         # Mock Stage 01 transcripts (bypass real youtube-transcript-api)
-        def fake_scripts(video, path, *, dry_run, include_code_blocks=False):
+        def fake_scripts(video, path, *, dry_run, include_code_blocks=False, media_path=None):
             return _transcript_result(video.video_id)
 
         monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
@@ -257,8 +257,36 @@ class TestE2EPlaylist:
         assert "stage_02" in result.output
         assert "leader" in result.output
 
+    def test_local_media_with_docker_backend_is_rejected(self, vault: Path, monkeypatch):
+        """--local-media + docker capture backend must fail fast (container can't
+        see the user's media dir)."""
+        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
+
+        media_dir = vault / "media"
+        media_dir.mkdir()
+        (media_dir / "lesson [dQw4w9WgXcQ].mp4").write_bytes(b"\x00")
+
+        cfg = vault / "config.json"
+        cfg.write_text(json.dumps({"vault_root": str(vault)}), encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main_mod.cli,
+            [
+                "--local-media",
+                str(media_dir),
+                "--capture-backend",
+                "docker",
+                "--config",
+                str(cfg),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "docker capture backend" in result.output
+
     def test_stop_after_capture_skips_04_and_05(self, vault: Path, monkeypatch):
-        def fake_scripts(video, path, *, dry_run, include_code_blocks=False):
+        def fake_scripts(video, path, *, dry_run, include_code_blocks=False, media_path=None):
             return _transcript_result(video.video_id)
 
         monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
