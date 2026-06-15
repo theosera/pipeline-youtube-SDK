@@ -57,7 +57,7 @@ from .providers.registry import (
     configure_llm_concurrency,
     configure_providers,
 )
-from .sanitize import configure_alert_sink
+from .sanitize import configure_alert_sink, sanitize_untrusted_text
 from .stages.capture import (
     ASSETS_REL_PATH,
     DEFAULT_RESOLUTION,
@@ -593,7 +593,12 @@ def _process_video(
         # Surface the per-tier fallback reason inline so a failed transcript
         # (source=error) shows *why* — e.g. "auto:ip_blocked; whisper:
         # whisper_not_installed" — without digging into transcript_stats.jsonl.
-        reason = transcript.fallback_reason
+        # fallback_reason embeds external tool output (yt-dlp errors carry ANSI
+        # escapes), so sanitize/cap it before echoing — the same untrusted
+        # treatment the stats sink applies — to avoid terminal-escape injection.
+        reason = sanitize_untrusted_text(
+            transcript.fallback_reason, 500, context="transcript.fallback_reason"
+        )
         click.echo(
             f" source={transcript.source.value}"
             f" snippets={len(transcript.snippets)}"
