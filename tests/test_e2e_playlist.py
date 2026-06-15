@@ -270,20 +270,23 @@ class TestE2EPlaylist:
         cfg.write_text(json.dumps({"vault_root": str(vault)}), encoding="utf-8")
 
         runner = CliRunner()
-        result = runner.invoke(
-            main_mod.cli,
-            [
-                "--local-media",
-                str(media_dir),
-                "--capture-backend",
-                "docker",
-                "--config",
-                str(cfg),
-            ],
-        )
-
+        base_args = [
+            "--local-media",
+            str(media_dir),
+            "--capture-backend",
+            "docker",
+            "--config",
+            str(cfg),
+        ]
+        result = runner.invoke(main_mod.cli, base_args)
         assert result.exit_code != 0
         assert "docker capture backend" in result.output
+
+        # --resume-reviewed still runs Stage 03 capture, so it must be rejected
+        # too (regression for the will_run_capture gate that let it slip through).
+        result_resume = runner.invoke(main_mod.cli, [*base_args, "--resume-reviewed"])
+        assert result_resume.exit_code != 0
+        assert "docker capture backend" in result_resume.output
 
     def test_stop_after_capture_skips_04_and_05(self, vault: Path, monkeypatch):
         def fake_scripts(video, path, *, dry_run, include_code_blocks=False, media_path=None):

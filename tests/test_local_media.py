@@ -110,6 +110,21 @@ class TestBuildLocalVideos:
         (videos_a, _), (videos_b, _) = build_local_videos(dir_a), build_local_videos(dir_b)
         assert videos_a[0].video_id != videos_b[0].video_id
 
+    def test_synthesized_ids_disambiguated_when_folder_basenames_match(
+        self, tmp_path: Path
+    ) -> None:
+        # Folders that share a basename but live under different parents must
+        # still produce distinct ids (basename alone is not enough).
+        dir_a = tmp_path / "a" / "media"
+        dir_b = tmp_path / "b" / "media"
+        dir_a.mkdir(parents=True)
+        dir_b.mkdir(parents=True)
+        self._touch(dir_a, "lesson.mp4")
+        self._touch(dir_b, "lesson.mp4")
+
+        (videos_a, _), (videos_b, _) = build_local_videos(dir_a), build_local_videos(dir_b)
+        assert videos_a[0].video_id != videos_b[0].video_id
+
     def test_synthesized_id_stable_across_runs(self, tmp_path: Path) -> None:
         media = tmp_path / "pl"
         media.mkdir()

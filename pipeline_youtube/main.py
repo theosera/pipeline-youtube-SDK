@@ -1202,8 +1202,10 @@ def cli(
     # --local-media files live outside the container's bind mounts (tmp/ + the
     # Vault assets folder), so the docker backend's ffmpeg can't read them.
     # Reject the combination up front instead of failing per-video deep inside
-    # Stage 03. Only matters when capture actually runs this invocation.
-    if local_media and backend_choice == "docker" and will_run_capture:
+    # Stage 03. Capture runs for every flow except --synthesis-only (which only
+    # re-runs Stage 05 over existing 04 md) — note --resume-reviewed still calls
+    # _process_video()/Stage 03, so it must be rejected too.
+    if local_media and backend_choice == "docker" and not synthesis_only:
         raise click.UsageError(
             "--local-media is incompatible with the docker capture backend: the "
             "hardened container only mounts tmp/ and the Vault assets folder, so "

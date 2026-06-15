@@ -57,8 +57,9 @@ def synthesize_video_id(name: str) -> str:
 
     ``name`` is hashed verbatim, so callers that want two identically-named
     files in *different* folders to get distinct ids must qualify it with the
-    containing folder (see ``build_local_videos``); hashing ``path.name`` alone
-    would collide across folders and silently reuse another folder's transcript
+    containing folder's resolved path (see ``build_local_videos``); hashing
+    ``path.name`` — or even ``folder_basename/path.name`` — alone would collide
+    across same-named folders and silently reuse another folder's transcript
     cache / checkpoint.
     """
     digest = hashlib.sha256(name.encode("utf-8")).digest()
@@ -93,13 +94,16 @@ def build_local_videos(media_dir: Path) -> tuple[list[VideoMeta], dict[str, Path
 
     videos: list[VideoMeta] = []
     media_map: dict[str, Path] = {}
+    media_dir_key = str(media_dir.resolve())
     for path in files:
-        # Qualify the synthesized id with the folder name so two identically
-        # named files under different media dirs don't collide (which would
-        # cross-wire their transcript cache / checkpoints). yt-dlp-style ids are
-        # already globally unique, so only the synthesized branch needs this.
+        # Qualify the synthesized id with the *resolved* media-dir path (not just
+        # its basename) so two identically-named files under different folders —
+        # even folders that share a basename, e.g. /a/media/x.mp4 vs /b/media/
+        # x.mp4 — don't collide and cross-wire their transcript cache /
+        # checkpoints. yt-dlp-style ids are already globally unique, so only the
+        # synthesized branch needs this. Re-runs from the same path stay stable.
         video_id = extract_video_id(path.stem) or synthesize_video_id(
-            f"{media_dir.name}/{path.name}"
+            f"{media_dir_key}/{path.name}"
         )
         if video_id in media_map:
             continue
