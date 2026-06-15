@@ -329,6 +329,7 @@ def run_stage_capture(
     dry_run: bool = False,
     prefetched_video_path: Path | None = None,
     backend: CaptureBackend | None = None,
+    delete_video: bool = True,
 ) -> CaptureResult:
     """Download the video, extract animated frames, update the 03 md.
 
@@ -395,8 +396,12 @@ def run_stage_capture(
 
     if prefetched_video_path is not None and prefetched_video_path.exists():
         tmp_video_path = prefetched_video_path
-        cleanup_path = prefetched_video_path
-        cache.put_video(video.video_id, resolution, prefetched_video_path)
+        # delete_video=False (a caller-owned --local-media file): use it in
+        # place — never schedule it for deletion, and don't move it into the
+        # cache (cache.put_video may relocate the file).
+        if delete_video:
+            cleanup_path = prefetched_video_path
+            cache.put_video(video.video_id, resolution, prefetched_video_path)
     else:
         cached_video = cache.get_video(video.video_id, resolution)
         if cached_video is not None:

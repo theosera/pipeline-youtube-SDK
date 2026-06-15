@@ -146,4 +146,4 @@ class TestFetchWhisper:
             result = fetch_whisper("test_id", [])
 
         assert result.language is None
-        mock_run.assert_called_once_with(audio_file, model_name="small", language=None)
+        mock_run.assert_called_once_with(audio_file, language=None)
