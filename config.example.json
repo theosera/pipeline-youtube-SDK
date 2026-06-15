@@ -39,5 +39,7 @@
   "transcript_concurrency": 8,
   "llm_concurrency": null,
   "download_concurrency": null,
-  "glossary_path": null
+  "glossary_path": null,
+  "whisper_backend": "auto",
+  "whisper_model": null
 }

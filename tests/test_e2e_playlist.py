@@ -189,7 +189,7 @@ def vault(tmp_path: Path):
 class TestE2EPlaylist:
     def test_full_cli_3_videos(self, vault: Path, monkeypatch):
         # Mock Stage 01 transcripts (bypass real youtube-transcript-api)
-        def fake_scripts(video, path, *, dry_run, include_code_blocks=False):
+        def fake_scripts(video, path, *, dry_run, include_code_blocks=False, media_path=None):
             return _transcript_result(video.video_id)
 
         monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
@@ -258,7 +258,7 @@ class TestE2EPlaylist:
         assert "leader" in result.output
 
     def test_stop_after_capture_skips_04_and_05(self, vault: Path, monkeypatch):
-        def fake_scripts(video, path, *, dry_run, include_code_blocks=False):
+        def fake_scripts(video, path, *, dry_run, include_code_blocks=False, media_path=None):
             return _transcript_result(video.video_id)
 
         monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
