@@ -60,6 +60,12 @@ class TestTitleFromFilename:
     def test_bare_id_falls_back(self) -> None:
         assert title_from_filename("dQw4w9WgXcQ", "dQw4w9WgXcQ") == "dQw4w9WgXcQ"
 
+    def test_bare_id_with_edge_chars_returns_fallback(self) -> None:
+        # Bare ids that start/end with '-' or '_' must not be trimmed into a
+        # mangled title — return the id verbatim.
+        assert title_from_filename("_bcdefghij_", "_bcdefghij_") == "_bcdefghij_"
+        assert title_from_filename("-bcdefghij-", "-bcdefghij-") == "-bcdefghij-"
+
 
 class TestBuildLocalVideos:
     def _touch(self, d: Path, name: str) -> None:

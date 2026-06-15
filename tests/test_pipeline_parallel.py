@@ -116,6 +116,8 @@ class TestPrefetchedPathConsumed:
         assert called["download"] == 0
         assert called["extract"] == 1
         assert result.outcomes and result.outcomes[0].success
+        # No network download happened, so the flag must report False.
+        assert result.video_downloaded is False
 
     def test_capture_fails_closed_when_local_media_source_missing(
         self, tmp_path: Path, monkeypatch

@@ -72,6 +72,10 @@ def title_from_filename(stem: str, fallback: str) -> str:
     Falls back to ``fallback`` (the id) when nothing readable remains, e.g. a
     file literally named ``<id>.mp4``.
     """
+    # A bare-id stem has no human title — return the id directly. Trimming it
+    # would mangle ids that legitimately start/end with '-' or '_'.
+    if _BARE_ID_RE.fullmatch(stem):
+        return fallback
     cleaned = _BRACKET_ID_RE.sub("", stem).strip(" -_·–—").strip()
     return cleaned or fallback
 

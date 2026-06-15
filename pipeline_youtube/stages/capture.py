@@ -400,6 +400,9 @@ def run_stage_capture(
     # `cleanup_path` is the working copy to delete in `finally`. A cache HIT
     # points extraction at the persistent copy, which must NOT be deleted.
     cleanup_path: Path | None = None
+    # True only when we actually pull from YouTube (not for prefetched / local
+    # media / cache-hit), so `video_downloaded` stays accurate.
+    downloaded = False
 
     if prefetched_video_path is not None and prefetched_video_path.exists():
         tmp_video_path = prefetched_video_path
@@ -431,6 +434,7 @@ def run_stage_capture(
                     resolution=resolution,
                     backend=active_backend,
                 )
+                downloaded = True
             except Exception as e:
                 return CaptureResult(
                     ranges=ranges,
@@ -489,7 +493,7 @@ def run_stage_capture(
         return CaptureResult(
             ranges=ranges,
             outcomes=outcomes,
-            video_downloaded=True,
+            video_downloaded=downloaded,
             capture_format=ext,
         )
     finally:
