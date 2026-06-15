@@ -10,20 +10,16 @@ flags are coarse per-run overrides on top:
 - ``--hybrid``      → keep the **heavy** stages (``stage_04``, ``leader``)
   on Anthropic even when an open/local provider is otherwise selected.
 
-``apply_selection`` returns three things:
+``apply_selection`` returns ``(effective_models, warnings)``:
 
-1. ``effective_models`` — ``{stage: {provider, model}}`` for the registry
-   (drives provider resolution in ``registry.resolve_role``).
-2. ``model_overrides`` — ``{stage: model_name}`` to overlay onto the map
-   the CLI passes to each stage as an explicit ``model=`` argument. This
-   is REQUIRED: ``invoke_llm`` only substitutes the role-resolved model
-   when the caller passes ``"default"``, so a stage that forwards an
-   explicit model name would otherwise send the *config* model to the
-   *selected* provider (e.g. ``qwen3:8b`` to Anthropic). Empty when no
-   flag is given — the no-flag path is therefore unchanged.
-3. ``warnings`` — advisory text (printed by the caller) when an OPEN/local
-   provider is explicitly selected for the heavy stages without
-   ``--hybrid``. Nothing is silently rerouted (least surprise).
+- ``effective_models`` — ``{stage: {provider, model}}`` for the registry.
+  It is the single source of truth: the CLI passes it to
+  ``configure_providers`` AND derives each stage's explicit ``model=``
+  name from it via ``registry.resolve_role`` (so provider and model never
+  disagree, and a ``--provider`` override changes both).
+- ``warnings`` — advisory text (printed by the caller) when an OPEN/local
+  provider is explicitly selected for the heavy stages without
+  ``--hybrid``. Nothing is silently rerouted (least surprise).
 
 Pure and deterministic → unit-testable without a provider. The flags ride
 along in ``--sub-agents`` worker argv automatically.
@@ -64,30 +60,27 @@ def apply_selection(
     *,
     provider: str | None = None,
     hybrid: bool = False,
-) -> tuple[dict[str, Any], dict[str, str], list[str]]:
-    """Return ``(effective_models, model_overrides, warnings)``.
+) -> tuple[dict[str, Any], list[str]]:
+    """Return ``(effective_models, warnings)``.
 
-    ``effective_models`` (a shallow copy of ``models_cfg`` with overrides)
-    is passed to ``registry.configure_providers``. ``model_overrides``
-    (``{stage: model_name}``, empty unless a flag is given) is overlaid
-    onto the CLI's stage model map. ``warnings`` is advisory text.
+    ``effective_models`` is a shallow copy of ``models_cfg`` with the flag
+    overrides applied; it is passed to ``registry.configure_providers`` and
+    is the single source for both provider and (via ``resolve_role``) the
+    per-stage model name. ``warnings`` is advisory text.
     """
     effective: dict[str, Any] = {
         key: (dict(val) if isinstance(val, dict) else val) for key, val in models_cfg.items()
     }
-    overrides: dict[str, str] = {}
 
     if provider is not None:
         model = _model_for(provider, providers_cfg)
         for stage in stages:
             effective[stage] = {"provider": provider, "model": model}
-            overrides[stage] = model
 
     if hybrid:
         anthropic_model = _model_for("anthropic", providers_cfg)
         for stage in HEAVY_STAGES:
             effective[stage] = {"provider": "anthropic", "model": anthropic_model}
-            overrides[stage] = anthropic_model
 
     warnings: list[str] = []
     if provider in OPEN_PROVIDERS and not hybrid:
@@ -98,7 +91,7 @@ def apply_selection(
             "--hybrid を付けると leader / stage_04 だけ Anthropic に引き上げます。"
         )
 
-    return effective, overrides, warnings
+    return effective, warnings
 
 
 __all__ = ["HEAVY_STAGES", "OPEN_PROVIDERS", "apply_selection"]
