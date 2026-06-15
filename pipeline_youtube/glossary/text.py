@@ -15,11 +15,18 @@ rewriting (Phase C) share one canonical-resolution path. Constructing the
 ``Normalizer`` also revalidates the glossary, so a conflicting glossary
 raises ``GlossaryConflictError`` here exactly as it does for the scanner.
 
-Scope note: variants that differ from their canonical only by case/width
-are intentionally NOT rewritten (they fold to the canonical and are not
-defects). Width-divergent occurrences in the body (e.g. half-width
-katakana) are left to the fidelity scan's folded detection rather than
-risking position-shifting whole-text NFKC rewrites here.
+Scope / known limitation: matching is **case-insensitive but
+width-literal**. The regex runs over the original text to preserve
+replacement positions, so width-divergent occurrences (half-width
+katakana ``ﾋﾞﾌﾞｺｰﾃﾞｨﾝｸﾞ``, full-width Latin ``ＡＩ``) are NOT matched here
+— folding the whole body to gain width-insensitivity would shift
+positions and require an inverse map, and silently NFKC-normalizing the
+entire summary risks altering unrelated intentional formatting. The
+deterministic ``Normalizer`` (used only to *resolve* an already-matched
+surface to its canonical) is width-insensitive; the *matcher* is not.
+``evaluation.fidelity`` shares this same matcher, so it has the same
+width limitation. Aliases that differ from their canonical only by
+case/width are correctly excluded as non-defects (see ``variant_surfaces``).
 """
 
 from __future__ import annotations

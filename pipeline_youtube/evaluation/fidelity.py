@@ -11,12 +11,15 @@ glossary) can be layered on later; this deterministic core is what makes
 the Phase B verification gate reproducible.
 
 Each match produces a ``high`` / ``target_scope="04"`` ``Finding`` keyed
-to the offending video, so the orchestrator regenerates that single
-video's Stage 04 note (then re-runs Stage 05). Matching is width/case
-insensitive via ``glossary.normalizer.fold_term`` and uses substring
-containment — appropriate for the distinctive katakana/long-form
-spellings glossaries hold; an alias whose folded form equals its own
-canonical is skipped so a redundantly-listed canonical never self-flags.
+to the offending video. The evaluation stage is ADVISORY (it records
+findings in a report; it does not regenerate 04/05), so the scope merely
+tells a human where the defect lives. Matching reuses the Stage 02
+rewriter's compiled pattern (``glossary.text.compile_variant_pattern``):
+case-insensitive with ASCII word-boundary guards, resolved to canonical
+via ``Normalizer``. It is therefore **width-literal** — half/full-width
+divergent forms are not matched (the same limitation documented in
+``glossary.text``). An alias whose folded form equals its own canonical
+is excluded upstream so a redundantly-listed canonical never self-flags.
 """
 
 from __future__ import annotations
