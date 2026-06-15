@@ -70,6 +70,13 @@ graph TD
 cd pipeline-youtube-SDK
 uv sync
 
+# Whisper フォールバック (3次) を使う場合は別途インストール:
+#   uv sync --extra whisper
+# ★重要: Whisper は optional extra なので、素の `uv run ...` は実行時に環境をロックへ
+#   同期し直して Whisper を毎回アンインストールする。Whisper を効かせる実行は必ず
+#   `uv run --extra whisper ...` を使うこと。字幕が IP ブロックされた動画は、この
+#   Whisper フォールバック (音声から文字起こし) だけが命綱になる。
+
 # 編集可能インストール
 uv pip install -e .
 
@@ -163,6 +170,10 @@ export ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ```bash
 # 通常実行: プレイリスト全体を 01〜05 まで処理
 uv run python -m pipeline_youtube.main "https://www.youtube.com/playlist?list=PLxxx"
+
+# Whisper フォールバックを効かせて実行 (字幕が無い/IP ブロックされた動画を音声から
+# 文字起こし)。★`--extra whisper` を付けないと uv が Whisper を毎回剥がす点に注意。
+uv run --extra whisper python -m pipeline_youtube.main "https://www.youtube.com/playlist?list=PLxxx"
 
 # dry-run (Vault 書き込みなし)
 uv run python -m pipeline_youtube.main "URL" --dry-run

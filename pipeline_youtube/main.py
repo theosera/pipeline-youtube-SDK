@@ -590,10 +590,14 @@ def _process_video(
         )
         with contextlib.suppress(Exception):
             record_transcript_stat(video, transcript)
+        # Surface the per-tier fallback reason inline so a failed transcript
+        # (source=error) shows *why* — e.g. "auto:ip_blocked; whisper:
+        # whisper_not_installed" — without digging into transcript_stats.jsonl.
+        reason = transcript.fallback_reason
         click.echo(
             f" source={transcript.source.value}"
             f" snippets={len(transcript.snippets)}"
-            f" lang={transcript.language or '-'}"
+            f" lang={transcript.language or '-'}" + (f" reason=({reason})" if reason else "")
         )
 
         if not transcript.snippets:
