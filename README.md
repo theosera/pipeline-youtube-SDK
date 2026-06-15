@@ -135,6 +135,29 @@ export ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 
 > **混合構成の例**: Router は Ollama のローカルモデル (高速・無料)、Leader は Anthropic Claude (高品質) のように、ステージごとに異なるプロバイダーを使い分けられます。
 
+### 固有名詞の正規化 (任意)
+
+`glossary_path` に固有名詞辞書 (JSON) を指定すると、Stage 02 が出力本文・ONE_LINER の
+**既知の誤変換を決定論的に正規化**します (例: `ビブコーディング` → `Vibe Coding`)。文脈推論
+ではなく辞書照合なので幻覚は起きず、辞書に無い語はそのまま残ります。未指定 (`null`) の場合は
+正規化を行いません。相対パスは config.json のあるディレクトリ基準で解決されます。
+
+```json
+{ "glossary_path": "glossary.json" }
+```
+
+辞書フォーマット:
+
+```json
+{
+  "version": 1,
+  "entries": [
+    {"canonical": "Vibe Coding", "aliases": ["ビブコーディング", "バイブコーディング"],
+     "reading": "ヴァイブコーディング", "category": "concept"}
+  ]
+}
+```
+
 ## 使い方
 
 ```bash

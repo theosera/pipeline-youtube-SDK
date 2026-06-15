@@ -29,6 +29,8 @@ import logging
 import re
 from pathlib import Path
 
+from ..glossary.schema import Glossary
+from ..glossary.text import normalize_text
 from ..obsidian import upsert_frontmatter_field
 from ..playlist import VideoMeta
 from ..providers.base import LLMResponse as ClaudeResponse
@@ -143,6 +145,7 @@ def run_stage_summary(
     model: str = "sonnet",
     window_seconds: float = DEFAULT_SUMMARY_CHUNK_SECONDS,
     filler_words: tuple[str, ...] | list[str] | None = None,
+    glossary: Glossary | None = None,
     dry_run: bool = False,
 ) -> ClaudeResponse:
     """Generate a 02_Summary md body and append it to the placeholder.
@@ -150,6 +153,13 @@ def run_stage_summary(
     Returns the ClaudeResponse so the caller can log cost/tokens.
     Empty transcripts are handled gracefully (a placeholder body is
     written and a zero-usage synthetic ClaudeResponse returned).
+
+    When ``glossary`` is provided, the validated body and one-liner are
+    deterministically normalized (known proper-noun mis-transcriptions →
+    canonical spelling) before disk write. ``None`` (default) is a no-op,
+    so existing callers and behavior are unchanged. The model still does
+    context-only cleansing; this layer adds glossary-backed correction
+    without inventing anything not already in the glossary.
     """
     chunks = chunk_by_window(transcript_result.snippets, window_seconds, filler_words=filler_words)
 
@@ -174,6 +184,10 @@ def run_stage_summary(
     # attempt still fails, fall back to a degraded placeholder so the video
     # still produces a note instead of being dropped entirely.
     body_to_write, one_liner, response = _validate_with_repair(video, chunks, response, model=model)
+    if glossary is not None:
+        body_to_write = normalize_text(body_to_write, glossary)
+        if one_liner is not None:
+            one_liner = normalize_text(one_liner, glossary)
     _append_body(summary_md_path, body_to_write)
     if one_liner is not None:
         _persist_one_liner(summary_md_path, one_liner)

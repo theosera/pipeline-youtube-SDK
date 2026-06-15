@@ -355,3 +355,60 @@ class TestPromptBuilding:
         assert "\x08" not in prompt
         assert "\u200b" not in prompt
         assert "normaltextwithnasties" in prompt
+
+
+class TestGlossaryNormalization:
+    """Stage 02 applies deterministic proper-noun normalization when a
+    glossary is provided; default (None) leaves output untouched."""
+
+    _SUMMARY_WITH_VARIANT = (
+        "ONE_LINER: \u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0\u5165\u9580\n\n"
+        "## \u5168\u4f53\u30b5\u30de\u30ea\n\n"
+        "\u672c\u52d5\u753b\u306f\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0\u306e\u57fa\u790e\u3092\u89e3\u8aac\u3059\u308b\u3002\n\n"
+        "## \u8981\u70b9\u30bf\u30a4\u30e0\u30e9\u30a4\u30f3\n\n"
+        "### [00:00 ~ 01:30] \u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0\u3068\u306f\n"
+        "\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0\u306e\u5b9a\u7fa9\u3092\u8ff0\u3079\u308b\u3002\n"
+    )
+
+    def _run(self, vault, monkeypatch, glossary):
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        transcript = _transcript(
+            [
+                TranscriptSnippet(
+                    "\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0\u306e\u5c0e\u5165", 0.0, 30.0
+                )
+            ]
+        )
+        monkeypatch.setattr(
+            summary_stage,
+            "invoke_claude",
+            lambda **kw: _fake_claude_response(self._SUMMARY_WITH_VARIANT),
+        )
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, glossary=glossary)
+        return paths["summary"].read_text(encoding="utf-8")
+
+    def test_glossary_normalizes_body_and_one_liner(self, vault, monkeypatch):
+        from pipeline_youtube.glossary.schema import Glossary, GlossaryEntry
+
+        glossary = Glossary(
+            entries=(
+                GlossaryEntry(
+                    canonical="Vibe Coding",
+                    aliases=["\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0"],
+                ),
+            )
+        )
+        post = self._run(vault, monkeypatch, glossary)
+        assert (
+            "\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0" not in post
+        )  # variant fully rewritten
+        assert "Vibe Coding" in post
+        # one-liner (frontmatter) is normalized too
+        assert "Vibe Coding\u5165\u9580" in post
+
+    def test_no_glossary_leaves_variant_untouched(self, vault, monkeypatch):
+        post = self._run(vault, monkeypatch, None)
+        assert "\u30d3\u30d6\u30b3\u30fc\u30c7\u30a3\u30f3\u30b0" in post
+        assert "Vibe Coding" not in post

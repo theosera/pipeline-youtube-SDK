@@ -19,7 +19,7 @@ component in the fidelity chain to verify in isolation.
 
 from __future__ import annotations
 
-from .normalizer import Normalizer
+from .normalizer import Normalizer, fold_term
 from .schema import (
     Glossary,
     GlossaryConflictError,
@@ -28,6 +28,7 @@ from .schema import (
     load_glossary,
     parse_glossary,
 )
+from .text import normalize_text, variant_surfaces
 
 __all__ = [
     "Glossary",
@@ -35,6 +36,9 @@ __all__ = [
     "GlossaryEntry",
     "GlossaryParseError",
     "Normalizer",
+    "fold_term",
     "load_glossary",
+    "normalize_text",
     "parse_glossary",
+    "variant_surfaces",
 ]

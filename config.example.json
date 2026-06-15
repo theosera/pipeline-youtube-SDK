@@ -38,5 +38,6 @@
   "whisper_max_audio_seconds": 7200,
   "transcript_concurrency": 8,
   "llm_concurrency": null,
-  "download_concurrency": null
+  "download_concurrency": null,
+  "glossary_path": null
 }
