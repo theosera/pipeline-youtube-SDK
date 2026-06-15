@@ -1,24 +1,32 @@
 """Runtime backend selection for ``--provider`` / ``--hybrid`` (no LLM).
 
 Design (chosen): **config.json is the source of truth** (方式X). With no
-flag, the per-stage ``models`` map is used verbatim, so a heterogeneous
-setup (different models per stage, including different local models) keeps
-working. The flags are coarse per-run overrides on top:
+flag, the per-stage ``models`` map is used verbatim (the no-flag path is
+left completely untouched), so heterogeneous setups keep working. The
+flags are coarse per-run overrides on top:
 
 - ``--provider P``  → route EVERY stage to ``P``'s default model for this
-  run (single-model run), ignoring config's per-stage providers.
+  run (single-model run).
 - ``--hybrid``      → keep the **heavy** stages (``stage_04``, ``leader``)
-  on Anthropic even when an open/local provider is otherwise selected
-  (the opt-in escape hatch discussed in the design).
+  on Anthropic even when an open/local provider is otherwise selected.
 
-When the heavy stages end up on an open/local backend, ``apply_selection``
-returns an advisory warning string (the caller prints it). Nothing is
-silently rerouted — the user keeps control (least surprise).
+``apply_selection`` returns three things:
 
-``apply_selection`` is pure and deterministic so it is unit-testable
-without a provider; the resulting map is handed to
-``registry.configure_providers``. Because ``--sub-agents`` forwards the
-original argv to each worker, these flags propagate to shards for free.
+1. ``effective_models`` — ``{stage: {provider, model}}`` for the registry
+   (drives provider resolution in ``registry.resolve_role``).
+2. ``model_overrides`` — ``{stage: model_name}`` to overlay onto the map
+   the CLI passes to each stage as an explicit ``model=`` argument. This
+   is REQUIRED: ``invoke_llm`` only substitutes the role-resolved model
+   when the caller passes ``"default"``, so a stage that forwards an
+   explicit model name would otherwise send the *config* model to the
+   *selected* provider (e.g. ``qwen3:8b`` to Anthropic). Empty when no
+   flag is given — the no-flag path is therefore unchanged.
+3. ``warnings`` — advisory text (printed by the caller) when an OPEN/local
+   provider is explicitly selected for the heavy stages without
+   ``--hybrid``. Nothing is silently rerouted (least surprise).
+
+Pure and deterministic → unit-testable without a provider. The flags ride
+along in ``--sub-agents`` worker argv automatically.
 """
 
 from __future__ import annotations
@@ -30,10 +38,6 @@ from typing import Any
 HEAVY_STAGES = ("stage_04", "leader")
 
 OPEN_PROVIDERS = frozenset({"ollama", "lmstudio"})
-
-# Matches registry._DEFAULT_PROVIDER / _DEFAULT_MODEL (the fallback used by
-# resolve_role for an unconfigured stage).
-_DEFAULT_PROVIDER = "ollama"
 
 # Per-provider default model when config has no ``default_model`` for it.
 _PROVIDER_FALLBACK_MODEL = {
@@ -53,24 +57,6 @@ def _model_for(provider: str, providers_cfg: dict[str, Any]) -> str:
     return _PROVIDER_FALLBACK_MODEL.get(provider, _PROVIDER_FALLBACK_MODEL["ollama"])
 
 
-def _effective_provider(entry: object) -> str:
-    """Resolve a ``models[stage]`` entry to its provider name.
-
-    Mirrors ``registry.resolve_role``: a dict uses its ``provider`` (default
-    provider if absent); a legacy string is Anthropic when it is a known
-    Anthropic model alias, else the default provider; anything else (missing)
-    falls back to the default provider.
-    """
-    if isinstance(entry, dict):
-        provider = entry.get("provider")
-        return provider if isinstance(provider, str) and provider else _DEFAULT_PROVIDER
-    if isinstance(entry, str):
-        from .anthropic_sdk import _MODEL_ALIASES
-
-        return "anthropic" if entry.lower() in _MODEL_ALIASES else _DEFAULT_PROVIDER
-    return _DEFAULT_PROVIDER
-
-
 def apply_selection(
     models_cfg: dict[str, Any],
     providers_cfg: dict[str, Any],
@@ -78,43 +64,41 @@ def apply_selection(
     *,
     provider: str | None = None,
     hybrid: bool = False,
-) -> tuple[dict[str, Any], list[str]]:
-    """Return ``(effective_models, warnings)`` after applying the flags.
+) -> tuple[dict[str, Any], dict[str, str], list[str]]:
+    """Return ``(effective_models, model_overrides, warnings)``.
 
-    ``effective_models`` is a shallow copy of ``models_cfg`` with the
-    overrides applied; it is what should be passed to
-    ``registry.configure_providers``. ``warnings`` is advisory text to print
-    (empty when the heavy stages are not on an open/local backend).
+    ``effective_models`` (a shallow copy of ``models_cfg`` with overrides)
+    is passed to ``registry.configure_providers``. ``model_overrides``
+    (``{stage: model_name}``, empty unless a flag is given) is overlaid
+    onto the CLI's stage model map. ``warnings`` is advisory text.
     """
     effective: dict[str, Any] = {
         key: (dict(val) if isinstance(val, dict) else val) for key, val in models_cfg.items()
     }
+    overrides: dict[str, str] = {}
 
     if provider is not None:
         model = _model_for(provider, providers_cfg)
         for stage in stages:
             effective[stage] = {"provider": provider, "model": model}
+            overrides[stage] = model
 
     if hybrid:
         anthropic_model = _model_for("anthropic", providers_cfg)
         for stage in HEAVY_STAGES:
             effective[stage] = {"provider": "anthropic", "model": anthropic_model}
+            overrides[stage] = anthropic_model
 
-    return effective, _heavy_open_warnings(effective)
+    warnings: list[str] = []
+    if provider in OPEN_PROVIDERS and not hybrid:
+        warnings.append(
+            f"⚠ オープン/ローカル backend ({provider}) で重い工程 "
+            f"({', '.join(HEAVY_STAGES)}) を実行します。Stage 04 / 05(Leader) は"
+            "書式崩れ・一貫性低下・repair リトライ増の可能性があります。"
+            "--hybrid を付けると leader / stage_04 だけ Anthropic に引き上げます。"
+        )
 
-
-def _heavy_open_warnings(effective: dict[str, Any]) -> list[str]:
-    """Warn (once) when any heavy stage resolves to an open/local backend."""
-    open_heavy = [
-        s for s in HEAVY_STAGES if _effective_provider(effective.get(s)) in OPEN_PROVIDERS
-    ]
-    if not open_heavy:
-        return []
-    return [
-        f"⚠ オープン/ローカル backend で重い工程 ({', '.join(open_heavy)}) を実行します。"
-        "Stage 04 / 05(Leader) は書式崩れ・一貫性低下・repair リトライ増の可能性があります。"
-        "--hybrid を付けると leader / stage_04 だけ Anthropic に引き上げます。"
-    ]
+    return effective, overrides, warnings
 
 
 __all__ = ["HEAVY_STAGES", "OPEN_PROVIDERS", "apply_selection"]

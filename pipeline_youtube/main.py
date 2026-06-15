@@ -1077,12 +1077,19 @@ def cli(
         raise click.UsageError(
             "--provider anthropic / --hybrid requires the 'anthropic' provider in config.json."
         )
-    effective_models, model_warnings = apply_selection(
+    effective_models, model_overrides, model_warnings = apply_selection(
         models_raw, providers_raw, _MODEL_KEYS, provider=provider, hybrid=hybrid
     )
     for warning in model_warnings:
         click.echo(warning)
     configure_providers(providers_raw, effective_models)
+    # Overlay the selected model NAMES onto the map passed to stages as an
+    # explicit `model=` arg: invoke_llm resolves the provider from the role
+    # but only swaps the model when the caller passes "default", so without
+    # this overlay an override would send the config model to the selected
+    # provider. Empty overlay (no flag) leaves `models` exactly as-is.
+    if model_overrides:
+        models = {**models, **model_overrides}
     if provider or hybrid:
         click.echo(f"model selection: provider={provider or 'config'} hybrid={hybrid}")
     click.echo(
