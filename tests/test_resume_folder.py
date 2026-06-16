@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline_youtube.main import _videos_from_learning_folder
+from pipeline_youtube.resume import _videos_from_learning_folder
 
 
 def test_videos_from_learning_folder_is_scaffolded() -> None:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pipeline_youtube import main as main_mod
+from pipeline_youtube import proper_noun_sheet as main_mod
 from pipeline_youtube.glossary import (
     Glossary,
     GlossaryEntry,

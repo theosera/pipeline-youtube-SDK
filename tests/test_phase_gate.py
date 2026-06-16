@@ -7,8 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from pipeline_youtube.main import _filter_to_reviewed, _find_summary_md
+from pipeline_youtube.pipeline import LEARNING_BASE, UNIT_DIRS
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.resume import _filter_to_reviewed, _find_summary_md
 
 
 def _vid(video_id: str) -> VideoMeta:
@@ -41,16 +42,15 @@ _VID_1 = "vid1xxxxxxA"
 
 class TestFindSummaryMd:
     def test_canonical_folder(self, tmp_path: Path, monkeypatch):
-        monkeypatch.setattr("pipeline_youtube.main.get_vault_root", lambda: tmp_path, raising=False)
+        monkeypatch.setattr(
+            "pipeline_youtube.resume.get_vault_root", lambda: tmp_path, raising=False
+        )
         from pipeline_youtube import config
-        from pipeline_youtube import main as main_mod
 
         config.set_vault_root(tmp_path)
 
         dt = datetime(2026, 4, 18, 8, 0)
-        canonical = (
-            f"{main_mod.LEARNING_BASE}/{main_mod.UNIT_DIRS['summary']}/2026-04-18-0800 testlist"
-        )
+        canonical = f"{LEARNING_BASE}/{UNIT_DIRS['summary']}/2026-04-18-0800 testlist"
         summary = tmp_path / canonical / "note.md"
         _write_summary(summary, _VID_1, "true")
 
@@ -68,16 +68,10 @@ class TestFilterToReviewed:
     @pytest.fixture
     def vault(self, tmp_path: Path):
         from pipeline_youtube import config
-        from pipeline_youtube import main as main_mod
 
         config.set_vault_root(tmp_path)
         dt = datetime(2026, 4, 18, 8, 0)
-        folder = (
-            tmp_path
-            / main_mod.LEARNING_BASE
-            / main_mod.UNIT_DIRS["summary"]
-            / "2026-04-18-0800 testlist"
-        )
+        folder = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-0800 testlist"
         _write_summary(folder / "a.md", _VID_A, "true")
         _write_summary(folder / "b.md", _VID_B, "false")
         _write_summary(folder / "c.md", _VID_C, "true")
@@ -95,16 +89,10 @@ class TestFilterToReviewed:
 
     def test_case_insensitive_true(self, tmp_path: Path, monkeypatch):
         from pipeline_youtube import config
-        from pipeline_youtube import main as main_mod
 
         config.set_vault_root(tmp_path)
         dt = datetime(2026, 4, 18, 8, 0)
-        folder = (
-            tmp_path
-            / main_mod.LEARNING_BASE
-            / main_mod.UNIT_DIRS["summary"]
-            / "2026-04-18-0800 testlist"
-        )
+        folder = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-0800 testlist"
         _write_summary(folder / "a.md", _VID_A, "TRUE")
         kept = _filter_to_reviewed([(1, _vid(_VID_A))], "testlist", dt)
         assert len(kept) == 1

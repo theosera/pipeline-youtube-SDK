@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 import pytest
 
-from pipeline_youtube.main import _load_config
+from pipeline_youtube.cli_config import _load_config
 from pipeline_youtube.stages.synthesis import log_synthesis_preflight
 from pipeline_youtube.synthesis.agents import (
     _BETA_TIMEOUT_CAP,

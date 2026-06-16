@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from pipeline_youtube.main import VideoRunResult, _print_cost_breakdown
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.run_result import VideoRunResult, _print_cost_breakdown
 
 
 def _video(video_id: str = "vid") -> VideoMeta:

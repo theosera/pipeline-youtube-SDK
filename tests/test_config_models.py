@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 import pytest
 
-from pipeline_youtube.main import _load_config
+from pipeline_youtube.cli_config import _load_config
 
 
 def _write_config(path: Path, payload: dict) -> Path:
