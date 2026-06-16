@@ -93,9 +93,15 @@ class TestSelectTrack:
         tracks = [{"languageCode": "en", "baseUrl": "u"}]
         assert _select_track(tracks, ["en-GB"])["baseUrl"] == "u"
 
-    def test_falls_back_to_first_when_no_language_matches(self) -> None:
+    def test_returns_none_when_requested_language_unavailable(self) -> None:
+        # Language is strict: a fr-only video must NOT satisfy a ja request, so
+        # the chain falls through to the later (also strict) tiers.
         tracks = [{"languageCode": "fr", "baseUrl": "u-fr"}]
-        assert _select_track(tracks, ["ja"])["baseUrl"] == "u-fr"
+        assert _select_track(tracks, ["ja"]) is None
+
+    def test_falls_back_to_first_only_when_no_language_requested(self) -> None:
+        tracks = [{"languageCode": "fr", "baseUrl": "u-fr"}]
+        assert _select_track(tracks, [])["baseUrl"] == "u-fr"
 
     def test_empty_tracks_returns_none(self) -> None:
         assert _select_track([], ["ja"]) is None

@@ -191,8 +191,13 @@ def _select_track(tracks: list[dict[str, Any]], languages: list[str]) -> dict[st
     For each requested language (in order) try exact, then prefix
     (``en`` matches ``en-US``), then reverse-prefix (``en-US`` matches ``en``).
     Within a language a manually-created track wins over an ``asr`` one — this
-    preserves the existing "manual > auto" tier preference. If no requested
-    language matches at all, fall back to the first available track.
+    preserves the existing "manual > auto" tier preference.
+
+    Language is **strict** when ``languages`` is non-empty: if none of the
+    requested languages matches, return ``None`` so the chain falls through to
+    the youtube-transcript-api tiers (also language-strict) and then Whisper,
+    rather than silently transcribing an unrequested language. Only when no
+    language preference is given do we fall back to the first available track.
     """
 
     def manual_first(candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -210,6 +215,8 @@ def _select_track(tracks: list[dict[str, Any]], languages: list[str]) -> dict[st
         reverse = [t for t in tracks if _lang_of(t) and code.startswith(_lang_of(t) + "-")]
         if reverse:
             return manual_first(reverse)
+    if languages:
+        return None  # requested languages unavailable — defer to later tiers
     return tracks[0] if tracks else None
 
 
