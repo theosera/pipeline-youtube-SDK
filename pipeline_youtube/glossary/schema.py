@@ -234,6 +234,7 @@ def merge_glossary(base: Glossary, new_entries: list[GlossaryEntry]) -> Glossary
         if owned is None:
             canonicals.append(canonical)
             aliases_by_canonical[canonical] = []
+            meta_by_canonical[canonical] = entry
             owner[ckey] = canonical
         for alias in entry.aliases:
             akey = _fold(alias)

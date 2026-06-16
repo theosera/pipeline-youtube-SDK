@@ -115,6 +115,22 @@ class TestUpdateProperNounSheet:
         main_mod._update_proper_noun_sheet(sheet_path, results)
         assert not sheet_path.exists()
 
+    def test_separate_shards_accumulate_not_clobber(self, tmp_path: Path) -> None:
+        # Two --sub-agents shards each write their own videos to the shared
+        # sheet. The re-read-under-lock merge must keep both, not overwrite.
+        sheet_path = tmp_path / "__proper_nouns.tsv"
+        main_mod._update_proper_noun_sheet(
+            sheet_path,
+            [main_mod.VideoRunResult(video=_video("v1"), confirmed_terms=("Anthropic",))],
+        )
+        main_mod._update_proper_noun_sheet(
+            sheet_path,
+            [main_mod.VideoRunResult(video=_video("v2"), confirmed_terms=("Claude",))],
+        )
+        sheet = load_sheet(sheet_path)
+        assert sheet.section_for("v1") is not None
+        assert sheet.section_for("v2") is not None
+
 
 class TestApplyProperNouns:
     def test_rewrites_moc_and_chapters(self) -> None:

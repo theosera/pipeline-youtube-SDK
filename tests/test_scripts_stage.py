@@ -111,18 +111,24 @@ class TestRunStageScripts:
             "fetch_with_fallback",
             lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
         )
-        monkeypatch.setattr(
-            scripts_stage,
-            "correct_chunks",
-            lambda chunks, *, model, known_terms=None: CorrectionResult(
+        seen: dict[str, object] = {}
+
+        def _fake_correct(chunks, *, model, known_terms=None):
+            seen["known_terms"] = known_terms
+            return CorrectionResult(
                 chunks=[Chunk(start=c.start, text=c.text + " [FIX]") for c in chunks],
                 cost_usd=0.42,
                 confirmed_terms=["Anthropic"],
-            ),
-        )
+            )
+
+        monkeypatch.setattr(scripts_stage, "correct_chunks", _fake_correct)
 
         result = scripts_stage.run_stage_scripts(
-            video, scripts_path, window_seconds=30.0, correct_model="opus"
+            video,
+            scripts_path,
+            window_seconds=30.0,
+            correct_model="opus",
+            known_terms=[("ぐぐる", "Google")],
         )
 
         assert result.snippets
@@ -131,6 +137,8 @@ class TestRunStageScripts:
         assert result.correction_cost_usd == 0.42
         assert result.confirmed_terms == ("Anthropic",)
         assert "[FIX]" in scripts_path.read_text(encoding="utf-8")
+        # The sheet's known terms must reach correct_chunks (web-search skip path).
+        assert seen["known_terms"] == [("ぐぐる", "Google")]
 
     def test_dry_run_does_not_touch_file(self, vault, monkeypatch):
         video = _video()

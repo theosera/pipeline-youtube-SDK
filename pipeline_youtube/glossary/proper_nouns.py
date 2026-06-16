@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .normalizer import fold_term
-from .schema import Glossary, GlossaryEntry
+from .schema import Glossary, GlossaryEntry, merge_glossary
 
 # Placed directly under the 01_Scripts playlist folder. The ``__`` prefix sorts
 # it to the top of the folder and signals a system-owned (non-note) file.
@@ -217,16 +217,20 @@ def known_pairs(sheet: ProperNounSheet) -> list[tuple[str, str]]:
     Fed to Stage 01b as the confirmed vocabulary so the model reuses the
     resolved spelling instead of searching the web again.
     """
-    seen: set[str] = set()
-    out: list[tuple[str, str]] = []
+    chosen: dict[str, ProperNounRow] = {}
+    order: list[str] = []
     for section in sheet.sections:
         for row in section.rows:
             key = fold_term(row.system_term)
-            if not key or key in seen:
+            if not key:
                 continue
-            seen.add(key)
-            out.append((row.system_term, row.resolved))
-    return out
+            if key not in chosen:
+                chosen[key] = row
+                order.append(key)
+            elif row.is_user_corrected and not chosen[key].is_user_corrected:
+                # A later user-corrected row wins over an earlier system-only one.
+                chosen[key] = row
+    return [(chosen[k].system_term, chosen[k].resolved) for k in order]
 
 
 def correction_entries(sheet: ProperNounSheet) -> list[GlossaryEntry]:
@@ -237,26 +241,49 @@ def correction_entries(sheet: ProperNounSheet) -> list[GlossaryEntry]:
     deterministic ``Normalizer`` can rewrite the mis-spelling everywhere. Rows
     sharing a canonical are merged so multiple bad spellings become aliases of
     one entry.
+
+    Grouping is by the *folded* canonical, not the exact string: two
+    hand-edited corrections that differ only by the glossary fold rules
+    (``"Google"`` vs ``"google"``, half/full-width, case) collapse into a
+    single entry instead of emitting fold-colliding canonicals that would make
+    the ``Normalizer`` raise ``GlossaryConflictError`` and abort Stage 05. The
+    first spelling seen wins as the canonical; later rows contribute their
+    system spellings as aliases (an alias that folds to its own canonical is
+    dropped as redundant).
     """
-    by_canonical: dict[str, list[str]] = {}
+    canonical_by_key: dict[str, str] = {}
+    aliases_by_key: dict[str, list[str]] = {}
+    alias_keys_by_key: dict[str, set[str]] = {}
     order: list[str] = []
     for section in sheet.sections:
         for row in section.rows:
             if not row.is_user_corrected:
                 continue
-            canonical = row.user_correction
-            if canonical not in by_canonical:
-                by_canonical[canonical] = []
-                order.append(canonical)
-            aliases = by_canonical[canonical]
-            if row.system_term not in aliases:
-                aliases.append(row.system_term)
-    return [GlossaryEntry(canonical=c, aliases=by_canonical[c]) for c in order]
+            ckey = fold_term(row.user_correction)
+            if not ckey:
+                continue
+            if ckey not in canonical_by_key:
+                canonical_by_key[ckey] = row.user_correction
+                aliases_by_key[ckey] = []
+                alias_keys_by_key[ckey] = set()
+                order.append(ckey)
+            akey = fold_term(row.system_term)
+            if akey and akey != ckey and akey not in alias_keys_by_key[ckey]:
+                alias_keys_by_key[ckey].add(akey)
+                aliases_by_key[ckey].append(row.system_term)
+    return [GlossaryEntry(canonical=canonical_by_key[k], aliases=aliases_by_key[k]) for k in order]
 
 
 def correction_glossary(sheet: ProperNounSheet) -> Glossary:
-    """A ``Glossary`` of just the user-corrected rows (for Stage 05 rewriting)."""
-    return Glossary(entries=tuple(correction_entries(sheet)))
+    """A conflict-free ``Glossary`` of just the user-corrected rows (Stage 05).
+
+    Entries already carry fold-unique canonicals; routing them through the
+    conflict-tolerant ``merge_glossary`` additionally drops any alias whose
+    spelling collides with a *different* canonical, so the result always builds
+    a valid ``Normalizer`` even for messy hand edits — Stage 05 never aborts on
+    a lenient, human-editable sheet.
+    """
+    return merge_glossary(Glossary(), correction_entries(sheet))
 
 
 __all__ = [
