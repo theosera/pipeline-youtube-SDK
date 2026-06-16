@@ -24,7 +24,9 @@ challenges, so this stays *behind the fallback chain*, never a sole dependency.
 from __future__ import annotations
 
 import html
+import random
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -56,6 +58,14 @@ PLAYER_HOSTS = (
 )
 
 DEFAULT_TIMEOUT = 20.0
+
+# The timedtext endpoint rate-limits per IP: niche (non-CDN-cached) videos hit
+# 429 easily, especially in bursts. Retry these transient statuses with
+# exponential backoff + jitter, honoring Retry-After. Keep request volume low
+# (low --concurrency / paced warm-up) to avoid tripping it in the first place.
+RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_BACKOFF_BASE = 1.0
 
 # Minimal country hint per UI language so the player call looks plausible. An
 # unmapped language just defaults to a US gl — YouTube does not require a match.
@@ -122,17 +132,38 @@ def _default_fetch_player_json(
     raise TranscriptNotAvailable(last_reason)
 
 
-def _default_fetch_track_text(url: str, timeout: float) -> str:
-    """GET a caption track's timedtext XML."""
+def _retry_after_seconds(headers: Any) -> float | None:
+    """Parse a numeric ``Retry-After`` header (seconds), if present and valid."""
+    value = headers.get("Retry-After")
+    if isinstance(value, str) and value.isdigit():
+        return float(value)
+    return None
+
+
+def _default_fetch_track_text(
+    url: str, timeout: float, *, max_retries: int = DEFAULT_MAX_RETRIES
+) -> str:
+    """GET a caption track's timedtext XML, retrying transient 429/5xx.
+
+    The timedtext endpoint throttles per IP; a 429 here is usually transient.
+    Back off exponentially with jitter (honoring ``Retry-After``) before giving
+    up so the chain falls through to youtube-transcript-api / Whisper.
+    """
     import httpx
 
-    try:
-        resp = httpx.get(url, headers={"User-Agent": IOS_USER_AGENT}, timeout=timeout)
-    except httpx.HTTPError as e:
-        raise TranscriptNotAvailable(f"innertube_track_failed:{type(e).__name__}") from e
-    if resp.status_code != 200:
+    for attempt in range(max_retries + 1):
+        try:
+            resp = httpx.get(url, headers={"User-Agent": IOS_USER_AGENT}, timeout=timeout)
+        except httpx.HTTPError as e:
+            raise TranscriptNotAvailable(f"innertube_track_failed:{type(e).__name__}") from e
+        if resp.status_code == 200:
+            return resp.text
+        if resp.status_code in RETRYABLE_STATUS and attempt < max_retries:
+            base = DEFAULT_BACKOFF_BASE * (2**attempt)
+            time.sleep((_retry_after_seconds(resp.headers) or base) + random.uniform(0, 0.5))
+            continue
         raise TranscriptNotAvailable(f"innertube_track_http_{resp.status_code}")
-    return resp.text
+    raise TranscriptNotAvailable("innertube_track_retries_exhausted")
 
 
 def _extract_caption_tracks(payload: dict[str, Any]) -> list[dict[str, Any]]:

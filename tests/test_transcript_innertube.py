@@ -14,9 +14,22 @@ from pipeline_youtube.transcript.base import TranscriptNotAvailable, TranscriptS
 from pipeline_youtube.transcript.innertube import (
     _extract_caption_tracks,
     _parse_timedtext,
+    _retry_after_seconds,
     _select_track,
     fetch_innertube,
 )
+
+
+class TestRetryAfter:
+    def test_numeric_header(self) -> None:
+        assert _retry_after_seconds({"Retry-After": "30"}) == 30.0
+
+    def test_missing_header(self) -> None:
+        assert _retry_after_seconds({}) is None
+
+    def test_non_numeric_header(self) -> None:
+        # HTTP-date form is not parsed; we fall back to exponential backoff.
+        assert _retry_after_seconds({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}) is None
 
 
 class TestParseTimedtext:
