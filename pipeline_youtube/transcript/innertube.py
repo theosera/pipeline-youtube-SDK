@@ -44,7 +44,16 @@ INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 CLIENT_NAME = "IOS"
 CLIENT_VERSION = "20.10.38"
 IOS_USER_AGENT = "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
-PLAYER_URL = f"https://www.youtube.com/youtubei/v1/player?key={INNERTUBE_API_KEY}"
+
+# Player API hosts, tried in order. The googleapis host is the canonical
+# InnerTube endpoint and tends to serve fewer bot interstitials than the
+# www.youtube.com web host; the web host is kept as a fallback. (The caption
+# track ``baseUrl`` YouTube returns always points at www.youtube.com/api/
+# timedtext regardless of which host answered the player call.)
+PLAYER_HOSTS = (
+    "https://youtubei.googleapis.com/youtubei/v1/player",
+    "https://www.youtube.com/youtubei/v1/player",
+)
 
 DEFAULT_TIMEOUT = 20.0
 
@@ -89,19 +98,28 @@ def _default_fetch_player_json(
         "videoId": video_id,
     }
     headers = {"Content-Type": "application/json", "User-Agent": IOS_USER_AGENT}
-    try:
-        resp = httpx.post(PLAYER_URL, json=body, headers=headers, timeout=timeout)
-    except httpx.HTTPError as e:
-        raise TranscriptNotAvailable(f"innertube_post_failed:{type(e).__name__}") from e
-    if resp.status_code != 200:
-        raise TranscriptNotAvailable(f"innertube_http_{resp.status_code}")
-    try:
-        payload = resp.json()
-    except ValueError as e:
-        raise TranscriptNotAvailable("innertube_bad_json") from e
-    if not isinstance(payload, dict):
-        raise TranscriptNotAvailable("innertube_unexpected_payload")
-    return payload
+    last_reason = "innertube_no_host"
+    for host in PLAYER_HOSTS:
+        try:
+            resp = httpx.post(
+                f"{host}?key={INNERTUBE_API_KEY}", json=body, headers=headers, timeout=timeout
+            )
+        except httpx.HTTPError as e:
+            last_reason = f"innertube_post_failed:{type(e).__name__}"
+            continue
+        if resp.status_code != 200:
+            last_reason = f"innertube_http_{resp.status_code}"
+            continue
+        try:
+            payload = resp.json()
+        except ValueError:
+            last_reason = "innertube_bad_json"
+            continue
+        if not isinstance(payload, dict):
+            last_reason = "innertube_unexpected_payload"
+            continue
+        return payload
+    raise TranscriptNotAvailable(last_reason)
 
 
 def _default_fetch_track_text(url: str, timeout: float) -> str:
