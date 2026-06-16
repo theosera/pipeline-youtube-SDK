@@ -21,6 +21,7 @@ import pytest
 from click.testing import CliRunner
 
 from pipeline_youtube import main as main_mod
+from pipeline_youtube import video_processing as vp_mod
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
 from pipeline_youtube.stages.capture import CaptureResult, SummaryRange
@@ -201,14 +202,14 @@ class TestE2EPlaylist:
         ):
             return _transcript_result(video.video_id)
 
-        monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
+        monkeypatch.setattr(vp_mod, "run_stage_scripts", fake_scripts)
 
         # Mock fetch_metadata (no network)
         monkeypatch.setattr(main_mod, "fetch_metadata", lambda url: _videos())
 
         # Mock Stage 03 capture (no ffmpeg / yt-dlp)
-        monkeypatch.setattr(main_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
-        monkeypatch.setattr(main_mod, "prefetch_video_download", lambda video: None)
+        monkeypatch.setattr(vp_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
+        monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
 
         # SDK version: no claude binary validation needed
         monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
@@ -310,10 +311,10 @@ class TestE2EPlaylist:
         ):
             return _transcript_result(video.video_id)
 
-        monkeypatch.setattr(main_mod, "run_stage_scripts", fake_scripts)
+        monkeypatch.setattr(vp_mod, "run_stage_scripts", fake_scripts)
         monkeypatch.setattr(main_mod, "fetch_metadata", lambda url: _videos())
-        monkeypatch.setattr(main_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
-        monkeypatch.setattr(main_mod, "prefetch_video_download", lambda video: None)
+        monkeypatch.setattr(vp_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
+        monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
         monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
         from pipeline_youtube.genres import Genre
         from pipeline_youtube.stages import learning as learning_mod

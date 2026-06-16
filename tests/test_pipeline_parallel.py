@@ -174,7 +174,7 @@ class TestPrefetchSkippedOnCacheHit:
         from datetime import datetime
 
         import pipeline_youtube.cache as cache_mod
-        from pipeline_youtube import main as main_mod
+        from pipeline_youtube import video_processing as main_mod
         from pipeline_youtube.providers.base import LLMResponse
         from pipeline_youtube.stages.capture import CaptureResult, SummaryRange
         from pipeline_youtube.transcript.base import (
