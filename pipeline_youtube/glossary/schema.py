@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .fold import fold_term
+
 
 class GlossaryParseError(ValueError):
     """Raised when glossary JSON is structurally malformed.
@@ -193,10 +195,6 @@ def write_glossary(path: str | Path, glossary: Glossary) -> None:
 
 
 def _fold(term: str) -> str:
-    # Local import keeps schema.py free of a module-level normalizer dependency
-    # (normalizer imports schema for its types).
-    from .normalizer import fold_term
-
     return fold_term(term)
 
 

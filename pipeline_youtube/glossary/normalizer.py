@@ -22,22 +22,13 @@ canonical is always the glossary's verbatim spelling.
 
 from __future__ import annotations
 
-import unicodedata
 from typing import TYPE_CHECKING
 
+from .fold import fold_term
 from .schema import GlossaryConflictError
 
 if TYPE_CHECKING:
     from .schema import Glossary, GlossaryEntry
-
-
-def fold_term(term: str) -> str:
-    """Fold a term into its match key (NFKC + casefold + strip).
-
-    NFKC normalizes half/full-width forms; ``casefold`` removes case
-    distinctions. The result is used only for lookup, never returned.
-    """
-    return unicodedata.normalize("NFKC", term).casefold().strip()
 
 
 class Normalizer:
