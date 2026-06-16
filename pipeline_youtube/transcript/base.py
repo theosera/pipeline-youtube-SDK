@@ -1,6 +1,8 @@
 """Shared transcript types and fallback chain orchestration.
 
 The fallback hierarchy is deterministic:
+  0. InnerTube (captions via the iOS YouTube client — bypasses bot/PO-token
+     blocks that hit youtube-transcript-api; best-effort, optional)
   1. Official (manually-created captions via youtube-transcript-api)
   2. Auto (YouTube auto-generated captions via youtube-transcript-api)
   3. Whisper (local openai-whisper, optional dependency)
