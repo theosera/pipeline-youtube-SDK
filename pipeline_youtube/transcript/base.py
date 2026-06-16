@@ -63,6 +63,13 @@ class TranscriptResult:
     retrieved_at: str = ""
     fallback_reason: str | None = None
     error: str | None = None
+    # Billed cost of the Stage 01b LLM correction pass, if it ran. ``None`` when
+    # no correction was attempted (Stage 01a only); a float (possibly 0.0) once
+    # correction ran so Stage 01 can echo ``cost=$...`` like Stage 02/04.
+    correction_cost_usd: float | None = None
+    # Proper nouns Stage 01b confirmed for this video (deduped). Written into the
+    # per-playlist proper-noun sheet for human review and next-run reuse.
+    confirmed_terms: tuple[str, ...] = ()
 
 
 Fetcher = Callable[[str, list[str]], TranscriptResult]

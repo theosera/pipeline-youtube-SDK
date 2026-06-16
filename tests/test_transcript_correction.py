@@ -11,13 +11,14 @@ from pipeline_youtube.providers.base import LLMError, LLMResponse
 from pipeline_youtube.transcript.chunking import Chunk
 from pipeline_youtube.transcript.correction import (
     _parse_corrections,
+    _parse_response,
     chunks_to_snippets,
     correct_chunks,
 )
 
 
-def _response(text: str) -> LLMResponse:
-    return LLMResponse(text=text, model="opus", provider="anthropic")
+def _response(text: str, *, cost: float | None = None) -> LLMResponse:
+    return LLMResponse(text=text, model="opus", provider="anthropic", total_cost_usd=cost)
 
 
 def _stub_invoke(text: str):
@@ -53,13 +54,36 @@ class TestParseCorrections:
             _parse_corrections("not json")
 
 
+class TestParseResponse:
+    def test_object_form_returns_corrections_and_terms(self) -> None:
+        mapping, terms = _parse_response(
+            '{"corrections": [{"idx": 0, "text": "A"}], "terms": ["Anthropic", " Claude "]}'
+        )
+        assert mapping == {0: "A"}
+        assert terms == ["Anthropic", "Claude"]
+
+    def test_array_form_has_no_terms(self) -> None:
+        mapping, terms = _parse_response('[{"idx": 0, "text": "A"}]')
+        assert mapping == {0: "A"}
+        assert terms == []
+
+    def test_object_without_terms_is_lenient(self) -> None:
+        mapping, terms = _parse_response('{"corrections": [{"idx": 0, "text": "A"}]}')
+        assert mapping == {0: "A"}
+        assert terms == []
+
+    def test_non_object_non_array_raises(self) -> None:
+        with pytest.raises(ValueError, match="object or array"):
+            _parse_response('"a string"')
+
+
 class TestCorrectChunks:
     def _chunks(self) -> list[Chunk]:
         return [Chunk(start=0.0, text="ぐぐる"), Chunk(start=30.0, text="てんさーふろー")]
 
     def test_applies_corrections_and_preserves_timestamps(self) -> None:
         invoke = _stub_invoke('[{"idx": 0, "text": "Google"}, {"idx": 1, "text": "TensorFlow"}]')
-        out = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        out = correct_chunks(self._chunks(), model="opus", invoke=invoke).chunks
         assert [c.text for c in out] == ["Google", "TensorFlow"]
         assert [c.start for c in out] == [0.0, 30.0]
 
@@ -74,29 +98,74 @@ class TestCorrectChunks:
 
     def test_missing_index_keeps_original(self) -> None:
         invoke = _stub_invoke('[{"idx": 0, "text": "Google"}]')
-        out = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        out = correct_chunks(self._chunks(), model="opus", invoke=invoke).chunks
         assert out[0].text == "Google"
         assert out[1].text == "てんさーふろー"
 
     def test_empty_correction_keeps_original(self) -> None:
         invoke = _stub_invoke('[{"idx": 0, "text": ""}, {"idx": 1, "text": "x"}]')
-        out = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        out = correct_chunks(self._chunks(), model="opus", invoke=invoke).chunks
         assert out[0].text == "ぐぐる"
 
     def test_bad_json_falls_back_to_original(self) -> None:
         invoke = _stub_invoke("the model rambled instead of returning JSON")
-        out = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        out = correct_chunks(self._chunks(), model="opus", invoke=invoke).chunks
         assert [c.text for c in out] == ["ぐぐる", "てんさーふろー"]
 
     def test_llm_error_falls_back_to_original(self) -> None:
         def invoke(**kwargs: Any) -> LLMResponse:
             raise LLMError("boom")
 
-        out = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        out = correct_chunks(self._chunks(), model="opus", invoke=invoke).chunks
         assert [c.text for c in out] == ["ぐぐる", "てんさーふろー"]
 
     def test_empty_input(self) -> None:
-        assert correct_chunks([], model="opus", invoke=_stub_invoke("[]")) == []
+        result = correct_chunks([], model="opus", invoke=_stub_invoke("[]"))
+        assert result.chunks == []
+        assert result.cost_usd == 0.0
+
+    def test_sums_billed_cost_across_batches(self) -> None:
+        chunks = [Chunk(start=float(i), text=str(i)) for i in range(4)]
+
+        def invoke(**kwargs: Any) -> LLMResponse:
+            prompt = kwargs["prompt"]
+            idxs = [int(line[1 : line.index("]")]) for line in prompt.splitlines()]
+            return _response(json.dumps([{"idx": i, "text": "ok"} for i in idxs]), cost=0.01)
+
+        result = correct_chunks(chunks, model="opus", invoke=invoke, batch_size=2)
+        assert result.cost_usd == pytest.approx(0.02)
+
+    def test_llm_error_contributes_no_cost(self) -> None:
+        def invoke(**kwargs: Any) -> LLMResponse:
+            raise LLMError("boom")
+
+        assert correct_chunks(self._chunks(), model="opus", invoke=invoke).cost_usd == 0.0
+
+    def test_collects_confirmed_terms_deduped(self) -> None:
+        invoke = _stub_invoke(
+            '{"corrections": [{"idx": 0, "text": "Google"}, {"idx": 1, "text": "x"}], '
+            '"terms": ["Google", "Google", "TensorFlow"]}'
+        )
+        result = correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        assert result.confirmed_terms == ["Google", "TensorFlow"]
+
+    def test_known_terms_injected_into_system_prompt(self) -> None:
+        invoke = _stub_invoke('{"corrections": [{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]}')
+        correct_chunks(
+            self._chunks(),
+            model="opus",
+            invoke=invoke,
+            known_terms=[("ぐぐる", "Google"), ("Anthropic", "Anthropic")],
+        )
+        sys_prompt = invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
+        assert "確定済み固有名詞辞書" in sys_prompt
+        assert "ぐぐる → Google" in sys_prompt
+        assert "- Anthropic" in sys_prompt
+
+    def test_no_known_terms_leaves_base_prompt(self) -> None:
+        invoke = _stub_invoke('[{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]')
+        correct_chunks(self._chunks(), model="opus", invoke=invoke)
+        assert "確定済み固有名詞辞書" not in invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
 
     def test_chunks_to_snippets_preserves_timeline(self) -> None:
         chunks = [
@@ -117,6 +186,6 @@ class TestCorrectChunks:
             idxs = [int(line[1 : line.index("]")]) for line in prompt.splitlines()]
             return _response(json.dumps([{"idx": i, "text": "ok"} for i in idxs]))
 
-        out = correct_chunks(chunks, model="opus", invoke=invoke, batch_size=2)
+        out = correct_chunks(chunks, model="opus", invoke=invoke, batch_size=2).chunks
         assert all(c.text == "ok" for c in out)
         assert [c.start for c in out] == [0.0, 1.0, 2.0, 3.0, 4.0]

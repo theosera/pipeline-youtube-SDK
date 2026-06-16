@@ -37,6 +37,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from ..config import get_vault_root
+from ..glossary import Glossary, normalize_text
 from ..obsidian import format_playlist_folder_name
 from ..path_safety import ensure_safe_path
 from ..playlist import VideoMeta
@@ -60,6 +61,8 @@ from ..synthesis.scoring import (
     CoverageReport,
     LeaderOutput,
     ReviewerFeedback,
+    SynthesisChapterBody,
+    SynthesisMoc,
     SynthesisParseError,
     Topic,
 )
@@ -195,6 +198,30 @@ def log_synthesis_preflight(
     return "\n".join(lines)
 
 
+def _apply_proper_nouns(output: LeaderOutput, glossary: Glossary) -> LeaderOutput:
+    """Rewrite the leader output's user-facing text through ``normalize_text``.
+
+    Applies the per-playlist proper-noun corrections (variant → canonical) to the
+    MOC title/body and each chapter's label/body. Non-destructive — only
+    glossary-known variants change — so it is safe to run unconditionally.
+    """
+    moc = SynthesisMoc(
+        title=normalize_text(output.moc.title, glossary),
+        body_markdown=normalize_text(output.moc.body_markdown, glossary),
+    )
+    chapters = [
+        SynthesisChapterBody(
+            chapter_index=chapter.chapter_index,
+            label=normalize_text(chapter.label, glossary),
+            category=chapter.category,
+            source_video_ids=chapter.source_video_ids,
+            body_markdown=normalize_text(chapter.body_markdown, glossary),
+        )
+        for chapter in output.chapters
+    ]
+    return LeaderOutput(moc=moc, chapters=chapters)
+
+
 def run_stage_synthesis(
     videos: list[VideoMeta],
     learning_md_bodies: list[str],
@@ -209,6 +236,7 @@ def run_stage_synthesis(
     folder_name_override: str | None = None,
     synthesis_timeout: int | None = None,
     profile: str | None = None,
+    proper_noun_glossary: Glossary | None = None,
 ) -> SynthesisStageResult:
     """Orchestrate α→β→Leader and write MOC + chapter md files.
 
@@ -238,6 +266,11 @@ def run_stage_synthesis(
         Agent Teams profile name (``"standard"``, ``"parallel"``,
         ``"full"``, ``"parallel+full"``) or ``"auto"`` / ``None`` to
         auto-pick from video count. See ``_select_profile``.
+    proper_noun_glossary:
+        Optional glossary built from the user-corrected rows of the
+        per-playlist proper-noun sheet. When set, the final MOC + chapters
+        are rewritten through it (variant → canonical) so the user's
+        spelling fixes land in the Stage 05 output.
     """
     am = agent_models or {}
     alpha_model = am.get("alpha", model)
@@ -406,6 +439,11 @@ def run_stage_synthesis(
             except Exception:
                 # Revision re-run failed: keep the original leader output.
                 pass
+
+    # Apply the user's proper-noun corrections to the final output (after the
+    # reviewer pass so a revision can't undo them).
+    if proper_noun_glossary is not None and proper_noun_glossary.entries:
+        leader_output = _apply_proper_nouns(leader_output, proper_noun_glossary)
 
     if dry_run:
         return SynthesisStageResult(

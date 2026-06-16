@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .fold import fold_term
+
 
 class GlossaryParseError(ValueError):
     """Raised when glossary JSON is structurally malformed.
@@ -167,11 +169,102 @@ def load_glossary(path: str | Path) -> Glossary:
     return parse_glossary(data)
 
 
+def dump_glossary(glossary: Glossary) -> dict[str, Any]:
+    """Serialize a ``Glossary`` to the on-disk JSON shape.
+
+    ``reading``/``category`` are emitted only when non-empty so promoted
+    entries (which carry neither) stay terse.
+    """
+    entries: list[dict[str, Any]] = []
+    for entry in glossary.entries:
+        item: dict[str, Any] = {"canonical": entry.canonical}
+        if entry.aliases:
+            item["aliases"] = list(entry.aliases)
+        if entry.reading:
+            item["reading"] = entry.reading
+        if entry.category:
+            item["category"] = entry.category
+        entries.append(item)
+    return {"version": glossary.version, "entries": entries}
+
+
+def write_glossary(path: str | Path, glossary: Glossary) -> None:
+    """Write ``glossary`` to ``path`` as pretty UTF-8 JSON (CJK kept verbatim)."""
+    text = json.dumps(dump_glossary(glossary), ensure_ascii=False, indent=2)
+    Path(path).write_text(text + "\n", encoding="utf-8")
+
+
+def _fold(term: str) -> str:
+    return fold_term(term)
+
+
+def merge_glossary(base: Glossary, new_entries: list[GlossaryEntry]) -> Glossary:
+    """Non-destructively merge ``new_entries`` into ``base``.
+
+    Existing entries are preserved verbatim and gain any genuinely new aliases;
+    new canonicals are appended. The merge is **conflict-tolerant**: a canonical
+    or alias whose folded spelling already belongs to a *different* canonical is
+    skipped rather than added, so the result always builds a valid
+    ``Normalizer`` (no ``GlossaryConflictError``). Returns the merged glossary;
+    when nothing changed it is value-equal to ``base``.
+    """
+    canonicals: list[str] = [e.canonical for e in base.entries]
+    aliases_by_canonical: dict[str, list[str]] = {
+        e.canonical: list(e.aliases) for e in base.entries
+    }
+    meta_by_canonical: dict[str, GlossaryEntry] = {e.canonical: e for e in base.entries}
+
+    # folded surface -> owning canonical, across every key currently in the set.
+    owner: dict[str, str] = {}
+    for entry in base.entries:
+        for surface in (entry.canonical, *entry.aliases):
+            key = _fold(surface)
+            if key:
+                owner.setdefault(key, entry.canonical)
+
+    for entry in new_entries:
+        canonical = entry.canonical
+        ckey = _fold(canonical)
+        if not ckey:
+            continue
+        owned = owner.get(ckey)
+        if owned is not None and owned != canonical:
+            # Spelling already belongs to a different canonical — skip the entry.
+            continue
+        if owned is None:
+            canonicals.append(canonical)
+            aliases_by_canonical[canonical] = []
+            meta_by_canonical[canonical] = entry
+            owner[ckey] = canonical
+        for alias in entry.aliases:
+            akey = _fold(alias)
+            if not akey:
+                continue
+            if akey in owner:
+                continue  # duplicate or conflicting alias — leave as-is
+            aliases_by_canonical[canonical].append(alias)
+            owner[akey] = canonical
+
+    merged = tuple(
+        GlossaryEntry(
+            canonical=c,
+            aliases=aliases_by_canonical[c],
+            reading=meta_by_canonical[c].reading if c in meta_by_canonical else "",
+            category=meta_by_canonical[c].category if c in meta_by_canonical else "",
+        )
+        for c in canonicals
+    )
+    return Glossary(entries=merged, version=base.version)
+
+
 __all__ = [
     "Glossary",
     "GlossaryConflictError",
     "GlossaryEntry",
     "GlossaryParseError",
+    "dump_glossary",
     "load_glossary",
+    "merge_glossary",
     "parse_glossary",
+    "write_glossary",
 ]
