@@ -190,6 +190,18 @@ class TestFetchInnertube:
         with pytest.raises(TranscriptNotAvailable, match="empty video_id"):
             fetch_innertube("", ["ja"])
 
+    def test_parser_error_degrades_to_transcript_not_available(self) -> None:
+        # A malformed numeric attribute makes float() raise; it must surface as
+        # TranscriptNotAvailable so the fallback chain continues, not crash.
+        tracks = [{"languageCode": "ja", "baseUrl": "u"}]
+        with pytest.raises(TranscriptNotAvailable, match="innertube_parse_failed"):
+            fetch_innertube(
+                "vid",
+                ["ja"],
+                fetch_player_json=lambda *_: _player(tracks),
+                fetch_track_text=lambda *_: '<text start="1.2.3" dur="1">x</text>',
+            )
+
     def test_track_missing_baseurl_raises(self) -> None:
         tracks = [{"languageCode": "ja"}]
         with pytest.raises(TranscriptNotAvailable, match="track_missing_baseurl"):

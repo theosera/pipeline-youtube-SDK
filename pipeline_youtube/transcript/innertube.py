@@ -291,7 +291,12 @@ def fetch_innertube(
         raise TranscriptNotAvailable("track_missing_baseurl")
 
     xml = fetch_track_text(base_url, timeout)
-    snippets = _parse_timedtext(xml)
+    try:
+        snippets = _parse_timedtext(xml)
+    except Exception as e:
+        # Malformed/unexpected timedtext (e.g. a bad numeric cast) must degrade
+        # to the next tier, not crash the chain.
+        raise TranscriptNotAvailable(f"innertube_parse_failed:{type(e).__name__}") from e
     if not snippets:
         raise TranscriptNotAvailable("empty_transcript")
 

@@ -130,9 +130,10 @@ def run_stage_scripts(
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
-    - Uses the tier 1 → tier 2 fallback chain (Whisper is added in a
-      later step via a lazy import so the optional dependency stays
-      optional).
+    - Uses the fallback chain tier 0 (InnerTube iOS-client captions —
+      best-effort, on by default via `use_innertube`, skipped when False) →
+      tier 1/2 (youtube-transcript-api manual/auto) → tier 3 (Whisper, added
+      via a lazy import so the optional dependency stays optional).
     - When `media_path` is set (``--local-media`` / fully offline), skips the
       caption tiers entirely and transcribes that local file with Whisper —
       so YouTube is never contacted for this video.
