@@ -10,6 +10,38 @@ Stage 01 は2段構成:
 01b は **タイムスタンプを保持**し、訂正済みテキストを `TranscriptResult.snippets` に畳み戻すので、
 Stage 02/03/04 が訂正済みトランスクリプトを消費する（02/03 の `[MM:SS ~ MM:SS]` 契約は不変）。
 
+## 01a の取得階層（YouTube 経由）
+
+YouTube モード（`--local-media` でないとき）の字幕取得はフォールバック式:
+
+| 階層 | 方式 | 役割 |
+|---|---|---|
+| **tier0** | **InnerTube（iOS クライアント方式）** | `youtubei/v1/player` を iOS クライアントとして叩き、字幕トラックURLを取得→XMLを取得・パース。**PO token / bot ブロックを回避**して既存字幕を高速取得（`transcript/innertube.py`） |
+| tier1 | youtube-transcript-api 手動字幕 | tier0 失敗時のフォールバック |
+| tier2 | youtube-transcript-api 自動字幕 | 同上 |
+| tier3 | Whisper（任意・重い） | 字幕が本当に無い動画のみ |
+
+- **なぜ tier0 か**: `youtube-transcript-api` は bot/PO token で弾かれやすく、失敗すると重い
+  Whisper に落ちて全体が遅くなる（`docs/parallelization-effectiveness.md`）。InnerTube iOS
+  方式なら字幕がある動画を Whisper に落とさず数秒で取れる。
+- **キャッシュ・ウォームアップにも適用**: `warm_transcript_cache`（並列字幕プリフェッチ）の
+  第0階層にも入るため、高ファンアウトのウォームアップが bot ブロックされにくくなる。
+- **ベストエフォート**: tier0 が失敗（到達不可・bot ブロック・字幕無し・パース不能）したら
+  例外で次階層へ。タイムスタンプ契約も `TranscriptResult` 契約も不変。
+- **無効化**: `run_stage_scripts(..., use_innertube=False)` で tier0 を外せる。
+- **脆さ・適用範囲**: InnerTube は非公開で YouTube 変更に脆い。API キー/クライアントバージョンは
+  公開 iOS 値（`transcript/innertube.py` 上部、必要時に更新）。**住宅IP・低頻度**前提で、
+  データセンターIPや大量アクセスでは 403/bot 判定が出るため、必ずフォールバックの裏に置く。
+- **効かせ方**: bot ブロックを避けるために `--local-media`（オフライン）へ逃げていた場合、
+  対象動画が YouTube 上に字幕を持つなら **local-media をやめて YouTube モードで回す**と
+  tier0 で字幕が取れ、Whisper（全体の85〜90%）を回避できる。
+- **player ホスト**: `youtubei.googleapis.com`（正準APIホスト・bot 干渉が少ない）を優先、
+  `www.youtube.com` をフォールバック。字幕XML(`baseUrl`)は YouTube が返す通り
+  `www.youtube.com/api/timedtext` 固定。
+- **実地検証**: 取得を行うマシン（住宅IP）で
+  `uv run python scripts/verify_innertube.py <video_id|URL> [lang ...]` を実行すると、
+  player→トラック選択→XML取得→パースを通しで確認できる（成功で先頭数行を表示）。
+
 ## 有効化（オプトイン）
 
 01b は**有料・低速**なので既定で OFF。`config.json` で有効化する:
