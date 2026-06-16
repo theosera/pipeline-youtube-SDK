@@ -30,22 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Install project deps before CodeQL init so the Python extractor can
-      # resolve third-party imports (improves taint-tracking precision).
-      # SHA-pinned (third-party action). uv version pinned via pyproject.toml.
-      - name: Install uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
-        with:
-          enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.13
-
-      - name: Install dependencies
-        run: |
-          uv sync
-          echo "CODEQL_PYTHON=$(uv run python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
-
+      # Modern CodeQL Python analysis no longer uses third-party dependencies,
+      # so there is no uv/deps install step (and CODEQL_PYTHON is no longer
+      # supported). setup-python-dependencies:false keeps the action from
+      # attempting any dependency resolution of its own.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
