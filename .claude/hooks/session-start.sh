@@ -14,6 +14,19 @@
 # Synchronous + idempotent + non-interactive.
 set -euo pipefail
 
+# Only run on a fresh session start. SessionStart also fires on resume/clear/
+# compact; re-syncing there would needlessly block mid-session (the env is
+# already prepared from the original startup). Read the payload only when stdin
+# is piped (the real hook invocation), so manual runs from a terminal still work.
+if [ ! -t 0 ]; then
+  HOOK_SOURCE="$(cat | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("source",""))
+except Exception: pass' 2>/dev/null || true)"
+  if [ -n "${HOOK_SOURCE:-}" ] && [ "$HOOK_SOURCE" != "startup" ]; then
+    exit 0
+  fi
+fi
+
 # Only relevant in the remote (web) environment; local machines manage their own uv.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
