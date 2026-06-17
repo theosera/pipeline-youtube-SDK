@@ -11,21 +11,12 @@
 # version pin. This hook selects a compatible uv (preferring one already on the
 # image, falling back to a pinned install) and pins it onto PATH for the session.
 #
-# Synchronous + idempotent + non-interactive.
+# Synchronous + idempotent + non-interactive. Never rewrites uv.lock.
 set -euo pipefail
 
-# Only run on a fresh session start. SessionStart also fires on resume/clear/
-# compact; re-syncing there would needlessly block mid-session (the env is
-# already prepared from the original startup). Read the payload only when stdin
-# is piped (the real hook invocation), so manual runs from a terminal still work.
-if [ ! -t 0 ]; then
-  HOOK_SOURCE="$(cat | python3 -c 'import sys,json
-try: print(json.load(sys.stdin).get("source",""))
-except Exception: pass' 2>/dev/null || true)"
-  if [ -n "${HOOK_SOURCE:-}" ] && [ "$HOOK_SOURCE" != "startup" ]; then
-    exit 0
-  fi
-fi
+# Gating to fresh startups is declarative: the SessionStart `"matcher": "startup"`
+# in .claude/settings.json ensures resume/clear/compact never invoke this hook
+# mid-session, so there is no need to inspect the payload's `source` here.
 
 # Only relevant in the remote (web) environment; local machines manage their own uv.
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
@@ -66,14 +57,21 @@ fi
 UV_DIR="$(cd "$(dirname "$UV_BIN")" && pwd)"
 log "using uv: $UV_BIN ($("$UV_BIN" --version 2>/dev/null))"
 
-# Make the chosen uv win for the rest of the session.
+# Make the chosen uv win for the rest of the session. Append idempotently so
+# repeated invocations (or an absent-source edge that falls through) never pile
+# up duplicate PATH exports in the env file.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-  echo "export PATH=\"${UV_DIR}:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+  EXPORT_LINE="export PATH=\"${UV_DIR}:\$PATH\""
+  if ! { [ -f "$CLAUDE_ENV_FILE" ] && grep -qxF "$EXPORT_LINE" "$CLAUDE_ENV_FILE"; }; then
+    echo "$EXPORT_LINE" >> "$CLAUDE_ENV_FILE"
+  fi
 fi
 export PATH="${UV_DIR}:$PATH"
 
-# Sync project dependencies (cached in the container image after first run).
-log "running uv sync"
-"$UV_BIN" sync
+# Sync project dependencies from the committed lockfile. `--frozen` installs
+# exactly what uv.lock pins and never updates the lockfile, so this auto-run
+# hook can't dirty the worktree or silently change dependency pins.
+log "running uv sync --frozen"
+"$UV_BIN" sync --frozen
 
 log "done"
