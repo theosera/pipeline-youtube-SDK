@@ -78,6 +78,14 @@ def test_wikilink_targets_are_not_rewritten() -> None:
     assert normalize_text(embed_text, _GLOSSARY) == embed_expected
 
 
+def test_wikilink_display_alias_is_normalized_but_target_preserved() -> None:
+    # For [[target|display]] only the target must be preserved (so the link
+    # resolves); the display alias is visible prose and should be normalized.
+    text = "[[2026-01-01 ビブコーディング入門#^00-00|ビブコーディング]] を参照"
+    expected = "[[2026-01-01 ビブコーディング入門#^00-00|Vibe Coding]] を参照"
+    assert normalize_text(text, _GLOSSARY) == expected
+
+
 def test_normalization_is_idempotent() -> None:
     once = normalize_text("ビブコーディングとバイブコーディング", _GLOSSARY)
     assert normalize_text(once, _GLOSSARY) == once
