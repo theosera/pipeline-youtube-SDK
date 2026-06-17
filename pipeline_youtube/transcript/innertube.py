@@ -267,7 +267,10 @@ def _parse_timedtext(xml: str) -> list[TranscriptSnippet]:
                     duration=float(dur_m.group(1)) if dur_m else 0.0,
                 )
             )
-        return snippets
+        # Only commit to the <text> shape if it actually yielded cues; otherwise
+        # fall through and try the <p>/srv3 shape ("try first, then second").
+        if snippets:
+            return snippets
     for m in _P_TAG_RE.finditer(xml):
         attrs, body = m.group(1), m.group(2)
         t_m = _ATTR_T_RE.search(attrs)
