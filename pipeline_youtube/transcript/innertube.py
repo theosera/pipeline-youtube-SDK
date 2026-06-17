@@ -45,7 +45,12 @@ from .base import (
 INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 CLIENT_NAME = "IOS"
 CLIENT_VERSION = "20.10.38"
-IOS_USER_AGENT = "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
+# Derived from CLIENT_VERSION so a version bump stays single-source — a mismatch
+# between the body clientVersion and the UA version is more bot-detectable than
+# a clean stale value.
+IOS_USER_AGENT = (
+    f"com.google.ios.youtube/{CLIENT_VERSION} (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)"
+)
 
 # Player API hosts, tried in order. The googleapis host is the canonical
 # InnerTube endpoint and tends to serve fewer bot interstitials than the
@@ -72,9 +77,16 @@ DEFAULT_BACKOFF_BASE = 1.0
 _GL_BY_LANG = {"ja": "JP", "en": "US", "ko": "KR", "zh": "CN", "fr": "FR", "de": "DE"}
 
 # Two timedtext shapes: the classic ``<text start dur>`` (seconds) and the srv3
-# ``<p t d>`` (milliseconds). We try the first, then the second.
-_TEXT_RE = re.compile(r'<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>(.*?)</text>', re.DOTALL)
-_P_RE = re.compile(r'<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>(.*?)</p>', re.DOTALL)
+# ``<p t d>`` (milliseconds). We try the first, then the second. Match the tag
+# then pull attributes individually, because real timedtext does not guarantee
+# attribute order and may omit the duration on the final cue — pinning order in
+# one regex silently drops those cues and pushes a captioned video onto Whisper.
+_TEXT_TAG_RE = re.compile(r"<text\b([^>]*)>(.*?)</text>", re.DOTALL)
+_P_TAG_RE = re.compile(r"<p\b([^>]*)>(.*?)</p>", re.DOTALL)
+_ATTR_START_RE = re.compile(r'\bstart="([\d.]+)"')
+_ATTR_DUR_RE = re.compile(r'\bdur="([\d.]+)"')
+_ATTR_T_RE = re.compile(r'\bt="(\d+)"')
+_ATTR_D_RE = re.compile(r'\bd="(\d+)"')
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
@@ -158,11 +170,16 @@ def _default_fetch_track_text(
             raise TranscriptNotAvailable(f"innertube_track_failed:{type(e).__name__}") from e
         if resp.status_code == 200:
             return resp.text
-        if resp.status_code in RETRYABLE_STATUS and attempt < max_retries:
+        if resp.status_code not in RETRYABLE_STATUS:
+            raise TranscriptNotAvailable(f"innertube_track_http_{resp.status_code}")
+        if attempt < max_retries:
             base = DEFAULT_BACKOFF_BASE * (2**attempt)
             time.sleep((_retry_after_seconds(resp.headers) or base) + random.uniform(0, 0.5))
             continue
-        raise TranscriptNotAvailable(f"innertube_track_http_{resp.status_code}")
+        # Retryable status but no attempts left: report exhaustion (with the
+        # final status) rather than a bare http_<status>, so stats.py shows the
+        # chain gave up after retrying instead of looking like a single blip.
+        raise TranscriptNotAvailable(f"innertube_track_retries_exhausted:{resp.status_code}")
     raise TranscriptNotAvailable("innertube_track_retries_exhausted")
 
 
@@ -226,29 +243,45 @@ def _clean_text(raw: str) -> str:
 
 
 def _parse_timedtext(xml: str) -> list[TranscriptSnippet]:
-    """Parse timedtext XML into snippets, handling both ``<text>`` and ``<p>``."""
+    """Parse timedtext XML into snippets, handling both ``<text>`` and ``<p>``.
+
+    Tolerant of attribute order and of a missing duration on the final cue (both
+    real timedtext shapes): the start offset (``start``/``t``) is required, the
+    duration (``dur``/``d``) defaults to 0.0 when absent. A cue with no parseable
+    start offset is skipped rather than dropping the whole transcript.
+    """
     snippets: list[TranscriptSnippet] = []
-    text_matches = list(_TEXT_RE.finditer(xml))
-    if text_matches:
-        for m in text_matches:
-            text = _clean_text(m.group(3))
-            if text:
-                snippets.append(
-                    TranscriptSnippet(
-                        text=text, start=float(m.group(1)), duration=float(m.group(2))
-                    )
-                )
-        return snippets
-    for m in _P_RE.finditer(xml):
-        text = _clean_text(m.group(3))
-        if text:
+    text_tags = list(_TEXT_TAG_RE.finditer(xml))
+    if text_tags:
+        for m in text_tags:
+            attrs, body = m.group(1), m.group(2)
+            start_m = _ATTR_START_RE.search(attrs)
+            text = _clean_text(body)
+            if start_m is None or not text:
+                continue
+            dur_m = _ATTR_DUR_RE.search(attrs)
             snippets.append(
                 TranscriptSnippet(
                     text=text,
-                    start=int(m.group(1)) / 1000.0,
-                    duration=int(m.group(2)) / 1000.0,
+                    start=float(start_m.group(1)),
+                    duration=float(dur_m.group(1)) if dur_m else 0.0,
                 )
             )
+        return snippets
+    for m in _P_TAG_RE.finditer(xml):
+        attrs, body = m.group(1), m.group(2)
+        t_m = _ATTR_T_RE.search(attrs)
+        text = _clean_text(body)
+        if t_m is None or not text:
+            continue
+        d_m = _ATTR_D_RE.search(attrs)
+        snippets.append(
+            TranscriptSnippet(
+                text=text,
+                start=int(t_m.group(1)) / 1000.0,
+                duration=int(d_m.group(1)) / 1000.0 if d_m else 0.0,
+            )
+        )
     return snippets
 
 
@@ -273,14 +306,18 @@ def fetch_innertube(
 
     payload = fetch_player_json(video_id, languages, timeout)
 
-    status = payload.get("playabilityStatus")
-    if isinstance(status, dict):
-        state = status.get("status")
-        if isinstance(state, str) and state != "OK":
-            raise TranscriptNotAvailable(f"playability:{state}")
-
     tracks = _extract_caption_tracks(payload)
     if not tracks:
+        # No caption tracks. If playback is gated (age/region/login), surface
+        # that as the reason — it explains the absence better than a bare
+        # "no_caption_tracks". A non-OK playabilityStatus does NOT abort when
+        # tracks ARE present: gated videos often still expose fetchable captions,
+        # and trying them (best-effort) beats skipping straight to Whisper.
+        status = payload.get("playabilityStatus")
+        if isinstance(status, dict):
+            state = status.get("status")
+            if isinstance(state, str) and state != "OK":
+                raise TranscriptNotAvailable(f"playability:{state}")
         raise TranscriptNotAvailable("no_caption_tracks")
 
     track = _select_track(tracks, languages)

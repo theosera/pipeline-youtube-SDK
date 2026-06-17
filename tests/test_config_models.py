@@ -65,6 +65,23 @@ class TestLoadConfig:
         with pytest.raises(click.UsageError, match="transcript_correction"):
             _load_config(cfg, fallback_model="sonnet")
 
+    def test_use_innertube_defaults_true(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        cfg = _write_config(tmp_path / "config.json", {"vault_root": str(vault)})
+        result = _load_config(cfg, fallback_model="sonnet")
+        assert result.use_innertube is True
+
+    def test_use_innertube_non_bool_rejected(self, tmp_path: Path):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        cfg = _write_config(
+            tmp_path / "config.json",
+            {"vault_root": str(vault), "use_innertube": "no"},
+        )
+        with pytest.raises(click.UsageError, match="use_innertube"):
+            _load_config(cfg, fallback_model="sonnet")
+
     def test_partial_models_filled_with_fallback(self, tmp_path: Path):
         vault = tmp_path / "vault"
         vault.mkdir()

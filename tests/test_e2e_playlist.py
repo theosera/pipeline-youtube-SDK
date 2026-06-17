@@ -199,6 +199,7 @@ class TestE2EPlaylist:
             media_path=None,
             correct_model=None,
             known_terms=None,
+            use_innertube=True,
         ):
             return _transcript_result(video.video_id)
 
@@ -308,6 +309,7 @@ class TestE2EPlaylist:
             media_path=None,
             correct_model=None,
             known_terms=None,
+            use_innertube=True,
         ):
             return _transcript_result(video.video_id)
 

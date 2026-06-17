@@ -51,6 +51,7 @@ def warm_transcript_cache(
     *,
     languages: list[str] | None = None,
     concurrency: int = DEFAULT_TRANSCRIPT_CONCURRENCY,
+    use_innertube: bool = True,
 ) -> int:
     """Pre-fetch caption transcripts for many videos concurrently.
 
@@ -82,15 +83,22 @@ def warm_transcript_cache(
     langs = languages or DEFAULT_LANGUAGES
     bound = max(1, concurrency)
 
+    # InnerTube (iOS client) first — bypasses the bot/PO-token blocks that hit
+    # youtube-transcript-api during a high fan-out warm-up. Honors use_innertube
+    # so the warm-up and per-video Stage 01 share one on/off switch (disable on
+    # datacenter IPs where tier 0 just 403s). Whisper intentionally omitted
+    # (heavy / separate budget).
+    innertube_tier: tuple[str, Fetcher | None] = (
+        "innertube",
+        fetch_innertube if use_innertube else None,
+    )
+
     def _warm_one(video: VideoMeta) -> bool:
         result = fetch_with_fallback(
             video.video_id,
             langs,
-            # InnerTube (iOS client) first — bypasses the bot/PO-token blocks
-            # that hit youtube-transcript-api during a high fan-out warm-up.
-            # Whisper intentionally omitted (heavy / separate budget).
             fetchers=[
-                ("innertube", fetch_innertube),
+                innertube_tier,
                 ("official", fetch_official),
                 ("auto", fetch_auto),
             ],
@@ -191,7 +199,8 @@ def run_stage_scripts(
         # slow Whisper path. Best-effort — on failure the chain falls through to
         # the youtube-transcript-api tiers and then Whisper.
         innertube_tier: tuple[str, Fetcher | None] = (
-            ("innertube", fetch_innertube) if use_innertube else ("innertube", None)
+            "innertube",
+            fetch_innertube if use_innertube else None,
         )
         result = fetch_with_fallback(
             video.video_id,

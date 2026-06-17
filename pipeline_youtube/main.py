@@ -683,7 +683,11 @@ def cli(
                 or cfg.transcript_concurrency
                 or DEFAULT_TRANSCRIPT_CONCURRENCY
             )
-            warmed = warm_transcript_cache([v for _, v in to_process], concurrency=warm_conc)
+            warmed = warm_transcript_cache(
+                [v for _, v in to_process],
+                concurrency=warm_conc,
+                use_innertube=cfg.use_innertube,
+            )
             if warmed:
                 click.echo(f"transcript warm-up: cached {warmed}/{len(to_process)} captions")
 
@@ -706,6 +710,7 @@ def cli(
                     media_map=media_map,
                     correct_transcript=cfg.transcript_correction,
                     known_terms=known_terms,
+                    use_innertube=cfg.use_innertube,
                 )
             )
             results.extend(concurrent_results)
@@ -726,6 +731,7 @@ def cli(
                     media_path=media_map.get(video.video_id),
                     correct_transcript=cfg.transcript_correction,
                     known_terms=known_terms,
+                    use_innertube=cfg.use_innertube,
                 )
                 results.append(result)
 
