@@ -32,6 +32,52 @@ class TestRetryAfter:
         assert _retry_after_seconds({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}) is None
 
 
+class TestFetchTrackTextRetry:
+    """Retry/backoff behavior of the real track-text fetcher (httpx mocked)."""
+
+    class _Resp:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+            self.headers: dict[str, str] = {}
+            self.text = ""
+
+    def test_retryable_status_exhausts_with_reason(self, monkeypatch) -> None:
+        # A persistent 429 must report retries_exhausted:<status> after using
+        # every attempt — not a bare http_429 that looks like a single blip.
+        import httpx
+
+        from pipeline_youtube.transcript import innertube as it
+
+        calls = {"n": 0}
+
+        def _fake_get(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._Resp:
+            calls["n"] += 1
+            return self._Resp(429)
+
+        monkeypatch.setattr(httpx, "get", _fake_get)
+        monkeypatch.setattr(it.time, "sleep", lambda *_: None)
+        monkeypatch.setattr(it.random, "uniform", lambda *_: 0.0)
+        with pytest.raises(TranscriptNotAvailable, match="innertube_track_retries_exhausted:429"):
+            it._default_fetch_track_text("http://x", 1.0, max_retries=2)
+        assert calls["n"] == 3  # initial attempt + 2 retries
+
+    def test_non_retryable_status_raises_http_immediately(self, monkeypatch) -> None:
+        import httpx
+
+        from pipeline_youtube.transcript import innertube as it
+
+        calls = {"n": 0}
+
+        def _fake_get(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._Resp:
+            calls["n"] += 1
+            return self._Resp(404)
+
+        monkeypatch.setattr(httpx, "get", _fake_get)
+        with pytest.raises(TranscriptNotAvailable, match="innertube_track_http_404"):
+            it._default_fetch_track_text("http://x", 1.0, max_retries=2)
+        assert calls["n"] == 1  # no retries on a non-retryable status
+
+
 class TestParseTimedtext:
     def test_text_form_seconds(self) -> None:
         xml = (
@@ -50,6 +96,24 @@ class TestParseTimedtext:
         assert [(s.text, s.start, s.duration) for s in out] == [
             ("Hello", 0.0, 1.5),
             ("world", 1.5, 2.0),
+        ]
+
+    def test_text_form_tolerates_attr_order_and_missing_dur(self) -> None:
+        # Attribute order is not guaranteed, and the final cue can omit dur;
+        # both must still parse (missing dur → 0.0) rather than be dropped.
+        xml = '<text dur="1.5" start="0.0">A</text><text start="1.5">B</text>'
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start, s.duration) for s in out] == [
+            ("A", 0.0, 1.5),
+            ("B", 1.5, 0.0),
+        ]
+
+    def test_p_form_tolerates_attr_order_and_missing_d(self) -> None:
+        xml = '<p d="1500" t="0">A</p><p t="1500">B</p>'
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start, s.duration) for s in out] == [
+            ("A", 0.0, 1.5),
+            ("B", 1.5, 0.0),
         ]
 
     def test_unescapes_entities_and_strips_inner_tags(self) -> None:
@@ -166,15 +230,29 @@ class TestFetchInnertube:
                 fetch_track_text=lambda *_: "",
             )
 
-    def test_non_ok_playability_raises(self) -> None:
-        tracks = [{"languageCode": "ja", "baseUrl": "u"}]
+    def test_non_ok_playability_surfaces_as_reason_when_no_tracks(self) -> None:
+        # When there are no caption tracks, a non-OK playabilityStatus is the
+        # informative reason (vs a bare no_caption_tracks).
         with pytest.raises(TranscriptNotAvailable, match="playability:LOGIN_REQUIRED"):
             fetch_innertube(
                 "vid",
                 ["ja"],
-                fetch_player_json=lambda *_: _player(tracks, status="LOGIN_REQUIRED"),
+                fetch_player_json=lambda *_: _player([], status="LOGIN_REQUIRED"),
                 fetch_track_text=lambda *_: "x",
             )
+
+    def test_gated_video_with_captions_is_still_fetched(self) -> None:
+        # Captions present but playback gated (age/region/login): tier-0 must
+        # still serve the captions rather than abort on playabilityStatus —
+        # gated videos often expose fetchable caption tracks.
+        tracks = [{"languageCode": "ja", "baseUrl": "u"}]
+        result = fetch_innertube(
+            "vid",
+            ["ja"],
+            fetch_player_json=lambda *_: _player(tracks, status="LOGIN_REQUIRED"),
+            fetch_track_text=lambda *_: '<text start="0" dur="1">x</text>',
+        )
+        assert result.snippets[0].text == "x"
 
     def test_empty_xml_raises(self) -> None:
         tracks = [{"languageCode": "ja", "baseUrl": "u"}]

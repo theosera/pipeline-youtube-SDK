@@ -48,6 +48,7 @@ def _process_video(
     media_path: Path | None = None,
     correct_transcript: bool = False,
     known_terms: list[tuple[str, str]] | None = None,
+    use_innertube: bool = True,
 ) -> VideoRunResult:
     try:
         paths = compute_note_paths(video, run_time)
@@ -66,6 +67,7 @@ def _process_video(
             media_path=media_path,
             correct_model=correct_model,
             known_terms=known_terms,
+            use_innertube=use_innertube,
         )
         with contextlib.suppress(Exception):
             record_transcript_stat(video, transcript)
@@ -241,6 +243,7 @@ async def _run_videos_concurrent(
     media_map: dict[str, Path] | None = None,
     correct_transcript: bool = False,
     known_terms: list[tuple[str, str]] | None = None,
+    use_innertube: bool = True,
 ) -> list[VideoRunResult]:
     """Process multiple videos concurrently with bounded parallelism."""
     sem = asyncio.Semaphore(concurrency)
@@ -264,6 +267,7 @@ async def _run_videos_concurrent(
                 media_path=media.get(video.video_id),
                 correct_transcript=correct_transcript,
                 known_terms=known_terms,
+                use_innertube=use_innertube,
             )
 
     tasks = [_task(i, v) for i, v in enumerate(videos, 1)]

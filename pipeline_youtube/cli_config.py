@@ -93,6 +93,11 @@ class CliConfig:
     # web-search correction pass (role stage_01_correct, default opus on
     # Anthropic) before rendering. Opt-in because it is a paid, slower call.
     transcript_correction: bool = False
+    # Tier 0 (InnerTube iOS-client captions). True (default) → tried first in
+    # the YouTube fallback chain (warm-up + per-video Stage 01); False → skipped
+    # entirely. Turn off on datacenter/cloud IPs where InnerTube reliably 403s,
+    # so the chain goes straight to youtube-transcript-api / Whisper.
+    use_innertube: bool = True
 
 
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
@@ -236,6 +241,10 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     if not isinstance(transcript_correction_raw, bool):
         raise click.UsageError("config.json: transcript_correction must be a boolean")
 
+    use_innertube_raw = data.get("use_innertube", True)
+    if not isinstance(use_innertube_raw, bool):
+        raise click.UsageError("config.json: use_innertube must be a boolean")
+
     return CliConfig(
         vault_root=path,
         models=models,
@@ -256,6 +265,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         whisper_backend=whisper_backend,
         whisper_model=whisper_model,
         transcript_correction=transcript_correction_raw,
+        use_innertube=use_innertube_raw,
     )
 
 
