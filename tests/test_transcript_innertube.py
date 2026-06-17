@@ -116,6 +116,13 @@ class TestParseTimedtext:
             ("B", 1.5, 0.0),
         ]
 
+    def test_unparseable_text_tags_fall_through_to_p(self) -> None:
+        # <text> tags present but yielding no cues (e.g. missing start) must not
+        # short-circuit to an empty result; fall through to the <p>/srv3 shape.
+        xml = '<text>oops</text><p t="0" d="1500">hi</p>'
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start, s.duration) for s in out] == [("hi", 0.0, 1.5)]
+
     def test_unescapes_entities_and_strips_inner_tags(self) -> None:
         xml = '<text start="0" dur="1">A &amp; <b>B</b>\nC</text>'
         out = _parse_timedtext(xml)
