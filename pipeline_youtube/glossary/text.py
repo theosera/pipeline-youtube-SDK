@@ -32,6 +32,7 @@ case/width are correctly excluded as non-defects (see ``variant_surfaces``).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from .normalizer import Normalizer, fold_term
 from .schema import Glossary
@@ -64,6 +65,21 @@ def variant_surfaces(glossary: Glossary) -> list[str]:
 # as word chars and would block legitimate CJK-adjacent matches such as the
 # trailing digit in "へんかん0へんかん1").
 _ASCII_WORD = "A-Za-z0-9_"
+_OBSIDIAN_WIKILINK_RE = re.compile(r"!?\[\[[^\n]*?\]\]")
+
+
+def _rewrite_wikilink(link: str, rewrite: Callable[[str], str]) -> str:
+    """Preserve a wikilink's target but normalize its display alias.
+
+    For ``[[target|display]]`` (and the ``![[...]]`` embed form) only ``display``
+    is visible prose, so it is normalized; ``target`` (including any ``#heading``
+    / ``#^block``) is kept verbatim so the link still resolves. Aliasless links
+    (``[[target]]``) have no visible variant text and are returned unchanged.
+    """
+    bar = link.find("|")
+    if bar == -1:
+        return link
+    return f"{link[: bar + 1]}{rewrite(link[bar + 1 : -2])}]]"
 
 
 def _is_ascii_word_char(ch: str) -> bool:
@@ -118,7 +134,18 @@ def normalize_text(text: str, glossary: Glossary) -> str:
     pattern = compile_variant_pattern(variant_surfaces(glossary))
     if pattern is None:
         return text
-    return pattern.sub(lambda m: normalizer.normalize(m.group(0)), text)
+
+    def _rewrite(segment: str) -> str:
+        return pattern.sub(lambda m: normalizer.normalize(m.group(0)), segment)
+
+    out: list[str] = []
+    pos = 0
+    for link in _OBSIDIAN_WIKILINK_RE.finditer(text):
+        out.append(_rewrite(text[pos : link.start()]))
+        out.append(_rewrite_wikilink(link.group(0), _rewrite))
+        pos = link.end()
+    out.append(_rewrite(text[pos:]))
+    return "".join(out)
 
 
 __all__ = ["compile_variant_pattern", "normalize_text", "variant_surfaces"]

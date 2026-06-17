@@ -6,7 +6,11 @@ helpers) and to the Stage 05 output (synthesis._apply_proper_nouns).
 
 from __future__ import annotations
 
+import multiprocessing
 from pathlib import Path
+from queue import Empty
+
+import pytest
 
 from pipeline_youtube import proper_noun_sheet as main_mod
 from pipeline_youtube.glossary import (
@@ -26,6 +30,20 @@ from pipeline_youtube.synthesis.scoring import (
     SynthesisChapterBody,
     SynthesisMoc,
 )
+
+
+def _glossary_promote_worker(
+    glossary_path_raw: str,
+    canonical: str,
+    alias: str,
+    started,
+    finished,
+) -> None:
+    glossary_path = Path(glossary_path_raw)
+    sheet = ProperNounSheet(sections=(VideoSection("v1", "T", (ProperNounRow(alias, canonical),)),))
+    started.put(canonical)
+    main_mod._promote_corrections_to_glossary(sheet, glossary_path)
+    finished.put(canonical)
 
 
 def _video(video_id: str = "v1") -> VideoMeta:
@@ -77,6 +95,36 @@ class TestPromoteCorrectionsToGlossary:
         main_mod._promote_corrections_to_glossary(sheet, glossary_path)
         merged = load_glossary(glossary_path)
         assert {e.canonical for e in merged.entries} == {"Existing", "Google"}
+
+    def test_promote_reloads_glossary_after_waiting_for_lock(self, tmp_path: Path) -> None:
+        if "fork" not in multiprocessing.get_all_start_methods():
+            pytest.skip("requires fork so the child blocks on the parent's file lock")
+
+        glossary_path = tmp_path / "glossary.json"
+        write_glossary(glossary_path, Glossary())
+        ctx = multiprocessing.get_context("fork")
+        started = ctx.Queue()
+        finished = ctx.Queue()
+
+        with main_mod._sheet_write_lock(glossary_path):
+            p = ctx.Process(
+                target=_glossary_promote_worker,
+                args=(str(glossary_path), "Beta", "べーた", started, finished),
+            )
+            p.start()
+            assert started.get(timeout=5) == "Beta"
+            # The child must block on the held lock: it cannot finish (and thus
+            # cannot write) while we hold it. If promotion ignored the lock, the
+            # child would finish here and its write would be lost to the
+            # overwrite below.
+            with pytest.raises(Empty):
+                finished.get(timeout=0.3)
+            write_glossary(glossary_path, Glossary(entries=(GlossaryEntry(canonical="Alpha"),)))
+
+        p.join(timeout=5)
+        assert p.exitcode == 0
+        merged = load_glossary(glossary_path)
+        assert {e.canonical for e in merged.entries} == {"Alpha", "Beta"}
 
 
 class TestUpdateProperNounSheet:
@@ -159,3 +207,28 @@ class TestApplyProperNouns:
         # Untouched metadata is preserved.
         assert rewritten.chapters[0].source_video_ids == ["v1"]
         assert rewritten.chapters[0].category == "core"
+
+    def test_does_not_rewrite_wikilink_targets(self) -> None:
+        glossary = Glossary(
+            entries=(GlossaryEntry(canonical="Vibe Coding", aliases=["ビブコーディング"]),)
+        )
+        output = LeaderOutput(
+            moc=SynthesisMoc(
+                title="ビブコーディング入門",
+                body_markdown="出典: [[2026-01-01 ビブコーディング入門#^00-00]]\n本文はビブコーディング。",
+            ),
+            chapters=[
+                SynthesisChapterBody(
+                    chapter_index=1,
+                    label="基礎",
+                    category="core",
+                    source_video_ids=["v1"],
+                    body_markdown="[[2026-01-01 ビブコーディング入門#^00-00]] でビブコーディングを扱う",
+                )
+            ],
+        )
+        rewritten = _apply_proper_nouns(output, glossary)
+        assert "[[2026-01-01 ビブコーディング入門#^00-00]]" in rewritten.moc.body_markdown
+        assert "[[2026-01-01 ビブコーディング入門#^00-00]]" in rewritten.chapters[0].body_markdown
+        assert "本文はVibe Coding。" in rewritten.moc.body_markdown
+        assert "でVibe Codingを扱う" in rewritten.chapters[0].body_markdown

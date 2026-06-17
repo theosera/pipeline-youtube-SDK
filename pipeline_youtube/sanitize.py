@@ -66,9 +66,14 @@ def sanitize_untrusted_text(
     cleaned = _CONTROL_CHARS_RE.sub("", raw)
     cleaned = _ZERO_WIDTH_RE.sub("", cleaned)
     cleaned = cleaned.replace("\x00", "")
+    # Measure the removal metric from stripping only. Delimiter neutralization
+    # below escapes (expands) text rather than removing it, so doing it first
+    # would shrink — or negate — `removed` and mask the >=5-removed injection
+    # signal (e.g. zero-width run followed by a literal <untrusted_content>).
     removed = before_len - len(cleaned)
     if removed >= _ALERT_REMOVED_THRESHOLD:
         _emit_alert(context, before_len, len(cleaned), raw[:64])
+    cleaned = _neutralize_untrusted_delimiters(cleaned)
     return cleaned[:max_length]
 
 
@@ -78,7 +83,15 @@ def wrap_untrusted(content: str) -> str:
     The prompt-side system policy must explicitly instruct the model to
     treat anything inside these tags as data, not instructions.
     """
-    return f"{UNTRUSTED_OPEN}\n{content}\n{UNTRUSTED_CLOSE}"
+    safe_content = _neutralize_untrusted_delimiters(content)
+    return f"{UNTRUSTED_OPEN}\n{safe_content}\n{UNTRUSTED_CLOSE}"
+
+
+def _neutralize_untrusted_delimiters(content: str) -> str:
+    """Keep user text visible without letting it close or open trust wrappers."""
+    return content.replace(UNTRUSTED_OPEN, "&lt;untrusted_content&gt;").replace(
+        UNTRUSTED_CLOSE, "&lt;/untrusted_content&gt;"
+    )
 
 
 def _redact(sample: str, max_len: int = 24) -> str:
