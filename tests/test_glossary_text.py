@@ -69,6 +69,15 @@ def test_ascii_alias_does_not_corrupt_substrings() -> None:
     assert normalize_text("Use AI now", glossary) == "Use Artificial Intelligence now"
 
 
+def test_wikilink_targets_are_not_rewritten() -> None:
+    text = "参照: [[2026-01-01 ビブコーディング入門#^00-00]] と本文のビブコーディング"
+    expected = "参照: [[2026-01-01 ビブコーディング入門#^00-00]] と本文のVibe Coding"
+    assert normalize_text(text, _GLOSSARY) == expected
+    embed_text = "参照: ![[2026-01-01 ビブコーディング入門#^00-00]] と本文のビブコーディング"
+    embed_expected = "参照: ![[2026-01-01 ビブコーディング入門#^00-00]] と本文のVibe Coding"
+    assert normalize_text(embed_text, _GLOSSARY) == embed_expected
+
+
 def test_normalization_is_idempotent() -> None:
     once = normalize_text("ビブコーディングとバイブコーディング", _GLOSSARY)
     assert normalize_text(once, _GLOSSARY) == once

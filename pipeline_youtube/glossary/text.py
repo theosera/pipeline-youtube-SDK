@@ -64,6 +64,7 @@ def variant_surfaces(glossary: Glossary) -> list[str]:
 # as word chars and would block legitimate CJK-adjacent matches such as the
 # trailing digit in "へんかん0へんかん1").
 _ASCII_WORD = "A-Za-z0-9_"
+_OBSIDIAN_WIKILINK_RE = re.compile(r"!?\[\[[^\n]*?\]\]")
 
 
 def _is_ascii_word_char(ch: str) -> bool:
@@ -118,7 +119,18 @@ def normalize_text(text: str, glossary: Glossary) -> str:
     pattern = compile_variant_pattern(variant_surfaces(glossary))
     if pattern is None:
         return text
-    return pattern.sub(lambda m: normalizer.normalize(m.group(0)), text)
+
+    def _rewrite(segment: str) -> str:
+        return pattern.sub(lambda m: normalizer.normalize(m.group(0)), segment)
+
+    out: list[str] = []
+    pos = 0
+    for link in _OBSIDIAN_WIKILINK_RE.finditer(text):
+        out.append(_rewrite(text[pos : link.start()]))
+        out.append(link.group(0))
+        pos = link.end()
+    out.append(_rewrite(text[pos:]))
+    return "".join(out)
 
 
 __all__ = ["compile_variant_pattern", "normalize_text", "variant_surfaces"]
