@@ -17,6 +17,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 | このリポの Python を書く / 直す / レビューする | `py-coding-conventions` |
 | コマンド学習ログ機能の hook 設定 (`.claude/settings.json`) を書く・直す / マスキング規則・ログ出力先を変える / `capture-command.sh`・`push-log.sh` を触る | `ops-logging` |
 
+## Architecture invariant: main.py is a thin orchestrator (★ハードルール / 常時適用)
+
+`main.py` は合成ルート (composition root)。残してよいのは
+**CLI 定義 (引数/オプション)・段階の実行順序・モジュールの配線・終了/エラー処理**のみ。
+グローバル CLAUDE.md が普遍ルールだけを持つのと同じ発想で、main.py には「普遍的な制御フロー」
+だけを置き、各機能の HOW はモジュールへ出す (これが main.py 肥大化を招いた反省。非 SDK 版でも同様)。
+
+- 機能の HOW (ロジック / パース / I/O / 分岐) は専用モジュールへ置き、main.py からは
+  **呼び出す・配線する**だけにする (例: `cli_config.py` / `video_processing.py` /
+  `run_result.py` / `proper_noun_sheet.py`)。
+- 切替・モード・プロバイダ選択は `if/elif` の累積ではなく **config 値 + registry/strategy** で
+  表現する (例: マルチ LLM の `providers/registry.py` (`invoke_llm`)、フォールバック chain の
+  `fetchers=[...]`、`use_innertube` のような config フラグ)。
+- 1 機能で main.py に増えてよいのは原則「呼び出し or 配線 数行」。これを超える追加は、
+  **先に対象モジュールへ抽出**してから行う。
+- 目安: `main.py` ≤ ~500 行。超過が見込まれる変更は抽出を着手条件とする。
+- リトマス試験: main.py を 2 分読んで「何が・どの順で・何に繋がって起きるか」が分かること。
+  HOW が漏れていたら抽出のサイン。
+
+> 新機能の着手前に「配置先モジュール」と「main.py への変更 = なし / 配線のみ (想定行数)」を
+> 要件として宣言する。オーケストレータを編集せずに足せない設計は、まだ main.py 依存が残っている。
+> (型優先など実装規約は `py-coding-conventions` skill 側。本節は常時適用の構造ハードルール。)
+
 ## See also
 
 - `CLAUDE.global.md` — 全リポ共通のグローバル層 (行動原則 / セキュリティ境界 / 発火規律)
