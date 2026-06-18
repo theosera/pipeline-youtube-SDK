@@ -92,6 +92,8 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
   registry/strategy（`providers/registry` の `invoke_llm`、fetcher chain）で表現する。
 - `pipeline_runner` のフェーズ（checkpoint / warm-up / 01-04 / 05 接続）が太ったら、その単位を
   さらに 1 モジュール（または stage）へ括り出せないか検討する。
-- 次段（層B）の構想：`domain/`（純粋な型・契約）/ `services/`（cache・checkpoint・sanitize・
-  path_safety の共通基盤）/ `agents/` / `schemas/` / `prompts/` への再パッケージング。
-  差分が大きいので別 PR で段階的に。
+- 層B（再パッケージング）進行中：`domain/`（純粋な型・契約レイヤ。他のどの層にも依存しない）を新設し、
+  まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）** を集約。
+  旧 `playlist` / `run_result` は後方互換のため明示的に re-export（`import X as X`）する。
+  次段：`services/`（cache・checkpoint・sanitize・path_safety）/ `agents/` / `schemas/` / `prompts/` への
+  集約を別 PR で段階的に。
