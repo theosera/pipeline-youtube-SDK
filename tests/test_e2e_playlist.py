@@ -20,7 +20,9 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+from pipeline_youtube import input_resolver as ir_mod
 from pipeline_youtube import main as main_mod
+from pipeline_youtube import runtime as runtime_mod
 from pipeline_youtube import video_processing as vp_mod
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
@@ -206,20 +208,20 @@ class TestE2EPlaylist:
         monkeypatch.setattr(vp_mod, "run_stage_scripts", fake_scripts)
 
         # Mock fetch_metadata (no network)
-        monkeypatch.setattr(main_mod, "fetch_metadata", lambda url: _videos())
+        monkeypatch.setattr(ir_mod, "fetch_metadata", lambda url: _videos())
 
         # Mock Stage 03 capture (no ffmpeg / yt-dlp)
         monkeypatch.setattr(vp_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
         monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
 
         # SDK version: no claude binary validation needed
-        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
 
         # Stub Router (genre classification) — avoid real LLM call
         from pipeline_youtube.genres import Genre
 
         monkeypatch.setattr(
-            main_mod, "classify_playlist_genre", lambda *a, **kw: (Genre.OTHER, "stubbed")
+            ir_mod, "classify_playlist_genre", lambda *a, **kw: (Genre.OTHER, "stubbed")
         )
 
         # Stub every invoke_claude in both stages + synthesis
@@ -271,7 +273,7 @@ class TestE2EPlaylist:
     def test_local_media_with_docker_backend_is_rejected(self, vault: Path, monkeypatch):
         """--local-media + docker capture backend must fail fast (container can't
         see the user's media dir)."""
-        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
 
         media_dir = vault / "media"
         media_dir.mkdir()
@@ -314,16 +316,16 @@ class TestE2EPlaylist:
             return _transcript_result(video.video_id)
 
         monkeypatch.setattr(vp_mod, "run_stage_scripts", fake_scripts)
-        monkeypatch.setattr(main_mod, "fetch_metadata", lambda url: _videos())
+        monkeypatch.setattr(ir_mod, "fetch_metadata", lambda url: _videos())
         monkeypatch.setattr(vp_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
         monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
-        monkeypatch.setattr(main_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
         from pipeline_youtube.genres import Genre
         from pipeline_youtube.stages import learning as learning_mod
         from pipeline_youtube.stages import summary as summary_mod
 
         monkeypatch.setattr(
-            main_mod, "classify_playlist_genre", lambda *a, **kw: (Genre.OTHER, "stubbed")
+            ir_mod, "classify_playlist_genre", lambda *a, **kw: (Genre.OTHER, "stubbed")
         )
 
         invoke_count = {"n": 0}

@@ -42,6 +42,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## See also
 
+- `docs/main-architecture.md` — main.py の合成ルート地図 (入口→cli→command→各段の配線)。
+  **入口層 (main/cli/command/cli_validation/runtime/input_resolver/execution_plan/
+  pipeline_runner/synthesis_runner/reporting) の import・配線・順序を変えたら同じ PR で更新する**
 - `CLAUDE.global.md` — 全リポ共通のグローバル層 (行動原則 / セキュリティ境界 / 発火規律)
 - `.claude/skills/py-coding-conventions/` — コーディング規約 (発火時ロード)
 - `.claude/skills/ops-logging/SKILL.md` — git/shell/MCP 操作の学習ログ hook (設定の正典)
