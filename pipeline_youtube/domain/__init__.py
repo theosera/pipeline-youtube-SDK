@@ -7,6 +7,19 @@
 from __future__ import annotations
 
 from .results import VideoRunResult
+from .transcript import (
+    TranscriptNotAvailable,
+    TranscriptResult,
+    TranscriptSnippet,
+    TranscriptSource,
+)
 from .video import VideoMeta
 
-__all__ = ["VideoMeta", "VideoRunResult"]
+__all__ = [
+    "TranscriptNotAvailable",
+    "TranscriptResult",
+    "TranscriptSnippet",
+    "TranscriptSource",
+    "VideoMeta",
+    "VideoRunResult",
+]

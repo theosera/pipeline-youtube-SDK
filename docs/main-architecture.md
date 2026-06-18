@@ -93,7 +93,7 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 - `pipeline_runner` のフェーズ（checkpoint / warm-up / 01-04 / 05 接続）が太ったら、その単位を
   さらに 1 モジュール（または stage）へ括り出せないか検討する。
 - 層B（再パッケージング）進行中：`domain/`（純粋な型・契約レイヤ。他のどの層にも依存しない）を新設し、
-  まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）** を集約。
+  まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）/ `domain/transcript.py`（`TranscriptSource`/`TranscriptSnippet`/`TranscriptResult` ほか）** を集約。
   旧 `playlist` / `run_result` は後方互換のため明示的に re-export（`import X as X`）する。
   次段：`services/`（cache・checkpoint・sanitize・path_safety）/ `agents/` / `schemas/` / `prompts/` への
   集約を別 PR で段階的に。
