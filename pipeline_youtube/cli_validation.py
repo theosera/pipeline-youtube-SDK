@@ -8,14 +8,11 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
 
 import click
 
+from .cli_types import CliRequest
 from .playlist import validate_youtube_url
-
-if TYPE_CHECKING:
-    from .command import CliRequest
 
 
 def validate_request(request: CliRequest) -> None:

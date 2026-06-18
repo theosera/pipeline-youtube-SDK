@@ -11,7 +11,8 @@ from pathlib import Path
 import click
 
 from .cli_config import _SYNTHESIS_PROFILE_CHOICES
-from .command import CliRequest, run
+from .cli_types import CliRequest
+from .command import run
 from .stages.synthesis import MIN_PLAYLIST_SIZE
 
 

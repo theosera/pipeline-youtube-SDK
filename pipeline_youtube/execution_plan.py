@@ -8,40 +8,11 @@ normal / local-media / synthesis-only / resume-reviewed / sub-agent(parent|worke
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime
-from enum import StrEnum
-from typing import TYPE_CHECKING
-
 import click
 
+from .cli_types import CliRequest, ExecutionPlan, ResolvedInput, RunMode, Runtime
 from .parallel import parse_video_range
 from .resume import _parse_run_timestamp
-
-if TYPE_CHECKING:
-    from .command import CliRequest
-    from .input_resolver import ResolvedInput
-    from .runtime import Runtime
-
-
-class RunMode(StrEnum):
-    """How this invocation drives stages 01-04 → 05."""
-
-    NORMAL = "normal"
-    LOCAL_MEDIA = "local-media"
-    SYNTHESIS_ONLY = "synthesis-only"
-    RESUME_REVIEWED = "resume-reviewed"
-    SUB_AGENT_PARENT = "sub-agent-parent"
-    SUB_AGENT_WORKER = "sub-agent-worker"
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionPlan:
-    """The decided run mode, shared run timestamp, and worker shard slice."""
-
-    mode: RunMode
-    run_time: datetime
-    video_range: tuple[int, int] | None
 
 
 def _decide_mode(request: CliRequest) -> RunMode:

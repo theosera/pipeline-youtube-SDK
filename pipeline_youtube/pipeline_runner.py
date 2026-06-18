@@ -12,12 +12,11 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
 from .checkpoint import get_completed_video_ids
-from .execution_plan import RunMode
+from .cli_types import CliRequest, ExecutionPlan, ResolvedInput, RunMode, Runtime
 from .parallel import orchestrate_sub_agents, strip_cli_option
 from .playlist import VideoMeta
 from .proper_noun_sheet import (
@@ -36,12 +35,6 @@ from .stages.scripts import DEFAULT_TRANSCRIPT_CONCURRENCY, warm_transcript_cach
 from .synthesis.agents import compute_synthesis_timeouts
 from .synthesis_runner import run_synthesis
 from .video_processing import _process_video, _run_videos_concurrent
-
-if TYPE_CHECKING:
-    from .command import CliRequest
-    from .execution_plan import ExecutionPlan
-    from .input_resolver import ResolvedInput
-    from .runtime import Runtime
 
 
 def run_pipeline(

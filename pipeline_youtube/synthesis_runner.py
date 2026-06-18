@@ -9,23 +9,18 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import click
 
+from .cli_types import CliRequest, ResolvedInput, Runtime
 from .glossary import Glossary, correction_glossary, load_sheet
+from .playlist import VideoMeta
 from .stages.synthesis import (
     SynthesisStageResult,
     log_synthesis_preflight,
     run_stage_synthesis,
 )
 from .synthesis.agents import compute_synthesis_timeouts
-
-if TYPE_CHECKING:
-    from .command import CliRequest
-    from .input_resolver import ResolvedInput
-    from .playlist import VideoMeta
-    from .runtime import Runtime
 
 
 def run_synthesis(

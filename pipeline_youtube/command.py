@@ -8,51 +8,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-
+from .cli_types import CliRequest
 from .cli_validation import validate_request
 from .execution_plan import build_plan
 from .input_resolver import resolve_input
 from .pipeline_runner import run_pipeline
 from .runtime import build_runtime
-
-
-@dataclass(frozen=True, slots=True)
-class CliRequest:
-    """Parsed CLI options (the "受付票"). Immutable snapshot of one invocation."""
-
-    url: str | None
-    dry_run: bool
-    concurrency: int
-    sub_agents: int
-    video_range: str | None
-    run_timestamp: str | None
-    code_bearing_override: bool | None
-    transcript_concurrency: int | None
-    llm_concurrency: int | None
-    download_concurrency: int | None
-    cache_dir: Path | None
-    no_cache: bool
-    cache_llm_synthesis: bool
-    skip_synthesis: bool
-    synthesis_only: bool
-    folder_name: str | None
-    eval_loop: int
-    force_video: tuple[str, ...]
-    capture_format: str
-    model: str
-    min_playlist_size: int
-    max_chapters: int | None
-    config_path: Path | None
-    stop_after_capture: bool
-    resume_reviewed: bool
-    capture_backend: str | None
-    synthesis_timeout: int | None
-    synthesis_profile: str | None
-    provider: str | None
-    hybrid: bool
-    local_media: Path | None
 
 
 def run(request: CliRequest) -> None:

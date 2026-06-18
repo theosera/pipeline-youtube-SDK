@@ -20,6 +20,12 @@ CLI 定義は `cli.py`、実行要求への変換と全体実行の起点は `co
 provider（`providers/registry`・`providers/selection`）と永続キャッシュ（`cache`）を
 `runtime` で組み立てる点が非 SDK 版と異なる。
 
+受け渡し用の DTO（`CliRequest` / `Runtime` / `ResolvedInput` / `ExecutionPlan` /
+`RunMode`）は**葉モジュール `cli_types.py`** に集約する。各段モジュール
+（runtime/input_resolver/execution_plan/pipeline_runner/synthesis_runner/cli_validation）は
+**`cli_types` からのみ型を取り込み**、`command` への逆 import をしない
+（= module-level cyclic import を作らない／CodeQL `py/unsafe-cyclic-import` を満たす）。
+
 ```mermaid
 flowchart TD
     MAIN["main.py<br/>入口だけ / console entrypoint<br/>cli を re-export"]

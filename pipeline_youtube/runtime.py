@@ -8,14 +8,13 @@ config.json を読み、provider / cache / whisper / capture backend / logger �
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
-from .cache import Cache
-from .cli_config import _MODEL_KEYS, DEFAULT_CONFIG_PATH, CliConfig, _load_config
+from .cli_config import _MODEL_KEYS, DEFAULT_CONFIG_PATH, _load_config
+from .cli_types import CliRequest, Runtime
 from .config import VaultRootError, set_dry_run, set_vault_root
 from .providers.registry import (
     configure_llm_cache,
@@ -28,25 +27,6 @@ from .sanitize import configure_alert_sink
 from .stages.capture import ASSETS_REL_PATH, sweep_stale_tmp
 from .stages.capture_backend import DockerBackendNotReady, DockerCaptureBackend
 from .transcript.whisper_fallback import configure_whisper, describe_whisper
-
-if TYPE_CHECKING:
-    from .command import CliRequest
-
-
-@dataclass(frozen=True, slots=True)
-class Runtime:
-    """Assembled runtime dependencies for one invocation (the "道具一式")."""
-
-    cfg: CliConfig
-    vault_root: Path
-    filler_words: tuple[str, ...]
-    project_root: Path
-    logs_dir: Path
-    models: dict[str, str]
-    cache: Cache
-    capture_backend: Any
-    synthesis_timeout: int | None
-    synthesis_profile: str
 
 
 def build_runtime(request: CliRequest) -> Runtime:
