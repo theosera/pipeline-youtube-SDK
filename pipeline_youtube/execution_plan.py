@@ -16,6 +16,7 @@ from .resume import _parse_run_timestamp
 
 
 def _decide_mode(request: CliRequest) -> RunMode:
+    """Map request flags to a RunMode by fixed precedence (sub-agent → shard → phase flags → local-media → normal)."""
     # Order mirrors the original dispatch precedence in cli(): sub-agent
     # orchestration / shard slicing take priority over the phase flags, which
     # are mutually exclusive (enforced in cli_validation); local-media is the
