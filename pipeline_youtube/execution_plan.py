@@ -35,7 +35,13 @@ def _decide_mode(request: CliRequest) -> RunMode:
 
 
 def build_plan(request: CliRequest, runtime: Runtime, resolved: ResolvedInput) -> ExecutionPlan:
-    """Decide the run mode, resolve the shared run_time and worker shard slice."""
+    """Decide the run mode, resolve run_time / shard slice, and fix the derived
+    execution-control flags.
+
+    実行判断 (どの段を走らせ、どこで止めるか) はここで request から確定し、以降は
+    ``pipeline_runner`` が plan を参照する。derived bool は request の 1:1 コピー
+    (``local_media`` は path の有無)。
+    """
     run_time = _parse_run_timestamp(request.run_timestamp)
     video_range: tuple[int, int] | None = None
     if request.video_range is not None:
@@ -43,4 +49,14 @@ def build_plan(request: CliRequest, runtime: Runtime, resolved: ResolvedInput) -
             video_range = parse_video_range(request.video_range)
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
-    return ExecutionPlan(mode=_decide_mode(request), run_time=run_time, video_range=video_range)
+    return ExecutionPlan(
+        mode=_decide_mode(request),
+        run_time=run_time,
+        video_range=video_range,
+        dry_run=request.dry_run,
+        skip_synthesis=request.skip_synthesis,
+        synthesis_only=request.synthesis_only,
+        resume_reviewed=request.resume_reviewed,
+        stop_after_capture=request.stop_after_capture,
+        local_media=request.local_media is not None,
+    )
