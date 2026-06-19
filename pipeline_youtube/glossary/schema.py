@@ -33,24 +33,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..domain.errors import GlossaryConflictError as GlossaryConflictError
+from ..domain.errors import GlossaryParseError as GlossaryParseError
 from .fold import fold_term
-
-
-class GlossaryParseError(ValueError):
-    """Raised when glossary JSON is structurally malformed.
-
-    Strict by design: unlike the advisory LLM-output parsers, the
-    glossary is first-party data, so a bad payload should fail the build
-    rather than be silently dropped.
-    """
-
-
-class GlossaryConflictError(ValueError):
-    """Raised when two entries claim the same variant for different canonicals.
-
-    Surfaced at ``Normalizer`` build time (see ``glossary.normalizer``).
-    Carries the offending key so the data error is actionable.
-    """
 
 
 @dataclass(frozen=True)
