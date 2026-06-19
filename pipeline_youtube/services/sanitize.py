@@ -97,23 +97,20 @@ def _neutralize_untrusted_delimiters(content: str) -> str:
 def _redact(sample: str, max_len: int = 24) -> str:
     """Return a short, non-leaky fingerprint of `sample` for alert logs.
 
-    Keeps the first `max_len // 2` chars + a hash tail. The full string
-    stays out of disk so transcript/title fragments don't leak via
-    shared log files (see top-10 #10).
+    Only a truncated SHA-256 digest is returned — no plaintext fragment of the
+    sample is ever written to disk, so transcript/title content can't leak via
+    shared log files (see top-10 #10). `max_len` caps the hex digest length.
+    `usedforsecurity=False` documents that this is a non-cryptographic
+    fingerprint, not a security control.
     """
     import hashlib
 
     if not sample:
         return ""
-    half = max(max_len // 2, 4)
-    head = sample[:half]
-    # Non-security fingerprint: a short, stable tail to disambiguate samples in
-    # alert logs (truncated to 8 hex chars). usedforsecurity=False documents that
-    # this is not a cryptographic use; SHA-256 keeps CodeQL's weak-hash check happy.
     digest = hashlib.sha256(
         sample.encode("utf-8", errors="replace"), usedforsecurity=False
-    ).hexdigest()[:8]
-    return f"{head}…[{digest}]"
+    ).hexdigest()
+    return f"[{digest[:max_len]}]"
 
 
 def _emit_alert(context: str, before_len: int, after_len: int, sample: str) -> None:
