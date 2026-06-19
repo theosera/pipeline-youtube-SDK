@@ -22,7 +22,7 @@ from click.testing import CliRunner
 
 from pipeline_youtube import input_resolver as ir_mod
 from pipeline_youtube import main as main_mod
-from pipeline_youtube import runtime as runtime_mod
+from pipeline_youtube import provider_runtime as provider_runtime_mod
 from pipeline_youtube import video_processing as vp_mod
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
@@ -215,7 +215,7 @@ class TestE2EPlaylist:
         monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
 
         # SDK version: no claude binary validation needed
-        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(provider_runtime_mod, "configure_providers", lambda *a, **kw: None)
 
         # Stub Router (genre classification) — avoid real LLM call
         from pipeline_youtube.genres import Genre
@@ -273,7 +273,7 @@ class TestE2EPlaylist:
     def test_local_media_with_docker_backend_is_rejected(self, vault: Path, monkeypatch):
         """--local-media + docker capture backend must fail fast (container can't
         see the user's media dir)."""
-        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(provider_runtime_mod, "configure_providers", lambda *a, **kw: None)
 
         media_dir = vault / "media"
         media_dir.mkdir()
@@ -319,7 +319,7 @@ class TestE2EPlaylist:
         monkeypatch.setattr(ir_mod, "fetch_metadata", lambda url: _videos())
         monkeypatch.setattr(vp_mod, "run_stage_capture", lambda *a, **kw: _capture_success())
         monkeypatch.setattr(vp_mod, "prefetch_video_download", lambda video: None)
-        monkeypatch.setattr(runtime_mod, "configure_providers", lambda *a, **kw: None)
+        monkeypatch.setattr(provider_runtime_mod, "configure_providers", lambda *a, **kw: None)
         from pipeline_youtube.genres import Genre
         from pipeline_youtube.stages import learning as learning_mod
         from pipeline_youtube.stages import summary as summary_mod
