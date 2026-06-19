@@ -99,20 +99,27 @@ class RunMode(StrEnum):
 @dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """The decided run mode, shared run timestamp, worker shard slice, and the
-    derived execution-control flags.
+    derived execution-intent flags.
 
     実行判断は ``build_plan`` でここに確定させる。``pipeline_runner`` は個別の
-    ``request`` フラグを直接見ず、この plan を参照する (request → plan の一方向)。
-    各 bool は対応する ``CliRequest`` フラグの 1:1 コピー (``local_media`` は path の
-    有無)。挙動不変。
+    ``request`` フラグを直接見ず、この plan の意味フラグ (run_* / allow_* / is_*) を
+    参照する (request → plan の一方向)。各フラグは現行条件の 1:1 写像で挙動不変。
     """
 
     mode: RunMode
     run_time: datetime
     video_range: tuple[int, int] | None
+    # 実行モード判定
+    is_sub_agent_parent: bool = False  # mode is SUB_AGENT_PARENT
+    is_sub_agent_worker: bool = False  # mode is SUB_AGENT_WORKER
+    # どの段を走らせ、どこで止めるか
+    run_video_stages: bool = True  # stages 01-04 (not --synthesis-only)
+    run_synthesis: bool = True  # stage 05 (not --skip-synthesis)
+    stop_after_capture: bool = False  # halt after Phase-1 capture/summary
+    filter_reviewed_only: bool = False  # --resume-reviewed: keep only reviewed videos
+    # 前処理の許可
+    allow_checkpoint: bool = True  # skip already-complete videos (not --dry-run)
+    allow_proper_noun_sheet: bool = False  # cfg.transcript_correction and not --dry-run
+    allow_transcript_warmup: bool = True  # warm caption cache (not resume-reviewed/local-media)
+    # 段処理へ渡すデータ
     dry_run: bool = False
-    skip_synthesis: bool = False
-    synthesis_only: bool = False
-    resume_reviewed: bool = False
-    stop_after_capture: bool = False
-    local_media: bool = False

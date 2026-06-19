@@ -49,14 +49,19 @@ def build_plan(request: CliRequest, runtime: Runtime, resolved: ResolvedInput) -
             video_range = parse_video_range(request.video_range)
         except ValueError as exc:
             raise click.UsageError(str(exc)) from exc
+    mode = _decide_mode(request)
     return ExecutionPlan(
-        mode=_decide_mode(request),
+        mode=mode,
         run_time=run_time,
         video_range=video_range,
-        dry_run=request.dry_run,
-        skip_synthesis=request.skip_synthesis,
-        synthesis_only=request.synthesis_only,
-        resume_reviewed=request.resume_reviewed,
+        is_sub_agent_parent=mode is RunMode.SUB_AGENT_PARENT,
+        is_sub_agent_worker=mode is RunMode.SUB_AGENT_WORKER,
+        run_video_stages=not request.synthesis_only,
+        run_synthesis=not request.skip_synthesis,
         stop_after_capture=request.stop_after_capture,
-        local_media=request.local_media is not None,
+        filter_reviewed_only=request.resume_reviewed,
+        allow_checkpoint=not request.dry_run,
+        allow_proper_noun_sheet=runtime.cfg.transcript_correction and not request.dry_run,
+        allow_transcript_warmup=not request.resume_reviewed and request.local_media is None,
+        dry_run=request.dry_run,
     )
