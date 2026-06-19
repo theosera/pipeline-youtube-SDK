@@ -261,6 +261,7 @@ def _process_all_videos(
             [v for _, v in to_process],
             concurrency=warm_conc,
             use_innertube=cfg.use_innertube,
+            cache=runtime.cache,
         )
         if warmed:
             click.echo(f"transcript warm-up: cached {warmed}/{len(to_process)} captions")
@@ -285,6 +286,7 @@ def _process_all_videos(
                 correct_transcript=cfg.transcript_correction,
                 known_terms=known_terms,
                 use_innertube=cfg.use_innertube,
+                cache=runtime.cache,
             )
         )
         results.extend(concurrent_results)
@@ -306,6 +308,7 @@ def _process_all_videos(
                 correct_transcript=cfg.transcript_correction,
                 known_terms=known_terms,
                 use_innertube=cfg.use_innertube,
+                cache=runtime.cache,
             )
             results.append(result)
 

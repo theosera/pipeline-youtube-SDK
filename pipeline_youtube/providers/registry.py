@@ -22,9 +22,12 @@ from __future__ import annotations
 import os
 import threading
 from dataclasses import asdict, fields
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import ClaudeCliError, LLMError, LLMProvider, LLMResponse
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 # Re-export for backward compatibility.
 __all__ = [
@@ -208,6 +211,7 @@ def invoke_llm(
     messages: list[dict[str, str]] | None = None,
     web_search: bool = False,
     thinking: bool = False,
+    cache: Cache | None = None,
     # Legacy kwargs (accepted but ignored for backward compat).
     append_system_prompt: str | None = None,
     disallow_tools: bool = True,
@@ -226,6 +230,9 @@ def invoke_llm(
     ``resume_session``, ``persist_session``, ``max_budget_usd``,
     ``extra_args``) are accepted for backward compatibility but
     have no effect in SDK mode.
+
+    ``cache`` may be injected explicitly (DI); when omitted it falls back to
+    the process-global ``get_cache()`` for backward compatibility.
     """
     # Handle append_system_prompt → system_prompt mapping.
     if append_system_prompt and not system_prompt:
@@ -244,9 +251,12 @@ def invoke_llm(
     # LLM-output cache (per-role policy). Multi-turn calls (``messages``)
     # carry conversation state that the (provider, model, system, prompt)
     # key does not capture, so they bypass the cache.
-    from ..cache import get_cache, llm_key
+    from ..cache import llm_key
 
-    cache = get_cache()
+    if cache is None:
+        from ..cache import get_cache
+
+        cache = get_cache()
     use_cache = cache.enabled and messages is None and _llm_cache_enabled_for_role(role)
     key = ""
     if use_cache:
