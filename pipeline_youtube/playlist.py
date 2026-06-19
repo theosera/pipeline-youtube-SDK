@@ -8,11 +8,12 @@ yt-dlp scrapes the public playlist page.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
 import yt_dlp  # type: ignore[import-untyped]
+
+from .domain.video import VideoMeta as VideoMeta
 
 _ALLOWED_HOSTS = frozenset(
     {
@@ -79,26 +80,6 @@ def validate_youtube_url(url: str) -> str:
         raise ValueError(f"URL host must be a YouTube domain: {parsed.hostname!r}")
     _validate_path(parsed.hostname, parsed.path)
     return url
-
-
-@dataclass(frozen=True)
-class VideoMeta:
-    video_id: str
-    title: str
-    url: str
-    duration: int | None  # seconds, may be None on flat-playlist mode
-    channel: str | None
-    upload_date: str | None  # YYYYMMDD format from yt-dlp
-    playlist_title: str | None
-
-    @property
-    def watch_url(self) -> str:
-        return f"https://www.youtube.com/watch?v={self.video_id}"
-
-    @property
-    def timestamp_url(self) -> str:
-        """Base URL suitable for appending &t=<seconds>."""
-        return self.watch_url
 
 
 _BASE_OPTS: dict[str, Any] = {
