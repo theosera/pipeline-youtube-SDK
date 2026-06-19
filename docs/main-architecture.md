@@ -95,5 +95,5 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 - 層B（再パッケージング）進行中：`domain/`（純粋な型・契約レイヤ。他のどの層にも依存しない）を新設し、
   まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）/ `domain/transcript.py`（`TranscriptSource`/`TranscriptSnippet`/`TranscriptResult` ほか）/ `domain/errors.py`（`VaultRootError`/`SynthesisParseError`/`GlossaryParseError`/`GlossaryConflictError` ほか純粋例外）** を集約。
   旧 `playlist` / `run_result` は後方互換のため明示的に re-export（`import X as X`）する。
-  次段：`services/`（cache・checkpoint・sanitize・path_safety）/ `agents/` / `schemas/` / `prompts/` への
-  集約を別 PR で段階的に。
+  `services/`（cache・checkpoint・sanitize・path_safety。旧パスは後方互換 shim）を新設済み。
+  次段：`agents/` / `schemas/` / `prompts/` への集約を別 PR で段階的に。
