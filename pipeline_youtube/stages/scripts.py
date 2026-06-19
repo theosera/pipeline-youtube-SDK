@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..code_fetch import (
     extract_github_urls,
@@ -38,6 +39,9 @@ from ..transcript.correction import chunks_to_snippets, correct_chunks
 from ..transcript.innertube import fetch_innertube
 from ..transcript.official import fetch_official
 
+if TYPE_CHECKING:
+    from ..services.cache import Cache
+
 DEFAULT_LANGUAGES: list[str] = ["ja", "en"]
 
 # Default fan-out for the upfront transcript warm-up. Higher than the
@@ -52,6 +56,7 @@ def warm_transcript_cache(
     languages: list[str] | None = None,
     concurrency: int = DEFAULT_TRANSCRIPT_CONCURRENCY,
     use_innertube: bool = True,
+    cache: Cache | None = None,
 ) -> int:
     """Pre-fetch caption transcripts for many videos concurrently.
 
@@ -69,15 +74,21 @@ def warm_transcript_cache(
     error is swallowed so warming never blocks the run.
 
     Returns the number of videos for which a caption tier was cached.
+
+    ``cache`` may be injected explicitly (DI); when omitted it falls back to
+    the process-global ``get_cache()`` for backward compatibility.
     """
     if not videos:
         return 0
 
-    from ..cache import get_cache
+    if cache is None:
+        from ..cache import get_cache
+
+        cache = get_cache()
 
     # Without a persistent cache there is nothing to warm — Stage 01 would
     # re-fetch regardless, so skip the extra pass entirely.
-    if not get_cache().enabled:
+    if not cache.enabled:
         return 0
 
     langs = languages or DEFAULT_LANGUAGES
@@ -102,6 +113,7 @@ def warm_transcript_cache(
                 ("official", fetch_official),
                 ("auto", fetch_auto),
             ],
+            cache=cache,
         )
         return bool(result.snippets)
 

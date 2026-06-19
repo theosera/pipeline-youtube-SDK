@@ -27,8 +27,12 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import yt_dlp  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+    from .services.cache import Cache
 
 # GitHub blob URL: https://github.com/<owner>/<repo>/blob/<ref>/<path>
 # Captures owner, repo, and the rest (ref + path).
@@ -290,18 +294,24 @@ def _fetch_gist(url: str) -> CodeSnippet | None:
     )
 
 
-def fetch_snippets_for_urls(urls: list[str]) -> list[CodeSnippet]:
+def fetch_snippets_for_urls(urls: list[str], *, cache: Cache | None = None) -> list[CodeSnippet]:
     """Fetch up to ``MAX_URLS_PER_VIDEO`` snippets, skipping unsupported URLs.
 
     Repo-level URLs (without /blob/) are skipped — fetching a repo's
     default README gets noisy fast and rarely matches what the video is
     actually demonstrating. Only blob and gist URLs return code.
+
+    ``cache`` may be injected explicitly (DI); when omitted it falls back to
+    the process-global ``get_cache()`` for backward compatibility.
     """
     from dataclasses import asdict
 
-    from .cache import get_cache, url_key
+    from .cache import url_key
 
-    cache = get_cache()
+    if cache is None:
+        from .cache import get_cache
+
+        cache = get_cache()
     out: list[CodeSnippet] = []
     for url in urls:
         if len(out) >= MAX_URLS_PER_VIDEO:

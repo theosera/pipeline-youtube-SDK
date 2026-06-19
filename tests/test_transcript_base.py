@@ -110,3 +110,33 @@ class TestFetchWithFallback:
             ],
         )
         assert result.fallback_reason is None
+
+
+class TestInjectedCache:
+    """DI: an explicitly injected cache is consulted instead of the global."""
+
+    def test_injected_cache_is_read_and_written(self, tmp_path):
+        from pipeline_youtube.services.cache import Cache
+
+        cache = Cache(tmp_path, enabled=True)
+
+        # First call populates the injected cache from a successful fetch.
+        first = fetch_with_fallback(
+            "vid1",
+            ["ja"],
+            [("official", _stub_success(TranscriptSource.OFFICIAL))],
+            cache=cache,
+        )
+        assert first.source == TranscriptSource.OFFICIAL
+
+        # Second call: the only fetcher raises, so a non-error result can come
+        # *only* from the injected cache — proving the hit path uses it (the
+        # process-global cache is disabled by default and would miss).
+        second = fetch_with_fallback(
+            "vid1",
+            ["ja"],
+            [("official", _stub_failure("must_not_run"))],
+            cache=cache,
+        )
+        assert second.source == TranscriptSource.OFFICIAL
+        assert second.snippets == first.snippets

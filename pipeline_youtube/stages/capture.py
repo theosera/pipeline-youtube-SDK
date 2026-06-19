@@ -46,12 +46,15 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..config import get_vault_root
 from ..path_safety import ensure_safe_path
 from ..playlist import VideoMeta
 from .capture_backend import CaptureBackend, HostCaptureBackend
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 # Resource-class semaphore (Phase 3 A): bounds concurrent video downloads
 # (yt-dlp network I/O) independently of the per-video --concurrency. ``None`` =
@@ -331,6 +334,7 @@ def run_stage_capture(
     backend: CaptureBackend | None = None,
     allow_download: bool = True,
     delete_video: bool = True,
+    cache: Cache | None = None,
 ) -> CaptureResult:
     """Download the video, extract animated frames, update the 03 md.
 
@@ -358,6 +362,9 @@ def run_stage_capture(
         consulting the cache or reaching out to YouTube — preserving the
         offline contract and never mixing a downloaded video with
         locally-sourced transcripts.
+    cache:
+        May be injected explicitly (DI); when omitted it falls back to the
+        process-global ``get_cache()`` for backward compatibility.
     """
     if not summary_md_path.exists():
         return CaptureResult(ranges=[], error="summary_md_not_found")
@@ -394,9 +401,10 @@ def run_stage_capture(
     assets_dir = vault_root / assets_rel
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    from ..cache import get_cache
+    if cache is None:
+        from ..cache import get_cache
 
-    cache = get_cache()
+        cache = get_cache()
     # `cleanup_path` is the working copy to delete in `finally`. A cache HIT
     # points extraction at the persistent copy, which must NOT be deleted.
     cleanup_path: Path | None = None

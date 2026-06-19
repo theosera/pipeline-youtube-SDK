@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..domain.transcript import (
     TranscriptNotAvailable,
@@ -27,6 +27,9 @@ from ..domain.transcript import (
     TranscriptSnippet,
     TranscriptSource,
 )
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 # Re-exported here for backward compatibility: the value types moved to
 # ``domain/transcript.py`` but historically lived in this module.
@@ -107,16 +110,22 @@ def fetch_with_fallback(
     video_id: str,
     languages: list[str],
     fetchers: list[tuple[str, Fetcher | None]],
+    *,
+    cache: Cache | None = None,
 ) -> TranscriptResult:
     """Try each tier in order; return the first successful result.
 
     `fetchers` is an ordered list of (tier_name, fetcher_callable). A
     `None` fetcher is skipped (used when the Whisper extra is not
     installed or disabled for cost reasons).
-    """
-    from ..cache import get_cache
 
-    cache = get_cache()
+    ``cache`` may be injected explicitly (DI); when omitted it falls back to
+    the process-global ``get_cache()`` for backward compatibility.
+    """
+    if cache is None:
+        from ..cache import get_cache
+
+        cache = get_cache()
     lang_key = languages[0] if languages else "none"
 
     fallback_reasons: list[str] = []
