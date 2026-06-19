@@ -107,7 +107,12 @@ def _redact(sample: str, max_len: int = 24) -> str:
         return ""
     half = max(max_len // 2, 4)
     head = sample[:half]
-    digest = hashlib.sha1(sample.encode("utf-8", errors="replace")).hexdigest()[:8]
+    # Non-security fingerprint: a short, stable tail to disambiguate samples in
+    # alert logs (truncated to 8 hex chars). usedforsecurity=False documents that
+    # this is not a cryptographic use; SHA-256 keeps CodeQL's weak-hash check happy.
+    digest = hashlib.sha256(
+        sample.encode("utf-8", errors="replace"), usedforsecurity=False
+    ).hexdigest()[:8]
     return f"{head}…[{digest}]"
 
 
@@ -127,4 +132,6 @@ def _emit_alert(context: str, before_len: int, after_len: int, sample: str) -> N
         with _alert_sink.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError:
+        # Best-effort sink: a missing/unwritable alert path must never break the
+        # pipeline, so a logging failure here is intentionally swallowed.
         pass
