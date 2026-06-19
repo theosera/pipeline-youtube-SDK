@@ -98,7 +98,9 @@ def read_trusted_video_id(md_path: Path) -> str | None:
     return extract_trusted_video_id(data)
 
 
-def _find_learning_folder(playlist_title: str, run_date: datetime) -> Path | None:
+def _find_learning_folder(
+    playlist_title: str, run_date: datetime, *, vault_root: Path | None = None
+) -> Path | None:
     """Locate the 04_Learning_Material playlist folder for a given date.
 
     Tries the canonical name first (`YYYY-MM-DD-HHmm <title>`), then
@@ -110,10 +112,13 @@ def _find_learning_folder(playlist_title: str, run_date: datetime) -> Path | Non
     so existing vaults continue to work without renaming. See
     `pipeline.LEGACY_LEARNING_DIR`.
     """
-    vault_root = get_vault_root()
+    if vault_root is None:
+        vault_root = get_vault_root()
     bases = [
-        vault_root / ensure_safe_path(f"{LEARNING_BASE}/{UNIT_DIRS['learning']}"),
-        vault_root / ensure_safe_path(f"{LEARNING_BASE}/{LEGACY_LEARNING_DIR}"),
+        vault_root
+        / ensure_safe_path(f"{LEARNING_BASE}/{UNIT_DIRS['learning']}", vault_root=vault_root),
+        vault_root
+        / ensure_safe_path(f"{LEARNING_BASE}/{LEGACY_LEARNING_DIR}", vault_root=vault_root),
     ]
     bases = [b for b in bases if b.exists()]
     if not bases:
@@ -149,13 +154,15 @@ def is_video_complete(
     video_id: str,
     playlist_title: str,
     run_date: datetime,
+    *,
+    vault_root: Path | None = None,
 ) -> bool:
     """Return True if a stage 04 md with matching video_id already exists.
 
     Scans the 04_Learning_Material playlist folder for any .md file whose
     YAML frontmatter contains `video_id: "<video_id>"`.
     """
-    folder = _find_learning_folder(playlist_title, run_date)
+    folder = _find_learning_folder(playlist_title, run_date, vault_root=vault_root)
     if folder is None or not folder.exists():
         return False
 
@@ -165,13 +172,15 @@ def is_video_complete(
 def get_completed_video_ids(
     playlist_title: str,
     run_date: datetime,
+    *,
+    vault_root: Path | None = None,
 ) -> set[str]:
     """Return the set of video_ids that have completed stage 04.
 
     Useful for batch skip decisions without calling is_video_complete
     in a loop (one folder scan instead of N).
     """
-    folder = _find_learning_folder(playlist_title, run_date)
+    folder = _find_learning_folder(playlist_title, run_date, vault_root=vault_root)
     if folder is None or not folder.exists():
         return set()
 
