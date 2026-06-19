@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pipeline_youtube import sanitize as sanitize_mod
-from pipeline_youtube.sanitize import configure_alert_sink, sanitize_untrusted_text
+from pipeline_youtube.services import sanitize as sanitize_mod
+from pipeline_youtube.services.sanitize import (
+    configure_alert_sink,
+    sanitize_untrusted_text,
+)
 
 
 class TestAlertSink:

@@ -77,7 +77,7 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 | 検証 | 未実装(`--eval-loop`/`--folder-name`)・排他・必須フラグを弾く | `cli_validation` |
 | 道具 | config 読込・provider 選択(`apply_selection`/`configure_providers`)・cache・whisper・capture・logger 初期化 | `runtime`（→ `cli_config` / `providers/registry` / `providers/selection` / `cache` / `whisper_fallback` / `sanitize` / `stages/capture_backend`） |
 | 材料 | URL→メタデータ or local-media 走査 → genre 分類 | `input_resolver`（→ `playlist` / `local_media` / `genres`） |
-| 計画 | RunMode と run_time/shard を確定 | `execution_plan`（→ `parallel` / `resume`） |
+| 計画 | RunMode と run_time/shard を確定。さらに**実行判断フラグ（dry_run / skip_synthesis / synthesis_only / resume_reviewed / stop_after_capture / local_media）を ExecutionPlan に確定**させ、`pipeline_runner` は request でなく plan を参照する | `execution_plan`（→ `parallel` / `resume`） |
 | 実行 | sub-agent 分散・shard 切出し・checkpoint/resume・transcript warm-up・01-04 起動・固有名詞シート更新・05 接続 | `pipeline_runner`（→ `video_processing` / `checkpoint` / `resume` / `proper_noun_sheet` / `parallel` / `stages/scripts`） |
 | 統合 | Stage 05 入力準備・実行 | `synthesis_runner`（→ `stages/synthesis` / `synthesis/agents`） |
 | 出力 | 動画サマリ・05 結果・コスト内訳の表示 | `reporting`（→ `run_result._print_cost_breakdown`） |
@@ -93,7 +93,7 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 - `pipeline_runner` のフェーズ（checkpoint / warm-up / 01-04 / 05 接続）が太ったら、その単位を
   さらに 1 モジュール（または stage）へ括り出せないか検討する。
 - 層B（再パッケージング）進行中：`domain/`（純粋な型・契約レイヤ。他のどの層にも依存しない）を新設し、
-  まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）/ `domain/transcript.py`（`TranscriptSource`/`TranscriptSnippet`/`TranscriptResult` ほか）** を集約。
+  まず **`domain/video.py`（`VideoMeta`）/ `domain/results.py`（`VideoRunResult`）/ `domain/transcript.py`（`TranscriptSource`/`TranscriptSnippet`/`TranscriptResult` ほか）/ `domain/errors.py`（`VaultRootError`/`SynthesisParseError`/`GlossaryParseError`/`GlossaryConflictError` ほか純粋例外）** を集約。
   旧 `playlist` / `run_result` は後方互換のため明示的に re-export（`import X as X`）する。
-  次段：`services/`（cache・checkpoint・sanitize・path_safety）/ `agents/` / `schemas/` / `prompts/` への
-  集約を別 PR で段階的に。
+  `services/`（cache・checkpoint・sanitize・path_safety。旧パスは後方互換 shim）を新設済み。
+  次段：`agents/` / `schemas/` / `prompts/` への集約を別 PR で段階的に。

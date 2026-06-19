@@ -13,14 +13,15 @@ from pipeline_youtube.sanitize import (
 
 
 class TestRedact:
-    def test_keeps_head_and_hash_tail(self):
+    def test_returns_hash_only_no_plaintext(self):
         out = _redact("very sensitive transcript contents here", max_len=24)
-        assert out.startswith("very sensi")  # head
-        assert "[" in out and "]" in out  # hash tail
+        assert "very" not in out  # no plaintext fragment leaks
+        assert out.startswith("[") and out.endswith("]")  # bracketed hash
 
-    def test_short_input_passes_through(self):
+    def test_short_input_is_hashed_not_passed_through(self):
         out = _redact("tiny", max_len=24)
-        assert "tiny" in out
+        assert "tiny" not in out
+        assert out.startswith("[") and out.endswith("]")
 
     def test_empty(self):
         assert _redact("") == ""

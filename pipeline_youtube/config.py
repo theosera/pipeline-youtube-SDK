@@ -14,14 +14,12 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from .domain.errors import VaultRootError as VaultRootError
+
 _vault_root: Path | None = None
 _dry_run: bool = False
 _providers_config: dict[str, Any] = {}
 _models_config: dict[str, dict[str, str]] = {}
-
-
-class VaultRootError(ValueError):
-    """Raised when vault_root fails safety checks."""
 
 
 def set_vault_root(path: str | Path, *, strict: bool = False) -> None:

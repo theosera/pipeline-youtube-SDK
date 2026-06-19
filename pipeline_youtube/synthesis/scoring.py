@@ -23,6 +23,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from ..domain.errors import SynthesisParseError as SynthesisParseError
+
 Category = Literal["core", "supporting", "unique"]
 
 
@@ -128,10 +130,6 @@ def derive_category(duplication_count: int) -> Category:
 # =====================================================
 # JSON extraction (robust against prose around the payload)
 # =====================================================
-
-
-class SynthesisParseError(RuntimeError):
-    """Raised when an agent's JSON output cannot be parsed."""
 
 
 def extract_json(raw: str) -> dict[str, Any]:
