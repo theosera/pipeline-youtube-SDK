@@ -78,7 +78,7 @@ class TestRunStageScripts:
         monkeypatch.setattr(
             scripts_stage,
             "fetch_with_fallback",
-            lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
         )
 
         result = scripts_stage.run_stage_scripts(video, scripts_path, window_seconds=30.0)
@@ -109,11 +109,11 @@ class TestRunStageScripts:
         monkeypatch.setattr(
             scripts_stage,
             "fetch_with_fallback",
-            lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
         )
         seen: dict[str, object] = {}
 
-        def _fake_correct(chunks, *, model, known_terms=None):
+        def _fake_correct(chunks, *, model, known_terms=None, cache=None):
             seen["known_terms"] = known_terms
             return CorrectionResult(
                 chunks=[Chunk(start=c.start, text=c.text + " [FIX]") for c in chunks],
@@ -150,7 +150,7 @@ class TestRunStageScripts:
         monkeypatch.setattr(
             scripts_stage,
             "fetch_with_fallback",
-            lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
         )
 
         result = scripts_stage.run_stage_scripts(
@@ -167,7 +167,7 @@ class TestRunStageScripts:
         scripts_path = paths["scripts"]
         pre_content = scripts_path.read_text(encoding="utf-8")
 
-        def _empty_fetch(video_id, languages, fetchers):
+        def _empty_fetch(video_id, languages, fetchers, **kw):
             return build_result(
                 video_id=video_id,
                 source=TranscriptSource.ERROR,
@@ -188,8 +188,40 @@ class TestRunStageScripts:
         monkeypatch.setattr(
             scripts_stage,
             "fetch_with_fallback",
-            lambda video_id, languages, fetchers: _fake_fetch_success()(video_id, languages),
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
         )
 
         with pytest.raises(FileNotFoundError):
             scripts_stage.run_stage_scripts(video, ghost_path)
+
+    def test_injected_cache_reaches_transcript_and_correction(self, vault, monkeypatch):
+        """DI: the cache passed to run_stage_scripts is forwarded verbatim to the
+        transcript fallback chain and the Stage 01b correction call."""
+        from pipeline_youtube.services.cache import Cache
+        from pipeline_youtube.transcript.correction import CorrectionResult
+
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        scripts_path = paths["scripts"]
+
+        injected = Cache(config.get_vault_root() / "cache", enabled=True)
+        seen: dict[str, object] = {}
+
+        def _spy_fetch(video_id, languages, fetchers, *, cache=None):
+            seen["fetch_cache"] = cache
+            return _fake_fetch_success()(video_id, languages)
+
+        def _spy_correct(chunks, *, model, known_terms=None, cache=None):
+            seen["correct_cache"] = cache
+            return CorrectionResult(chunks=list(chunks), cost_usd=0.0)
+
+        monkeypatch.setattr(scripts_stage, "fetch_with_fallback", _spy_fetch)
+        monkeypatch.setattr(scripts_stage, "correct_chunks", _spy_correct)
+
+        scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, correct_model="opus", cache=injected
+        )
+
+        assert seen["fetch_cache"] is injected
+        assert seen["correct_cache"] is injected

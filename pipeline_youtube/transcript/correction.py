@@ -20,12 +20,16 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ..providers.base import LLMError, LLMResponse
 from ..providers.registry import invoke_llm
 from ..sanitize import sanitize_untrusted_text, wrap_untrusted
 from .base import TranscriptSnippet
 from .chunking import Chunk
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 # How many chunks to correct per LLM call. Long videos produce hundreds of
 # 30s chunks; batching keeps each request bounded and localizes failures (a
@@ -209,6 +213,7 @@ def correct_chunks(
     batch_size: int = DEFAULT_BATCH_SIZE,
     timeout: int = DEFAULT_TIMEOUT,
     known_terms: list[tuple[str, str]] | None = None,
+    cache: Cache | None = None,
 ) -> CorrectionResult:
     """Return corrected chunks (timestamps unchanged), total cost, and terms.
 
@@ -227,6 +232,9 @@ def correct_chunks(
     ``cost_usd`` sums the billed cost of every LLM call that actually executed
     (a batch whose ``invoke`` raised before returning contributes nothing; a
     batch that returned but failed to parse still counts, since it was billed).
+
+    ``cache`` is forwarded to ``invoke`` (DI); when omitted the underlying
+    ``invoke_llm`` falls back to the process-global ``get_cache()``.
     """
     if not chunks:
         return CorrectionResult(chunks=chunks, cost_usd=0.0)
@@ -248,6 +256,7 @@ def correct_chunks(
                 web_search=True,
                 thinking=True,
                 timeout=timeout,
+                cache=cache,
             )
         except LLMError:
             # The call never produced a (billable) response — keep raw chunks.

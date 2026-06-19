@@ -33,12 +33,16 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..obsidian import build_frontmatter
 from ..playlist import VideoMeta
 from ..providers.base import LLMResponse as ClaudeResponse
 from ..providers.registry import invoke_llm as invoke_claude
 from ..sanitize import sanitize_untrusted_text, wrap_untrusted
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 LEARNING_SYSTEM_PROMPT = """あなたは YouTube 動画の要約と画像キャプチャを統合し、学習者向けの体系的な学習ノートを作るエージェントです。
 
@@ -159,6 +163,7 @@ def run_stage_learning(
     model: str = "sonnet",
     dry_run: bool = False,
     code_bearing: bool = False,
+    cache: Cache | None = None,
 ) -> ClaudeResponse:
     """Integrate 02 + 03 into 04 and write directly to `learning_md_path`.
 
@@ -171,6 +176,9 @@ def run_stage_learning(
     instruction to split the output into ``# 概念`` and ``# 実践``
     top-level sections so theoretical and practical content stay
     separated.
+
+    ``cache`` may be injected explicitly (DI); when omitted the LLM call
+    falls back to the process-global ``get_cache()`` for backward compat.
     """
     if not summary_md_path.exists():
         raise FileNotFoundError(f"summary md not found: {summary_md_path}")
@@ -191,6 +199,7 @@ def run_stage_learning(
         append_system_prompt=system_prompt,
         model=model,
         role="stage_04",
+        cache=cache,
     )
 
     if not dry_run:
