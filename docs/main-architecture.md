@@ -75,9 +75,9 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 | 受付 | オプション定義 → `CliRequest` 詰め替え | `cli.py` |
 | 起点 | 検証→runtime→入力→計画→実行を**配線** | `command.py` |
 | 検証 | 未実装(`--eval-loop`/`--folder-name`)・排他・必須フラグを弾く | `cli_validation` |
-| 道具 | config 読込・provider 選択(`apply_selection`/`configure_providers`)・cache・whisper・capture・logger 初期化 | `runtime`（→ `cli_config` / `providers/registry` / `providers/selection` / `cache` / `whisper_fallback` / `sanitize` / `stages/capture_backend`） |
+| 道具 | config 読込・provider 選択(`apply_selection`/`configure_providers`)・cache・whisper・capture・logger 初期化 | `runtime`（→ `cli_config` / `providers/registry` / `providers/selection` / `services/cache` / `whisper_fallback` / `services/sanitize` / `capture_runtime`）。capture backend 解決 (host/docker preflight・local-media 非互換) は `capture_runtime.resolve_capture_backend` に分離 |
 | 材料 | URL→メタデータ or local-media 走査 → genre 分類 | `input_resolver`（→ `playlist` / `local_media` / `genres`） |
-| 計画 | RunMode と run_time/shard を確定。さらに**実行判断フラグ（dry_run / skip_synthesis / synthesis_only / resume_reviewed / stop_after_capture / local_media）を ExecutionPlan に確定**させ、`pipeline_runner` は request でなく plan を参照する | `execution_plan`（→ `parallel` / `resume`） |
+| 計画 | RunMode と run_time/shard を確定し、**実行意図フラグ（is_sub_agent_parent/worker・run_video_stages・run_synthesis・allow_checkpoint・allow_proper_noun_sheet・allow_transcript_warmup・filter_reviewed_only・stop_after_capture）を ExecutionPlan に確定**。`pipeline_runner` は request の生フラグでなく plan の意味フラグを参照する | `execution_plan`（→ `parallel` / `resume`） |
 | 実行 | sub-agent 分散・shard 切出し・checkpoint/resume・transcript warm-up・01-04 起動・固有名詞シート更新・05 接続 | `pipeline_runner`（→ `video_processing` / `checkpoint` / `resume` / `proper_noun_sheet` / `parallel` / `stages/scripts`） |
 | 統合 | Stage 05 入力準備・実行 | `synthesis_runner`（→ `stages/synthesis` / `synthesis/agents`） |
 | 出力 | 動画サマリ・05 結果・コスト内訳の表示 | `reporting`（→ `run_result._print_cost_breakdown`） |
