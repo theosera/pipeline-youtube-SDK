@@ -7,22 +7,16 @@ config.json を読み、provider / cache / whisper / capture backend / logger �
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import click
 
 from .capture_runtime import resolve_capture_backend
-from .cli_config import _MODEL_KEYS, DEFAULT_CONFIG_PATH, _load_config
+from .cli_config import DEFAULT_CONFIG_PATH, _load_config
 from .cli_types import CliRequest, Runtime
 from .config import VaultRootError, set_dry_run, set_vault_root
-from .providers.registry import (
-    configure_llm_cache,
-    configure_llm_concurrency,
-    configure_providers,
-    resolve_role,
-)
-from .providers.selection import apply_selection
+from .provider_runtime import configure_provider_models
+from .providers.registry import configure_llm_cache, configure_llm_concurrency
 from .sanitize import configure_alert_sink
 from .stages.capture import sweep_stale_tmp
 from .transcript.whisper_fallback import configure_whisper, describe_whisper
@@ -50,41 +44,9 @@ def build_runtime(request: CliRequest) -> Runtime:
     if swept:
         click.echo(f"swept {swept} stale tmp video file(s)")
 
-    # Initialize LLM providers from config.json, applying the runtime
-    # --provider / --hybrid overrides (config is the source of truth when
-    # neither is given). See providers/selection.py.
-    config_data = json.loads(cfg_path.read_text(encoding="utf-8"))
-    providers_raw = config_data.get("providers", {})
-    if (request.provider == "anthropic" or request.hybrid) and "anthropic" not in providers_raw:
-        raise click.UsageError(
-            "--provider anthropic / --hybrid requires the 'anthropic' provider in config.json."
-        )
-    # Seed from cfg.models — the NORMALIZED map _load_config builds with the
-    # per-stage fallbacks already applied (router→"haiku", other unspecified
-    # stages→the --model value). Using it (not the raw config) keeps --model
-    # and partial-config fallbacks honored for missing roles; resolve_role
-    # handles both the object ({provider, model}) and legacy string forms.
-    effective_models, model_warnings = apply_selection(
-        cfg.models, providers_raw, _MODEL_KEYS, provider=request.provider, hybrid=request.hybrid
-    )
-    for warning in model_warnings:
-        click.echo(warning)
-    configure_providers(providers_raw, effective_models)
-    # Resolve each stage's concrete model NAME from the SAME effective map that
-    # drives provider resolution, and pass THAT as the explicit `model=` arg.
-    # invoke_llm only substitutes the role-resolved model when the caller
-    # passes "default", so a per-stage object config (`{provider, model}`) or a
-    # --provider override must be flattened to a model-name string here — else
-    # the dict / a mismatched config model name would reach the provider.
-    models = {stage: resolve_role(stage)[1] for stage in _MODEL_KEYS}
-    if request.provider or request.hybrid:
-        click.echo(
-            f"model selection: provider={request.provider or 'config'} hybrid={request.hybrid}"
-        )
-    click.echo(
-        f"providers: {', '.join(providers_raw.keys()) if providers_raw else 'default (ollama)'}"
-    )
-    click.echo("llm_backends: SDK mode (no claude CLI dependency)")
+    # Initialize LLM providers + per-stage models from config + CLI overrides.
+    # HOW lives in provider_runtime; here we just wire it.
+    models = configure_provider_models(request, cfg, cfg_path)
 
     # Persistent cache + per-role LLM cache policy. ``--no-cache`` is the
     # master off switch; otherwise deterministic artifacts (transcript/video/
