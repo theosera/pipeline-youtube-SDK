@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import click
 
+from .capture_runtime import resolve_capture_backend
 from .cli_config import _MODEL_KEYS, DEFAULT_CONFIG_PATH, _load_config
 from .cli_types import CliRequest, Runtime
 from .config import VaultRootError, set_dry_run, set_vault_root
@@ -24,8 +24,7 @@ from .providers.registry import (
 )
 from .providers.selection import apply_selection
 from .sanitize import configure_alert_sink
-from .stages.capture import ASSETS_REL_PATH, sweep_stale_tmp
-from .stages.capture_backend import DockerBackendNotReady, DockerCaptureBackend
+from .stages.capture import sweep_stale_tmp
 from .transcript.whisper_fallback import configure_whisper, describe_whisper
 
 
@@ -116,52 +115,9 @@ def build_runtime(request: CliRequest) -> Runtime:
         f"(llm synthesis cache: {'on' if request.cache_llm_synthesis else 'off'})"
     )
 
-    # Resolve the Stage 03 capture backend. CLI flag beats config.json; both
-    # default to "host". The preflight for Docker mode is deferred until we
-    # know Stage 03 will actually run — workflows that skip capture
-    # (`--synthesis-only`, `--resume-reviewed`) must not fail just because
-    # the docker daemon happens to be unavailable at that moment.
-    active_capture_backend: Any = None
-    backend_choice = request.capture_backend or cfg.capture_backend
-    # Capture runs in every mode except --synthesis-only (which only re-runs
-    # Stage 05 over existing 04 md). In particular --resume-reviewed still calls
-    # _process_video()/Stage 03, so it must run the docker preflight and be
-    # subject to the local-media guard below.
-    will_run_capture = not request.synthesis_only
-    # --local-media files live outside the container's bind mounts (tmp/ + the
-    # Vault assets folder), so the docker backend's ffmpeg can't read them.
-    # Reject the combination up front instead of failing per-video deep inside
-    # Stage 03.
-    if request.local_media and backend_choice == "docker" and will_run_capture:
-        raise click.UsageError(
-            "--local-media is incompatible with the docker capture backend: the "
-            "hardened container only mounts tmp/ and the Vault assets folder, so "
-            "your media directory is not visible to ffmpeg. Re-run with the host "
-            "backend (--capture-backend host)."
-        )
-    if backend_choice == "docker":
-        assets_dir = vault_root / ASSETS_REL_PATH
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        tmp_dir = project_root / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        active_capture_backend = DockerCaptureBackend(
-            tmp_dir=tmp_dir,
-            assets_dir=assets_dir,
-            image=cfg.capture_docker_image,
-        )
-        if will_run_capture:
-            try:
-                active_capture_backend.preflight()
-            except DockerBackendNotReady as exc:
-                raise click.UsageError(str(exc)) from exc
-            click.echo(f"capture_backend: docker ({cfg.capture_docker_image})")
-        else:
-            click.echo(
-                f"capture_backend: docker ({cfg.capture_docker_image}) "
-                "[preflight deferred: capture not needed this run]"
-            )
-    else:
-        click.echo("capture_backend: host")
+    # Resolve the Stage 03 capture backend (host / docker preflight / local-media
+    # guard). HOW lives in capture_runtime; here we just wire it.
+    active_capture_backend = resolve_capture_backend(request, cfg, vault_root, project_root)
 
     effective_synthesis_timeout = request.synthesis_timeout or cfg.synthesis_timeout
     effective_synthesis_profile = request.synthesis_profile or cfg.synthesis_profile or "auto"
