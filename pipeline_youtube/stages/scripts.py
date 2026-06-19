@@ -147,6 +147,7 @@ def run_stage_scripts(
     correct_model: str | None = None,
     known_terms: list[tuple[str, str]] | None = None,
     use_innertube: bool = True,
+    cache: Cache | None = None,
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
@@ -168,6 +169,10 @@ def run_stage_scripts(
     - Does NOT overwrite the frontmatter already present; appends below.
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
+
+    ``cache`` may be injected explicitly (DI); when omitted the transcript /
+    code-fetch / correction calls below fall back to the process-global
+    ``get_cache()`` for backward compatibility.
     """
     langs = languages or DEFAULT_LANGUAGES
 
@@ -202,7 +207,10 @@ def run_stage_scripts(
         else:
             local_fetcher = None
         result = fetch_with_fallback(
-            video.video_id, langs, fetchers=[(whisper_local_tier, local_fetcher)]
+            video.video_id,
+            langs,
+            fetchers=[(whisper_local_tier, local_fetcher)],
+            cache=cache,
         )
     else:
         # Tier 0 (InnerTube iOS client) is tried first: it fetches existing
@@ -223,6 +231,7 @@ def run_stage_scripts(
                 ("auto", fetch_auto),
                 (whisper_tier, whisper_fetcher),
             ],
+            cache=cache,
         )
 
     chunks = chunk_by_window(result.snippets, window_seconds)
@@ -232,7 +241,9 @@ def run_stage_scripts(
     # text is folded back into `result.snippets` so Stage 02/03/04 (which
     # re-chunk the TranscriptResult) consume the correction, not just the 01 md.
     if correct_model and not dry_run and chunks:
-        correction = correct_chunks(chunks, model=correct_model, known_terms=known_terms)
+        correction = correct_chunks(
+            chunks, model=correct_model, known_terms=known_terms, cache=cache
+        )
         chunks = correction.chunks
         last = result.snippets[-1]
         result = replace(
@@ -252,7 +263,7 @@ def run_stage_scripts(
         description = fetch_video_description(video.video_id)
         if description:
             urls = extract_github_urls(description)
-            snippets = fetch_snippets_for_urls(urls)
+            snippets = fetch_snippets_for_urls(urls, cache=cache)
             code_section = render_code_section(snippets)
 
     full_body = body + code_section if code_section else body
