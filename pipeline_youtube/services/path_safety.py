@@ -43,6 +43,12 @@ def ensure_safe_path(proposed: str | None, *, vault_root: Path | None = None) ->
 
     if vault_root is None:
         vault_root = get_vault_root()
+    else:
+        # An injected root may be the raw cfg.vault_root (relative / symlinked).
+        # Normalize it the way set_vault_root() does so the prefix/realpath checks
+        # below compare against a resolved absolute path — otherwise a valid path
+        # would wrongly collapse to FALLBACK_PATH.
+        vault_root = vault_root.expanduser().resolve()
 
     # Phase 0: URL decode (catch %2e%2e encoded traversal)
     try:
