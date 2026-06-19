@@ -222,7 +222,9 @@ def _process_all_videos(
     # Checkpoint: detect already-completed videos in one pass
     force_set = set(request.force_video)
     completed_ids = (
-        get_completed_video_ids(playlist_title, run_time) if plan.allow_checkpoint else set()
+        get_completed_video_ids(playlist_title, run_time, vault_root=runtime.vault_root)
+        if plan.allow_checkpoint
+        else set()
     )
     if completed_ids:
         skippable = completed_ids - force_set

@@ -183,3 +183,23 @@ class TestVaultBinding:
         result = ensure_safe_path("escape")
         # The symlink itself exists and resolves outside → Phase 6 rejects
         assert result == FALLBACK_PATH
+
+
+class TestInjectedVaultRoot:
+    """DI: an explicitly injected vault_root must be normalized like the global."""
+
+    def test_symlinked_injected_root_is_resolved(self, tmp_path: Path):
+        # `link` points at the real vault but is itself unresolved (symlink).
+        # Injecting it must still accept a valid relative path — the prefix check
+        # would otherwise compare the child's realpath against the symlink name
+        # and collapse to FALLBACK_PATH.
+        link = tmp_path.parent / (tmp_path.name + "_vault_link")
+        try:
+            link.symlink_to(tmp_path, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks not supported on this filesystem")
+        try:
+            out = ensure_safe_path("Foo/bar", vault_root=link)
+        finally:
+            link.unlink()
+        assert out == "Foo/bar"
