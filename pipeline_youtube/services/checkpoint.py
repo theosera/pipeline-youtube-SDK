@@ -127,15 +127,16 @@ def _find_learning_folder(playlist_title: str, run_date: datetime) -> Path | Non
 
     # Fallback: date prefix + title substring (handles legacy folder names)
     date_prefix = run_date.strftime("%Y-%m-%d")
-    title_needle = sanitize_title_for_filename(playlist_title)
-    if not title_needle:
-        return None
 
-    # Also handle `/`-separated playlist titles (take last segment)
+    # Also handle `/`-separated playlist titles (take last segment). Guard on the
+    # stripped title that is actually used below: an empty needle would make the
+    # `in child.name` substring test match every date-prefixed folder.
     from ..obsidian import _strip_playlist_category_prefix
 
     display_title = _strip_playlist_category_prefix(playlist_title)
     title_needle = sanitize_title_for_filename(display_title)
+    if not title_needle:
+        return None
 
     for b in bases:
         for child in b.iterdir():
