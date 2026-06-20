@@ -36,10 +36,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video(i: int = 0) -> VideoMeta:

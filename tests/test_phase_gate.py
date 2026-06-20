@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from pipeline_youtube import config
 from pipeline_youtube.pipeline import LEARNING_BASE, UNIT_DIRS
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.resume import _filter_to_reviewed, _find_summary_md
@@ -43,22 +42,17 @@ _VID_1 = "vid1xxxxxxA"
 
 class TestFindSummaryMd:
     def test_canonical_folder(self, tmp_path: Path):
-        config.set_vault_root(tmp_path)
-
         dt = datetime(2026, 4, 18, 8, 0)
         canonical = f"{LEARNING_BASE}/{UNIT_DIRS['summary']}/2026-04-18-0800 testlist"
         summary = tmp_path / canonical / "note.md"
         _write_summary(summary, _VID_1, "true")
 
-        found = _find_summary_md(_VID_1, "testlist", dt, vault_root=config.get_vault_root())
+        found = _find_summary_md(_VID_1, "testlist", dt, vault_root=tmp_path)
         assert found == summary
 
     def test_missing_returns_none(self, tmp_path: Path):
-        config.set_vault_root(tmp_path)
         assert (
-            _find_summary_md(
-                "missingxxxx", "testlist", datetime(2026, 4, 18), vault_root=config.get_vault_root()
-            )
+            _find_summary_md("missingxxxx", "testlist", datetime(2026, 4, 18), vault_root=tmp_path)
             is None
         )
 
@@ -66,7 +60,6 @@ class TestFindSummaryMd:
 class TestFilterToReviewed:
     @pytest.fixture
     def vault(self, tmp_path: Path):
-        config.set_vault_root(tmp_path)
         dt = datetime(2026, 4, 18, 8, 0)
         folder = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-0800 testlist"
         _write_summary(folder / "a.md", _VID_A, "true")
@@ -74,26 +67,19 @@ class TestFilterToReviewed:
         _write_summary(folder / "c.md", _VID_C, "true")
         return dt
 
-    def test_keeps_only_reviewed_true(self, vault):
+    def test_keeps_only_reviewed_true(self, vault, tmp_path: Path):
         to_process = [(1, _vid(_VID_A)), (2, _vid(_VID_B)), (3, _vid(_VID_C))]
-        kept = _filter_to_reviewed(
-            to_process, "testlist", vault, vault_root=config.get_vault_root()
-        )
+        kept = _filter_to_reviewed(to_process, "testlist", vault, vault_root=tmp_path)
         assert [v.video_id for _, v in kept] == [_VID_A, _VID_C]
 
-    def test_videos_without_summary_are_skipped(self, vault):
+    def test_videos_without_summary_are_skipped(self, vault, tmp_path: Path):
         to_process = [(1, _vid("unknownXXXX"))]
-        kept = _filter_to_reviewed(
-            to_process, "testlist", vault, vault_root=config.get_vault_root()
-        )
+        kept = _filter_to_reviewed(to_process, "testlist", vault, vault_root=tmp_path)
         assert kept == []
 
     def test_case_insensitive_true(self, tmp_path: Path):
-        config.set_vault_root(tmp_path)
         dt = datetime(2026, 4, 18, 8, 0)
         folder = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-0800 testlist"
         _write_summary(folder / "a.md", _VID_A, "TRUE")
-        kept = _filter_to_reviewed(
-            [(1, _vid(_VID_A))], "testlist", dt, vault_root=config.get_vault_root()
-        )
+        kept = _filter_to_reviewed([(1, _vid(_VID_A))], "testlist", dt, vault_root=tmp_path)
         assert len(kept) == 1

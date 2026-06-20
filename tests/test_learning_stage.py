@@ -20,10 +20,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video():
@@ -104,7 +102,7 @@ def _setup_vault(vault: Path):
     """Create 01/02/03 placeholders and seed 02/03 with sample content."""
     video = _video()
     run_time = datetime(2026, 4, 14, 21, 41)
-    paths = create_placeholder_notes(video, run_time, vault_root=config.get_vault_root())
+    paths = create_placeholder_notes(video, run_time, vault_root=vault)
 
     paths["summary"].write_text(
         paths["summary"].read_text() + "\n" + SAMPLE_SUMMARY_BODY,
@@ -114,9 +112,9 @@ def _setup_vault(vault: Path):
         paths["capture"].read_text() + "\n" + SAMPLE_CAPTURE_BODY,
         encoding="utf-8",
     )
-    learning_path = compute_note_paths(
-        video, run_time, units=("learning",), vault_root=config.get_vault_root()
-    )["learning"]
+    learning_path = compute_note_paths(video, run_time, units=("learning",), vault_root=vault)[
+        "learning"
+    ]
     return video, run_time, paths, learning_path
 
 

@@ -11,15 +11,12 @@ from pipeline_youtube.checkpoint import (
     get_completed_video_ids,
     is_video_complete,
 )
-from pipeline_youtube.config import reset_vault_root, set_vault_root
 
 
 @pytest.fixture()
-def vault(tmp_path: Path):
+def vault(tmp_path: Path) -> Path:
     """Set up a vault with a 04_Learning_Material playlist folder."""
-    set_vault_root(tmp_path)
-    yield tmp_path
-    reset_vault_root()
+    return tmp_path
 
 
 def _create_04_md(

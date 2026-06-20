@@ -16,13 +16,11 @@ from pipeline_youtube import config
 from pipeline_youtube.path_safety import FALLBACK_PATH, ensure_safe_path, safe_rename
 
 
-@pytest.fixture(autouse=True)
-def _vault(tmp_path: Path):
-    """Fresh tmp vault_root per test."""
-    config.set_vault_root(tmp_path)
+@pytest.fixture
+def vault(tmp_path: Path) -> Path:
+    """Fresh tmp vault_root per test, injected explicitly into ensure_safe_path."""
     config.set_dry_run(False)
-    yield tmp_path
-    config.reset_vault_root()
+    return tmp_path
 
 
 # =====================================================
@@ -31,52 +29,32 @@ def _vault(tmp_path: Path):
 
 
 class TestPathTraversal:
-    def test_single_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("../etc/passwd", vault_root=config.get_vault_root()) == FALLBACK_PATH
-        )
+    def test_single_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("../etc/passwd", vault_root=vault) == FALLBACK_PATH
 
-    def test_multiple_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("../../etc/passwd", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_multiple_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("../../etc/passwd", vault_root=vault) == FALLBACK_PATH
 
-    def test_middle_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("foo/../../../etc/passwd", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_middle_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("foo/../../../etc/passwd", vault_root=vault) == FALLBACK_PATH
 
-    def test_absolute_slash_rejected(self):
-        assert ensure_safe_path("/etc/passwd", vault_root=config.get_vault_root()) == FALLBACK_PATH
+    def test_absolute_slash_rejected(self, vault: Path):
+        assert ensure_safe_path("/etc/passwd", vault_root=vault) == FALLBACK_PATH
 
-    def test_tilde_rejected(self):
-        assert ensure_safe_path("~/secret", vault_root=config.get_vault_root()) == FALLBACK_PATH
+    def test_tilde_rejected(self, vault: Path):
+        assert ensure_safe_path("~/secret", vault_root=vault) == FALLBACK_PATH
 
-    def test_windows_drive_letter_rejected(self):
-        assert (
-            ensure_safe_path("C:\\Windows\\System32", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_windows_drive_letter_rejected(self, vault: Path):
+        assert ensure_safe_path("C:\\Windows\\System32", vault_root=vault) == FALLBACK_PATH
 
-    def test_url_encoded_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("%2e%2e/etc/passwd", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_url_encoded_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("%2e%2e/etc/passwd", vault_root=vault) == FALLBACK_PATH
 
-    def test_url_encoded_slash_and_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("foo%2f..%2f..%2fetc%2fpasswd", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_url_encoded_slash_and_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("foo%2f..%2f..%2fetc%2fpasswd", vault_root=vault) == FALLBACK_PATH
 
-    def test_backslash_dotdot_rejected(self):
-        assert (
-            ensure_safe_path("Engineer\\..\\etc", vault_root=config.get_vault_root())
-            == FALLBACK_PATH
-        )
+    def test_backslash_dotdot_rejected(self, vault: Path):
+        assert ensure_safe_path("Engineer\\..\\etc", vault_root=vault) == FALLBACK_PATH
 
 
 # =====================================================
@@ -85,35 +63,27 @@ class TestPathTraversal:
 
 
 class TestNormalPaths:
-    def test_simple_path_preserved(self):
-        assert (
-            ensure_safe_path("Engineer/LLM", vault_root=config.get_vault_root())
-            == f"Engineer{os.sep}LLM"
-        )
+    def test_simple_path_preserved(self, vault: Path):
+        assert ensure_safe_path("Engineer/LLM", vault_root=vault) == f"Engineer{os.sep}LLM"
 
-    def test_japanese_path_preserved(self):
+    def test_japanese_path_preserved(self, vault: Path):
         assert (
-            ensure_safe_path("Engineer/AGENT経済圏", vault_root=config.get_vault_root())
+            ensure_safe_path("Engineer/AGENT経済圏", vault_root=vault)
             == f"Engineer{os.sep}AGENT経済圏"
         )
 
-    def test_excluded_special_value_passes_through(self):
+    def test_excluded_special_value_passes_through(self, vault: Path):
         # classifier uses '__EXCLUDED__' as a sentinel — must not be rewritten
-        assert (
-            ensure_safe_path("__EXCLUDED__", vault_root=config.get_vault_root()) == "__EXCLUDED__"
-        )
+        assert ensure_safe_path("__EXCLUDED__", vault_root=vault) == "__EXCLUDED__"
 
-    def test_dot_segment_filtered(self):
-        assert (
-            ensure_safe_path("Engineer/./LLM", vault_root=config.get_vault_root())
-            == f"Engineer{os.sep}LLM"
-        )
+    def test_dot_segment_filtered(self, vault: Path):
+        assert ensure_safe_path("Engineer/./LLM", vault_root=vault) == f"Engineer{os.sep}LLM"
 
-    def test_deep_nested_path_preserved(self):
+    def test_deep_nested_path_preserved(self, vault: Path):
         assert (
             ensure_safe_path(
                 "Permanent Note/08_YouTube学習/01_Scripts_Processing_Unit",
-                vault_root=config.get_vault_root(),
+                vault_root=vault,
             )
             == f"Permanent Note{os.sep}08_YouTube学習{os.sep}01_Scripts_Processing_Unit"
         )
@@ -125,33 +95,31 @@ class TestNormalPaths:
 
 
 class TestSanitization:
-    def test_empty_fallback(self):
-        assert ensure_safe_path("", vault_root=config.get_vault_root()) == FALLBACK_PATH
+    def test_empty_fallback(self, vault: Path):
+        assert ensure_safe_path("", vault_root=vault) == FALLBACK_PATH
 
-    def test_none_fallback(self):
-        assert ensure_safe_path(None, vault_root=config.get_vault_root()) == FALLBACK_PATH
+    def test_none_fallback(self, vault: Path):
+        assert ensure_safe_path(None, vault_root=vault) == FALLBACK_PATH
 
-    def test_non_string_fallback(self):
-        assert ensure_safe_path(123, vault_root=config.get_vault_root()) == FALLBACK_PATH  # type: ignore[arg-type]
+    def test_non_string_fallback(self, vault: Path):
+        assert ensure_safe_path(123, vault_root=vault) == FALLBACK_PATH  # type: ignore[arg-type]
 
-    def test_null_byte_removed(self):
-        result = ensure_safe_path("Engineer/\x00LLM", vault_root=config.get_vault_root())
+    def test_null_byte_removed(self, vault: Path):
+        result = ensure_safe_path("Engineer/\x00LLM", vault_root=vault)
         assert "\x00" not in result
         assert result == f"Engineer{os.sep}LLM"
 
-    def test_control_char_removed(self):
-        result = ensure_safe_path("Engineer/\rLLM", vault_root=config.get_vault_root())
+    def test_control_char_removed(self, vault: Path):
+        result = ensure_safe_path("Engineer/\rLLM", vault_root=vault)
         assert "\r" not in result
 
-    def test_extremely_long_path_rejected(self):
-        assert ensure_safe_path("a" * 600, vault_root=config.get_vault_root()) == FALLBACK_PATH
+    def test_extremely_long_path_rejected(self, vault: Path):
+        assert ensure_safe_path("a" * 600, vault_root=vault) == FALLBACK_PATH
 
-    def test_nfc_nfd_unified(self):
+    def test_nfc_nfd_unified(self, vault: Path):
         nfc = unicodedata.normalize("NFC", "テスト")
         nfd = unicodedata.normalize("NFD", "テスト")
-        assert ensure_safe_path(nfc, vault_root=config.get_vault_root()) == ensure_safe_path(
-            nfd, vault_root=config.get_vault_root()
-        )
+        assert ensure_safe_path(nfc, vault_root=vault) == ensure_safe_path(nfd, vault_root=vault)
 
 
 # =====================================================
@@ -199,11 +167,6 @@ class TestDryRun:
 
 
 class TestVaultBinding:
-    def test_vault_root_required(self):
-        config.reset_vault_root()
-        with pytest.raises(RuntimeError):
-            ensure_safe_path("Engineer/LLM", vault_root=config.get_vault_root())
-
     def test_symlink_escape_blocked(self, tmp_path: Path):
         # Create a symlink inside the vault pointing outside
         outside = tmp_path.parent / "outside_vault"
@@ -216,7 +179,7 @@ class TestVaultBinding:
 
         # Accessing 'escape/foo' should be caught at Phase 6 if the
         # resolved realpath leaves the vault
-        result = ensure_safe_path("escape", vault_root=config.get_vault_root())
+        result = ensure_safe_path("escape", vault_root=tmp_path)
         # The symlink itself exists and resolves outside → Phase 6 rejects
         assert result == FALLBACK_PATH
 

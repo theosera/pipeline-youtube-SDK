@@ -33,10 +33,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    cfg_mod.set_vault_root(tmp_path)
     cfg_mod.set_dry_run(True)
     yield tmp_path
-    cfg_mod.reset_vault_root()
 
 
 def _video(i: int) -> VideoMeta:
@@ -138,7 +136,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
-                vault_root=cfg_mod.get_vault_root(),
+                vault_root=vault,
             )
 
         assert result.error is None
@@ -169,7 +167,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
-                vault_root=cfg_mod.get_vault_root(),
+                vault_root=vault,
             )
 
         assert beta_count["n"] == 2  # 1 initial + 1 retry
@@ -197,7 +195,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
-                vault_root=cfg_mod.get_vault_root(),
+                vault_root=vault,
             )
 
         # initial + MAX retries
@@ -237,7 +235,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
-                vault_root=cfg_mod.get_vault_root(),
+                vault_root=vault,
             )
 
         # First β call: no missing IDs fed back
@@ -269,7 +267,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
-                vault_root=cfg_mod.get_vault_root(),
+                vault_root=vault,
             )
 
         # Loop stopped at the first retry failure — only 2 β calls

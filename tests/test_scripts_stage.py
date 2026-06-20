@@ -30,10 +30,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video():
@@ -71,9 +69,7 @@ class TestRunStageScripts:
     def test_end_to_end_writes_formatted_body(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
 
         # Ensure placeholder has frontmatter but no body
@@ -112,9 +108,7 @@ class TestRunStageScripts:
 
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
 
         monkeypatch.setattr(
@@ -155,9 +149,7 @@ class TestRunStageScripts:
     def test_dry_run_does_not_touch_file(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
         pre_content = scripts_path.read_text(encoding="utf-8")
 
@@ -177,9 +169,7 @@ class TestRunStageScripts:
     def test_empty_transcript_writes_nothing(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
         pre_content = scripts_path.read_text(encoding="utf-8")
 
@@ -199,7 +189,7 @@ class TestRunStageScripts:
 
     def test_missing_placeholder_raises(self, vault, monkeypatch):
         video = _video()
-        ghost_path = config.get_vault_root() / "does_not_exist.md"
+        ghost_path = vault / "does_not_exist.md"
 
         monkeypatch.setattr(
             scripts_stage,
@@ -218,12 +208,10 @@ class TestRunStageScripts:
 
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
 
-        injected = Cache(config.get_vault_root() / "cache", enabled=True)
+        injected = Cache(vault / "cache", enabled=True)
         seen: dict[str, object] = {}
 
         def _spy_fetch(video_id, languages, fetchers, *, cache=None):

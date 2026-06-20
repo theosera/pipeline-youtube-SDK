@@ -14,7 +14,7 @@ import click
 from .capture_runtime import resolve_capture_backend
 from .cli_config import DEFAULT_CONFIG_PATH, _load_config
 from .cli_types import CliRequest, Runtime
-from .config import VaultRootError, set_dry_run, set_vault_root
+from .config import VaultRootError, set_dry_run, validate_vault_root
 from .provider_runtime import configure_provider_models
 from .providers.registry import configure_llm_cache, configure_llm_concurrency
 from .sanitize import configure_alert_sink
@@ -26,17 +26,16 @@ def build_runtime(request: CliRequest) -> Runtime:
     """Load config and initialize providers / cache / whisper / capture / logger."""
     cfg_path = request.config_path or DEFAULT_CONFIG_PATH
     cfg = _load_config(cfg_path, fallback_model=request.model)
+    # Canonical (symlink-resolved) vault root with strict safety checks.
+    # Injected as runtime.vault_root so DI consumers validate (ensure_safe_path)
+    # and write (vault_root / safe_rel) against the identical resolved root,
+    # never the raw cfg path (Codex P2 on #63).
     try:
-        set_vault_root(cfg.vault_root, strict=True)
+        vault_root = validate_vault_root(cfg.vault_root, strict=True)
     except VaultRootError as exc:
         raise click.UsageError(str(exc)) from exc
     set_dry_run(request.dry_run)
     configure_whisper(backend=cfg.whisper_backend, model=cfg.whisper_model)
-    # Canonical (symlink-resolved) vault root — the same normalization
-    # set_vault_root() applies. Injected as runtime.vault_root so DI consumers
-    # validate (ensure_safe_path) and write (vault_root / safe_rel) against the
-    # identical resolved root, never the raw cfg path (Codex P2 on #63).
-    vault_root = cfg.vault_root.expanduser().resolve()
     filler_words = cfg.filler_words
 
     project_root = Path(__file__).resolve().parent.parent

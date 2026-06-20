@@ -181,12 +181,9 @@ def _stub_invoke_claude_factory():
 
 
 @pytest.fixture
-def vault(tmp_path: Path):
-    from pipeline_youtube import config
-
+def vault(tmp_path: Path) -> Path:
     (tmp_path / ".obsidian").mkdir()  # satisfy strict mode
-    yield tmp_path
-    config.reset_vault_root()
+    return tmp_path
 
 
 class TestE2EPlaylist:
