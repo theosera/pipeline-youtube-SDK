@@ -115,6 +115,7 @@ def test_eval_zero_is_noop(vault) -> None:
         playlist_title="P",
         max_loops=0,
         cache=_NO_CACHE,
+        vault_root=vault,
     )
     assert result.loop_result.skipped is True
     assert result.synthesis_result is synth
@@ -140,6 +141,7 @@ def test_advisory_writes_report_and_returns_synthesis_unchanged(vault, monkeypat
         glossary=glossary,
         folder_name_override="2026-06-15 Test",
         cache=_NO_CACHE,
+        vault_root=vault,
     )
 
     # synthesis is returned UNCHANGED (advisory only)
@@ -171,6 +173,7 @@ def test_dry_run_skips_artifact_writes(vault, monkeypatch) -> None:
         max_loops=1,
         dry_run=True,
         cache=_NO_CACHE,
+        vault_root=vault,
     )
     assert result.report_paths == []
     assert result.summary_path is None
@@ -187,6 +190,7 @@ def test_evaluator_failure_degrades_to_empty_report(vault, monkeypatch) -> None:
         max_loops=1,
         folder_name_override="2026-06-15 Test",
         cache=_NO_CACHE,
+        vault_root=vault,
     )
     # coverage crashed -> empty coverage report, stage still succeeds
     report = result.loop_result.iterations[0].report
@@ -207,5 +211,6 @@ def test_no_glossary_yields_empty_fidelity(vault, monkeypatch) -> None:
         glossary=None,
         folder_name_override="2026-06-15 Test",
         cache=_NO_CACHE,
+        vault_root=vault,
     )
     assert result.loop_result.iterations[0].report.fidelity.findings == []

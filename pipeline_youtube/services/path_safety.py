@@ -22,7 +22,7 @@ import unicodedata
 from pathlib import Path
 from urllib.parse import unquote
 
-from ..config import get_vault_root, is_dry_run
+from ..config import is_dry_run
 
 FALLBACK_PATH = "Clippings/Inbox"
 MAX_PATH_LENGTH = 500
@@ -32,23 +32,21 @@ _ABSOLUTE_PATH_RE = re.compile(r"^[/\\~]|^[A-Za-z]:")
 _PATH_SPLIT_RE = re.compile(r"[/\\]")
 
 
-def ensure_safe_path(proposed: str | None, *, vault_root: Path | None = None) -> str:
+def ensure_safe_path(proposed: str | None, *, vault_root: Path) -> str:
     """Validate and sanitize a vault-relative path; return FALLBACK_PATH on violation.
 
-    ``vault_root`` may be injected explicitly (DI); when omitted it falls back to
-    the process-global ``get_vault_root()`` for backward compatibility.
+    ``vault_root`` is injected by the caller (``runtime.vault_root``). It is
+    normalized (expanduser/resolve) so the prefix/realpath checks below compare
+    against a resolved absolute path.
     """
     if not proposed or not isinstance(proposed, str):
         return FALLBACK_PATH
 
-    if vault_root is None:
-        vault_root = get_vault_root()
-    else:
-        # An injected root may be the raw cfg.vault_root (relative / symlinked).
-        # Normalize it the way set_vault_root() does so the prefix/realpath checks
-        # below compare against a resolved absolute path — otherwise a valid path
-        # would wrongly collapse to FALLBACK_PATH.
-        vault_root = vault_root.expanduser().resolve()
+    # An injected root may be the raw cfg.vault_root (relative / symlinked).
+    # Normalize it the way set_vault_root() does so the prefix/realpath checks
+    # below compare against a resolved absolute path — otherwise a valid path
+    # would wrongly collapse to FALLBACK_PATH.
+    vault_root = vault_root.expanduser().resolve()
 
     # Phase 0: URL decode (catch %2e%2e encoded traversal)
     try:

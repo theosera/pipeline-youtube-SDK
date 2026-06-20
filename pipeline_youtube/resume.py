@@ -32,15 +32,19 @@ def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
         raise click.UsageError(f"invalid --run-timestamp: {run_timestamp!r}") from exc
 
 
-def _load_existing_04_body(video_id: str, playlist_title: str, run_date: datetime) -> str | None:
+def _load_existing_04_body(
+    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
+) -> str | None:
     """Read the stage 04 body for a checkpoint-skipped video.
 
     Returns the frontmatter-stripped body, or None if the file can't be found.
     Uses the same M3 hardened frontmatter validation as `is_video_complete`.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
     from .checkpoint import _find_learning_folder
 
-    folder = _find_learning_folder(playlist_title, run_date)
+    folder = _find_learning_folder(playlist_title, run_date, vault_root=vault_root)
     if folder is None:
         return None
     for md in folder.glob("*.md"):

@@ -69,44 +69,44 @@ _VID_C = "vid000XYZ_1"
 class TestIsVideoComplete:
     def test_no_folder_returns_false(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
-        assert is_video_complete(_VID_A, "AI駆動経営", dt) is False
+        assert is_video_complete(_VID_A, "AI駆動経営", dt, vault_root=vault) is False
 
     def test_existing_video_returns_true(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
         _create_04_md(vault, "2026-04-16-0914 AI駆動経営", _VID_A, "テスト動画")
-        assert is_video_complete(_VID_A, "AI駆動経営", dt) is True
+        assert is_video_complete(_VID_A, "AI駆動経営", dt, vault_root=vault) is True
 
     def test_different_video_id_returns_false(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
         _create_04_md(vault, "2026-04-16-0914 AI駆動経営", _VID_A)
-        assert is_video_complete(_VID_B, "AI駆動経営", dt) is False
+        assert is_video_complete(_VID_B, "AI駆動経営", dt, vault_root=vault) is False
 
     def test_legacy_folder_name_fallback(self, vault):
         """Should find videos in legacy folder (no HHmm, old title format)."""
         dt = datetime(2026, 4, 16, 9, 14)
         _create_04_md(vault, "2026-04-16 AI駆動経営", _VID_A)
-        assert is_video_complete(_VID_A, "AI駆動経営", dt) is True
+        assert is_video_complete(_VID_A, "AI駆動経営", dt, vault_root=vault) is True
 
     def test_slash_playlist_title(self, vault):
         """Playlist title with `/` — display title is last segment."""
         dt = datetime(2026, 4, 16, 9, 14)
         _create_04_md(vault, "2026-04-16-0914 AI駆動経営", _VID_A)
-        assert is_video_complete(_VID_A, "2026Agent Teams/AI駆動経営", dt) is True
+        assert is_video_complete(_VID_A, "2026Agent Teams/AI駆動経営", dt, vault_root=vault) is True
 
     def test_multiple_videos(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
         folder_name = "2026-04-16-0914 AI駆動経営"
         _create_04_md(vault, folder_name, _VID_A, "動画1")
         _create_04_md(vault, folder_name, _VID_B, "動画2")
-        assert is_video_complete(_VID_A, "AI駆動経営", dt) is True
-        assert is_video_complete(_VID_B, "AI駆動経営", dt) is True
-        assert is_video_complete(_VID_C, "AI駆動経営", dt) is False
+        assert is_video_complete(_VID_A, "AI駆動経営", dt, vault_root=vault) is True
+        assert is_video_complete(_VID_B, "AI駆動経営", dt, vault_root=vault) is True
+        assert is_video_complete(_VID_C, "AI駆動経営", dt, vault_root=vault) is False
 
 
 class TestGetCompletedVideoIds:
     def test_empty_folder(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
-        assert get_completed_video_ids("AI駆動経営", dt) == set()
+        assert get_completed_video_ids("AI駆動経営", dt, vault_root=vault) == set()
 
     def test_collects_all_ids(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
@@ -114,9 +114,9 @@ class TestGetCompletedVideoIds:
         _create_04_md(vault, folder_name, _VID_A, "動画1")
         _create_04_md(vault, folder_name, _VID_B, "動画2")
         _create_04_md(vault, folder_name, _VID_C, "動画3")
-        ids = get_completed_video_ids("AI駆動経営", dt)
+        ids = get_completed_video_ids("AI駆動経営", dt, vault_root=vault)
         assert ids == {_VID_A, _VID_B, _VID_C}
 
     def test_no_folder_returns_empty_set(self, vault):
         dt = datetime(2026, 4, 16, 9, 14)
-        assert get_completed_video_ids("nonexistent", dt) == set()
+        assert get_completed_video_ids("nonexistent", dt, vault_root=vault) == set()
