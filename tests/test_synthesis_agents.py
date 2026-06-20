@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -161,6 +162,21 @@ class TestCallAlpha:
         # Usage metadata propagated
         assert result.output_tokens == 500
         assert result.cache_creation_tokens == 24000
+
+    def test_injected_cache_is_forwarded(self, monkeypatch):
+        """DI: the cache passed to call_alpha reaches invoke_llm."""
+        from pipeline_youtube.services.cache import Cache
+
+        captured: dict = {}
+
+        def fake_invoke(**kw):
+            captured.update(kw)
+            return _fake_response(SAMPLE_ALPHA_OUTPUT)
+
+        monkeypatch.setattr(agents_mod, "invoke_claude", fake_invoke)
+        sentinel = Cache(Path("/tmp/alpha-cache-di"), enabled=False)
+        call_alpha([_video("vid1", "First")], ["body1"], cache=sentinel)
+        assert captured["cache"] is sentinel
 
     def test_parse_error_propagates(self, monkeypatch):
         monkeypatch.setattr(

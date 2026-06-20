@@ -62,4 +62,5 @@ def run_synthesis(
         synthesis_timeout=runtime.synthesis_timeout,
         profile=runtime.synthesis_profile,
         proper_noun_glossary=proper_noun_glossary,
+        cache=runtime.cache,
     )
