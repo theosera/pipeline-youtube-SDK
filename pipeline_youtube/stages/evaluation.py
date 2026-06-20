@@ -79,6 +79,7 @@ def run_stage_evaluation(
     folder_name_override: str | None = None,
     dry_run: bool = False,
     cache: Cache,
+    vault_root: Path,
 ) -> EvaluationStageResult:
     """Run ONE advisory evaluation pass after Stage 05 (no regeneration).
 
@@ -158,7 +159,7 @@ def run_stage_evaluation(
     summary_path: Path | None = None
     if not dry_run:
         folder = folder_name_override or format_playlist_folder_name(run_time, playlist_title)
-        eval_dir = resolve_eval_dir(folder)
+        eval_dir = resolve_eval_dir(folder, vault_root=vault_root)
         report_paths.append(write_evaluation_loop(iteration, eval_dir))
         summary_path = write_evaluation_summary(loop_result, eval_dir)
 

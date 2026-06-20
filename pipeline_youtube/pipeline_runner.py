@@ -239,7 +239,9 @@ def _process_all_videos(
         if video.video_id in completed_ids and video.video_id not in force_set:
             click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {video.title}")
             click.echo("  [skip] checkpoint: stage 04 already exists")
-            body = _load_existing_04_body(video.video_id, playlist_title, run_time)
+            body = _load_existing_04_body(
+                video.video_id, playlist_title, run_time, vault_root=runtime.vault_root
+            )
             results.append(VideoRunResult(video=video, learning_md_body=body))
         else:
             to_process.append((i, video))

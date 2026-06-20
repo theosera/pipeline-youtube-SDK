@@ -78,6 +78,9 @@ def write_chapter(
     return target
 
 
-def validate_chapter_relative_path(relative_path: str) -> str:
-    """Run a chapter output path through the 7-layer path-safety filter."""
-    return ensure_safe_path(relative_path)
+def validate_chapter_relative_path(relative_path: str, *, vault_root: Path) -> str:
+    """Run a chapter output path through the 7-layer path-safety filter.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    """
+    return ensure_safe_path(relative_path, vault_root=vault_root)

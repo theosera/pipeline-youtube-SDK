@@ -25,20 +25,21 @@ from .schemas import EvaluationIteration, EvaluationLoopResult, Finding
 _EVAL_SUBDIR = "evaluation"
 
 
-def resolve_eval_dir(folder_name: str) -> Path:
+def resolve_eval_dir(folder_name: str, *, vault_root: Path) -> Path:
     """Return ``05_Synthesis/{folder_name}/_meta/evaluation`` under the vault.
 
     Reuses ``synthesis.SYNTHESIS_BASE`` / ``META_SUBDIR`` and
-    ``config.get_vault_root`` + ``path_safety.ensure_safe_path`` exactly like
-    ``stages/synthesis.py`` so the path matches Stage 05's output folder.
-    The directory is NOT created here — that is the writers' responsibility.
+    ``path_safety.ensure_safe_path`` exactly like ``stages/synthesis.py`` so the
+    path matches Stage 05's output folder. The directory is NOT created here —
+    that is the writers' responsibility.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    from ..config import get_vault_root
     from ..path_safety import ensure_safe_path
     from ..stages.synthesis import META_SUBDIR, SYNTHESIS_BASE
 
-    safe_rel = ensure_safe_path(f"{SYNTHESIS_BASE}/{folder_name}")
-    return get_vault_root() / safe_rel / META_SUBDIR / _EVAL_SUBDIR
+    safe_rel = ensure_safe_path(f"{SYNTHESIS_BASE}/{folder_name}", vault_root=vault_root)
+    return vault_root / safe_rel / META_SUBDIR / _EVAL_SUBDIR
 
 
 def _finding_to_dict(f: Finding) -> dict[str, object]:

@@ -35,7 +35,6 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from ..config import get_vault_root
 from ..obsidian import format_playlist_folder_name, sanitize_title_for_filename
 from ..pipeline import LEARNING_BASE, LEGACY_LEARNING_DIR, UNIT_DIRS
 from .path_safety import ensure_safe_path
@@ -99,7 +98,7 @@ def read_trusted_video_id(md_path: Path) -> str | None:
 
 
 def _find_learning_folder(
-    playlist_title: str, run_date: datetime, *, vault_root: Path | None = None
+    playlist_title: str, run_date: datetime, *, vault_root: Path
 ) -> Path | None:
     """Locate the 04_Learning_Material playlist folder for a given date.
 
@@ -111,9 +110,9 @@ def _find_learning_folder(
     Historical `04_Lerning_Material` (typo) folders are also searched
     so existing vaults continue to work without renaming. See
     `pipeline.LEGACY_LEARNING_DIR`.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    if vault_root is None:
-        vault_root = get_vault_root()
     bases = [
         vault_root
         / ensure_safe_path(f"{LEARNING_BASE}/{UNIT_DIRS['learning']}", vault_root=vault_root),
@@ -155,7 +154,7 @@ def is_video_complete(
     playlist_title: str,
     run_date: datetime,
     *,
-    vault_root: Path | None = None,
+    vault_root: Path,
 ) -> bool:
     """Return True if a stage 04 md with matching video_id already exists.
 
@@ -173,7 +172,7 @@ def get_completed_video_ids(
     playlist_title: str,
     run_date: datetime,
     *,
-    vault_root: Path | None = None,
+    vault_root: Path,
 ) -> set[str]:
     """Return the set of video_ids that have completed stage 04.
 
