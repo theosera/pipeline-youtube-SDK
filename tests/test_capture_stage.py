@@ -12,6 +12,7 @@ import pytest
 from pipeline_youtube import config
 from pipeline_youtube.pipeline import create_placeholder_notes
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import capture as capture_stage
 from pipeline_youtube.stages.capture import (
     CaptureResult,
@@ -20,6 +21,10 @@ from pipeline_youtube.stages.capture import (
     parse_summary_ranges,
     run_stage_capture,
 )
+
+# These tests stub the capture backend and don't exercise persistent caching,
+# so they thread a disabled (no-op) cache.
+_NO_CACHE = Cache(None, enabled=False)
 
 # =====================================================
 # Pure-function tests (no filesystem / subprocess)
@@ -198,6 +203,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
 
         assert isinstance(result, CaptureResult)
@@ -255,6 +261,7 @@ class TestRunStageCapture:
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
             dry_run=True,
+            cache=_NO_CACHE,
         )
 
         assert result.video_downloaded is False
@@ -270,6 +277,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
         assert result.error == "summary_md_not_found"
         assert result.ranges == []
@@ -283,6 +291,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
         assert result.error == "no_ranges_parsed"
         assert result.ranges == []
@@ -299,6 +308,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
         assert result.error is not None
         assert "download_failed" in result.error
@@ -335,6 +345,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
 
         assert result.success_count == 3
@@ -379,6 +390,7 @@ class TestRunStageCapture:
             video,
             summary_md_path=paths["summary"],
             capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
         )
 
         assert len(recorded_paths) == 1

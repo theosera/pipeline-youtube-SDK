@@ -10,7 +10,12 @@ from unittest.mock import patch
 import pytest
 
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.capture import VideoPrefetch, prefetch_video_download
+
+# Capture-path tests below stub the backend and don't exercise persistent
+# caching, so they thread a disabled (no-op) cache.
+_NO_CACHE = Cache(None, enabled=False)
 
 
 def _video() -> VideoMeta:
@@ -111,6 +116,7 @@ class TestPrefetchedPathConsumed:
             summary_md,
             capture_md,
             prefetched_video_path=fake_video,
+            cache=_NO_CACHE,
         )
 
         assert called["download"] == 0
@@ -155,6 +161,7 @@ class TestPrefetchedPathConsumed:
             capture_md,
             prefetched_video_path=missing_video,
             allow_download=False,
+            cache=_NO_CACHE,
         )
 
         assert called["download"] == 0

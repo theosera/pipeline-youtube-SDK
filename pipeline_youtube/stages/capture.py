@@ -334,7 +334,7 @@ def run_stage_capture(
     backend: CaptureBackend | None = None,
     allow_download: bool = True,
     delete_video: bool = True,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> CaptureResult:
     """Download the video, extract animated frames, update the 03 md.
 
@@ -363,8 +363,8 @@ def run_stage_capture(
         offline contract and never mixing a downloaded video with
         locally-sourced transcripts.
     cache:
-        May be injected explicitly (DI); when omitted it falls back to the
-        process-global ``get_cache()`` for backward compatibility.
+        Injected by the caller: the persistent video cache (a disabled
+        ``Cache`` no-ops every lookup/store).
     """
     if not summary_md_path.exists():
         return CaptureResult(ranges=[], error="summary_md_not_found")
@@ -401,10 +401,6 @@ def run_stage_capture(
     assets_dir = vault_root / assets_rel
     assets_dir.mkdir(parents=True, exist_ok=True)
 
-    if cache is None:
-        from ..cache import get_cache
-
-        cache = get_cache()
     # `cleanup_path` is the working copy to delete in `finally`. A cache HIT
     # points extraction at the persistent copy, which must NOT be deleted.
     cleanup_path: Path | None = None
