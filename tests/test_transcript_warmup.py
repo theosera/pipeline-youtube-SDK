@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from pipeline_youtube.cache import configure_cache
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.services.cache import Cache
@@ -44,6 +46,15 @@ def _not_available(video_id: str, languages: list[str]):
 
 
 class TestWarmTranscriptCache:
+    @pytest.fixture(autouse=True)
+    def _no_live_innertube(self, monkeypatch):
+        # warm_transcript_cache defaults to use_innertube=True, so it would call
+        # the real fetch_innertube (live YouTube HTTP) ahead of the mocked
+        # official/auto tiers. With fake video IDs this makes network requests
+        # that 20s-timeout or flake on offline/restricted CI runners. Stub the
+        # InnerTube tier offline so the warm-up tests stay hermetic.
+        monkeypatch.setattr(scripts_mod, "fetch_innertube", _not_available)
+
     def test_noop_when_cache_disabled(self, monkeypatch):
         # Default cache is disabled; warming must do nothing (and not fetch).
         calls = {"n": 0}
