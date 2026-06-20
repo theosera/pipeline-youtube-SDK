@@ -37,7 +37,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ..config import get_vault_root
 from ..glossary import Glossary, normalize_text
 from ..obsidian import format_playlist_folder_name
 from ..path_safety import ensure_safe_path
@@ -242,6 +241,7 @@ def run_stage_synthesis(
     profile: str | None = None,
     proper_noun_glossary: Glossary | None = None,
     cache: Cache,
+    vault_root: Path,
 ) -> SynthesisStageResult:
     """Orchestrate α→β→Leader and write MOC + chapter md files.
 
@@ -279,6 +279,9 @@ def run_stage_synthesis(
     cache:
         Injected by the caller and forwarded to every agent LLM call
         (α/β/Leader/Reviewer); a disabled ``Cache`` no-ops the LLM-output cache.
+    vault_root:
+        Injected vault root (``runtime.vault_root``); the synthesis output
+        folder is resolved under it via ``ensure_safe_path``.
     """
     am = agent_models or {}
     alpha_model = am.get("alpha", model)
@@ -304,12 +307,11 @@ def run_stage_synthesis(
     except ValueError as e:
         return SynthesisStageResult(error=f"invalid profile: {e}")
 
-    vault_root = get_vault_root()
     playlist_folder_name = folder_name_override or format_playlist_folder_name(
         run_time, playlist_title
     )
     rel_path = f"{SYNTHESIS_BASE}/{playlist_folder_name}"
-    safe_rel = ensure_safe_path(rel_path)
+    safe_rel = ensure_safe_path(rel_path, vault_root=vault_root)
     playlist_dir = vault_root / safe_rel
 
     agent_results: list[AgentCallResult] = []

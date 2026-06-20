@@ -138,6 +138,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
+                vault_root=cfg_mod.get_vault_root(),
             )
 
         assert result.error is None
@@ -168,6 +169,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
+                vault_root=cfg_mod.get_vault_root(),
             )
 
         assert beta_count["n"] == 2  # 1 initial + 1 retry
@@ -195,6 +197,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
+                vault_root=cfg_mod.get_vault_root(),
             )
 
         # initial + MAX retries
@@ -234,6 +237,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
+                vault_root=cfg_mod.get_vault_root(),
             )
 
         # First β call: no missing IDs fed back
@@ -265,6 +269,7 @@ class TestReflexionLoop:
                 playlist_title="Test",
                 dry_run=True,
                 cache=_NO_CACHE,
+                vault_root=cfg_mod.get_vault_root(),
             )
 
         # Loop stopped at the first retry failure — only 2 β calls

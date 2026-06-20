@@ -156,6 +156,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="Small Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.skipped is True
         assert result.skip_reason is not None
@@ -172,6 +173,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.skipped is False
         assert result.error is None
@@ -186,6 +188,7 @@ class TestSkipRules:
             playlist_title="Test Playlist",
             min_playlist_size=5,
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.skipped is True
         assert result.skip_reason is not None
@@ -212,6 +215,7 @@ class TestSkipRules:
             playlist_title="Test Playlist",
             max_chapters=4,
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert "最大 4 章" in captured["prompt"]
 
@@ -222,6 +226,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is not None
         assert "length mismatch" in result.error
@@ -244,6 +249,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         assert result.error is None
@@ -267,6 +273,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         moc_content = result.moc_path.read_text(encoding="utf-8")
@@ -287,6 +294,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         # First chapter is core → has > [!important] callout
@@ -306,6 +314,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         assert result.meta_path is not None
@@ -330,6 +339,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         # 3 agent calls (alpha + beta + leader); γ was replaced by a Python set diff.
@@ -349,6 +359,7 @@ class TestHappyPath:
             playlist_title="Test Playlist",
             dry_run=True,
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         assert result.moc_path is None
@@ -371,6 +382,7 @@ class TestErrorHandling:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is not None
         assert "alpha_parse_failed" in result.error
@@ -384,6 +396,7 @@ class TestErrorHandling:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is not None
         assert "beta_parse_failed" in result.error
@@ -436,6 +449,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
 
         assert result.error is None
@@ -458,6 +472,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert len(result.agent_results) == 3
@@ -475,6 +490,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         # Pipeline completes; coverage still shows the miss so Leader can handle it.
         assert result.error is None
