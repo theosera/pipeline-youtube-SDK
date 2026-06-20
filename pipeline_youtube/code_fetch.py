@@ -294,24 +294,20 @@ def _fetch_gist(url: str) -> CodeSnippet | None:
     )
 
 
-def fetch_snippets_for_urls(urls: list[str], *, cache: Cache | None = None) -> list[CodeSnippet]:
+def fetch_snippets_for_urls(urls: list[str], *, cache: Cache) -> list[CodeSnippet]:
     """Fetch up to ``MAX_URLS_PER_VIDEO`` snippets, skipping unsupported URLs.
 
     Repo-level URLs (without /blob/) are skipped — fetching a repo's
     default README gets noisy fast and rarely matches what the video is
     actually demonstrating. Only blob and gist URLs return code.
 
-    ``cache`` may be injected explicitly (DI); when omitted it falls back to
-    the process-global ``get_cache()`` for backward compatibility.
+    ``cache`` is injected by the caller: the per-URL snippet cache (a disabled
+    ``Cache`` no-ops every lookup/store).
     """
     from dataclasses import asdict
 
     from .cache import url_key
 
-    if cache is None:
-        from .cache import get_cache
-
-        cache = get_cache()
     out: list[CodeSnippet] = []
     for url in urls:
         if len(out) >= MAX_URLS_PER_VIDEO:
