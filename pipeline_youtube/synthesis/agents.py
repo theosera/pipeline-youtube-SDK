@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..playlist import VideoMeta
 from ..providers.base import LLMResponse as ClaudeResponse
@@ -38,6 +39,9 @@ from .scoring import (
     parse_leader_output,
     parse_reviewer_output,
 )
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 _LOG = logging.getLogger(__name__)
 
@@ -367,6 +371,7 @@ def call_alpha(
     model: str = "sonnet",
     playlist_title: str | None = None,
     timeout: int = 1800,
+    cache: Cache | None = None,
 ) -> tuple[list[Topic], AgentCallResult]:
     """Run the TopicExtractor agent."""
     materials = format_learning_materials(videos, learning_md_bodies)
@@ -379,6 +384,7 @@ def call_alpha(
         model=model,
         timeout=timeout,
         role="alpha",
+        cache=cache,
     )
     topics = parse_alpha_topics(response.text)
     return topics, _wrap_result(response)
@@ -391,6 +397,7 @@ def call_beta(
     max_chapters: int | None = None,
     missing_topic_ids: list[str] | None = None,
     timeout: int = 600,
+    cache: Cache | None = None,
 ) -> tuple[list[ChapterPlan], AgentCallResult]:
     """Run the ChapterArchitect agent.
 
@@ -433,6 +440,7 @@ def call_beta(
         model=model,
         timeout=timeout,
         role="beta",
+        cache=cache,
     )
     chapters = parse_beta_chapters(response.text)
     return chapters, _wrap_result(response)
@@ -468,6 +476,7 @@ def call_leader(
     model: str = "sonnet",
     playlist_title: str | None = None,
     timeout: int = 1800,
+    cache: Cache | None = None,
 ) -> tuple[LeaderOutput, AgentCallResult]:
     """Run the Leader agent to produce the final MOC + chapter bodies."""
     materials = format_learning_materials(videos, learning_md_bodies)
@@ -492,6 +501,7 @@ def call_leader(
         model=model,
         timeout=timeout,
         role="leader",
+        cache=cache,
     )
     leader_output = parse_leader_output(response.text)
     return leader_output, _wrap_result(response)
@@ -535,6 +545,7 @@ def call_reviewer(
     *,
     model: str = "sonnet",
     timeout: int = 900,
+    cache: Cache | None = None,
 ) -> tuple[ReviewerFeedback, AgentCallResult]:
     """Run the optional Reviewer agent (profile = full / parallel+full).
 
@@ -559,6 +570,7 @@ def call_reviewer(
         model=model,
         timeout=timeout,
         role="reviewer",
+        cache=cache,
     )
     feedback = parse_reviewer_output(response.text)
     return feedback, _wrap_result(response)
@@ -575,6 +587,7 @@ def rerun_leader_with_feedback(
     model: str = "sonnet",
     playlist_title: str | None = None,
     timeout: int = 1800,
+    cache: Cache | None = None,
 ) -> tuple[LeaderOutput, AgentCallResult]:
     """Re-invoke Leader with reviewer feedback appended to the prompt.
 
@@ -607,6 +620,7 @@ def rerun_leader_with_feedback(
         model=model,
         timeout=timeout,
         role="leader",
+        cache=cache,
     )
     leader_output = parse_leader_output(response.text)
     return leader_output, _wrap_result(response)
@@ -758,6 +772,7 @@ def call_alpha_batched(
     playlist_title: str | None = None,
     timeout: int = 1800,
     max_workers: int = ALPHA_BATCH_MAX_WORKERS,
+    cache: Cache | None = None,
 ) -> tuple[list[Topic], list[AgentCallResult]]:
     """Split videos into batches and run α in parallel, then merge.
 
@@ -786,6 +801,7 @@ def call_alpha_batched(
             model=model,
             playlist_title=playlist_title,
             timeout=timeout,
+            cache=cache,
         )
 
     workers = min(max_workers, len(batches)) or 1

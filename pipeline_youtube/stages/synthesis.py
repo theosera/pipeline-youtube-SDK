@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..config import get_vault_root
 from ..glossary import Glossary, normalize_text
@@ -66,6 +67,9 @@ from ..synthesis.scoring import (
     SynthesisParseError,
     Topic,
 )
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 SYNTHESIS_BASE = "Permanent Note/08_YouTube学習/05_Synthesis"
 META_SUBDIR = "_meta"
@@ -237,6 +241,7 @@ def run_stage_synthesis(
     synthesis_timeout: int | None = None,
     profile: str | None = None,
     proper_noun_glossary: Glossary | None = None,
+    cache: Cache | None = None,
 ) -> SynthesisStageResult:
     """Orchestrate α→β→Leader and write MOC + chapter md files.
 
@@ -271,6 +276,10 @@ def run_stage_synthesis(
         per-playlist proper-noun sheet. When set, the final MOC + chapters
         are rewritten through it (variant → canonical) so the user's
         spelling fixes land in the Stage 05 output.
+    cache:
+        May be injected explicitly (DI); forwarded to every agent LLM call
+        (α/β/Leader/Reviewer). When omitted the calls fall back to the
+        process-global ``get_cache()`` for backward compatibility.
     """
     am = agent_models or {}
     alpha_model = am.get("alpha", model)
@@ -314,6 +323,7 @@ def run_stage_synthesis(
                 model=alpha_model,
                 playlist_title=playlist_title,
                 timeout=timeouts["alpha"],
+                cache=cache,
             )
             agent_results.extend(alpha_results)
         else:
@@ -323,6 +333,7 @@ def run_stage_synthesis(
                 model=alpha_model,
                 playlist_title=playlist_title,
                 timeout=timeouts["alpha"],
+                cache=cache,
             )
             agent_results.append(alpha_res)
     except SynthesisParseError as e:
@@ -334,7 +345,11 @@ def run_stage_synthesis(
 
     try:
         chapters, beta_res = call_beta(
-            topics, model=beta_model, max_chapters=max_chapters, timeout=timeouts["beta"]
+            topics,
+            model=beta_model,
+            max_chapters=max_chapters,
+            timeout=timeouts["beta"],
+            cache=cache,
         )
     except SynthesisParseError as e:
         return SynthesisStageResult(
@@ -364,6 +379,7 @@ def run_stage_synthesis(
                 max_chapters=max_chapters,
                 missing_topic_ids=coverage.missing_topic_ids,
                 timeout=timeouts["beta"],
+                cache=cache,
             )
         except SynthesisParseError:
             # Parse fail on retry: keep the last good chapters and let
@@ -382,6 +398,7 @@ def run_stage_synthesis(
             model=leader_model,
             playlist_title=playlist_title,
             timeout=timeouts["leader"],
+            cache=cache,
         )
     except SynthesisParseError as e:
         return SynthesisStageResult(
@@ -416,6 +433,7 @@ def run_stage_synthesis(
                 coverage,
                 model=reviewer_model,
                 timeout=timeouts["leader"],
+                cache=cache,
             )
             agent_results.append(reviewer_res)
             reviewer_status = "ok"
@@ -434,6 +452,7 @@ def run_stage_synthesis(
                     model=leader_model,
                     playlist_title=playlist_title,
                     timeout=timeouts["leader"],
+                    cache=cache,
                 )
                 agent_results.append(leader_retry_res)
             except Exception:
