@@ -78,7 +78,7 @@ def run_stage_evaluation(
     summary_bodies: dict[str, str] | None = None,
     folder_name_override: str | None = None,
     dry_run: bool = False,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> EvaluationStageResult:
     """Run ONE advisory evaluation pass after Stage 05 (no regeneration).
 
@@ -95,9 +95,8 @@ def run_stage_evaluation(
     Every evaluator is advisory: a failure degrades to an empty report for
     that perspective rather than aborting the stage.
 
-    ``cache`` may be injected explicitly (DI); forwarded to the coverage /
-    pedagogy evaluator LLM calls. When omitted they fall back to the
-    process-global ``get_cache()`` for backward compatibility.
+    ``cache`` is injected by the caller and forwarded to the coverage /
+    pedagogy evaluator LLM calls (a disabled ``Cache`` no-ops the cache).
     """
     if max_loops <= 0:
         return EvaluationStageResult(

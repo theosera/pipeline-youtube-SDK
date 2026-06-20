@@ -21,11 +21,14 @@ import pytest
 from pipeline_youtube import config as cfg_mod
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.synthesis import (
     MAX_BETA_REFLEXION_RETRIES,
     run_stage_synthesis,
 )
 from pipeline_youtube.synthesis import agents as agents_mod
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -134,6 +137,7 @@ class TestReflexionLoop:
                 run_time=datetime(2026, 4, 21),
                 playlist_title="Test",
                 dry_run=True,
+                cache=_NO_CACHE,
             )
 
         assert result.error is None
@@ -163,6 +167,7 @@ class TestReflexionLoop:
                 run_time=datetime(2026, 4, 21),
                 playlist_title="Test",
                 dry_run=True,
+                cache=_NO_CACHE,
             )
 
         assert beta_count["n"] == 2  # 1 initial + 1 retry
@@ -189,6 +194,7 @@ class TestReflexionLoop:
                 run_time=datetime(2026, 4, 21),
                 playlist_title="Test",
                 dry_run=True,
+                cache=_NO_CACHE,
             )
 
         # initial + MAX retries
@@ -227,6 +233,7 @@ class TestReflexionLoop:
                 run_time=datetime(2026, 4, 21),
                 playlist_title="Test",
                 dry_run=True,
+                cache=_NO_CACHE,
             )
 
         # First β call: no missing IDs fed back
@@ -257,6 +264,7 @@ class TestReflexionLoop:
                 run_time=datetime(2026, 4, 21),
                 playlist_title="Test",
                 dry_run=True,
+                cache=_NO_CACHE,
             )
 
         # Loop stopped at the first retry failure — only 2 β calls

@@ -75,7 +75,7 @@ def call_coverage_evaluator(
     playlist_title: str | None = None,
     summary_bodies: dict[str, str] | None = None,
     timeout: int = _DEFAULT_EVAL_TIMEOUT,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> tuple[EvaluatorReport, AgentCallResult]:
     """Coverage/Duplication evaluator (one advisory pass).
 
@@ -121,7 +121,7 @@ def call_pedagogy_evaluator(
     model: str = "sonnet",
     playlist_title: str | None = None,
     timeout: int = _DEFAULT_EVAL_TIMEOUT,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> tuple[EvaluatorReport, AgentCallResult]:
     """Pedagogical-quality evaluator (one advisory pass).
 
@@ -157,7 +157,7 @@ def call_pedagogy_evaluator(
 
 
 def _noop_call(
-    system_prompt: str, model: str, timeout: int, role: str, *, cache: Cache | None = None
+    system_prompt: str, model: str, timeout: int, role: str, *, cache: Cache
 ) -> AgentCallResult:
     """Synthetic call used when there is nothing to evaluate.
 

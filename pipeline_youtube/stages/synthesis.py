@@ -241,7 +241,7 @@ def run_stage_synthesis(
     synthesis_timeout: int | None = None,
     profile: str | None = None,
     proper_noun_glossary: Glossary | None = None,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> SynthesisStageResult:
     """Orchestrate α→β→Leader and write MOC + chapter md files.
 
@@ -277,9 +277,8 @@ def run_stage_synthesis(
         are rewritten through it (variant → canonical) so the user's
         spelling fixes land in the Stage 05 output.
     cache:
-        May be injected explicitly (DI); forwarded to every agent LLM call
-        (α/β/Leader/Reviewer). When omitted the calls fall back to the
-        process-global ``get_cache()`` for backward compatibility.
+        Injected by the caller and forwarded to every agent LLM call
+        (α/β/Leader/Reviewer); a disabled ``Cache`` no-ops the LLM-output cache.
     """
     am = agent_models or {}
     alpha_model = am.get("alpha", model)

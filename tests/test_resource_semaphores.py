@@ -13,7 +13,10 @@ from typing import Any
 
 from pipeline_youtube.providers import registry as reg
 from pipeline_youtube.providers.base import LLMResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import capture as cap
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 class _ConcurrencyProbe:
@@ -62,7 +65,7 @@ class TestLLMConcurrencyCap:
         self._patch_provider(monkeypatch, probe)
         reg.configure_llm_concurrency(2)
         try:
-            _run_threads(lambda: reg.invoke_llm("hi", provider_name="fake"), 6)
+            _run_threads(lambda: reg.invoke_llm("hi", provider_name="fake", cache=_NO_CACHE), 6)
         finally:
             reg.configure_llm_concurrency(None)
         assert probe.peak <= 2
@@ -71,7 +74,7 @@ class TestLLMConcurrencyCap:
         probe = _ConcurrencyProbe()
         self._patch_provider(monkeypatch, probe)
         reg.configure_llm_concurrency(None)
-        _run_threads(lambda: reg.invoke_llm("hi", provider_name="fake"), 5)
+        _run_threads(lambda: reg.invoke_llm("hi", provider_name="fake", cache=_NO_CACHE), 5)
         # Without a cap, several calls overlap.
         assert probe.peak >= 2
 
