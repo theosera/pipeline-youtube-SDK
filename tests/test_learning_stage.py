@@ -104,7 +104,7 @@ def _setup_vault(vault: Path):
     """Create 01/02/03 placeholders and seed 02/03 with sample content."""
     video = _video()
     run_time = datetime(2026, 4, 14, 21, 41)
-    paths = create_placeholder_notes(video, run_time)
+    paths = create_placeholder_notes(video, run_time, vault_root=config.get_vault_root())
 
     paths["summary"].write_text(
         paths["summary"].read_text() + "\n" + SAMPLE_SUMMARY_BODY,
@@ -114,7 +114,9 @@ def _setup_vault(vault: Path):
         paths["capture"].read_text() + "\n" + SAMPLE_CAPTURE_BODY,
         encoding="utf-8",
     )
-    learning_path = compute_note_paths(video, run_time, units=("learning",))["learning"]
+    learning_path = compute_note_paths(
+        video, run_time, units=("learning",), vault_root=config.get_vault_root()
+    )["learning"]
     return video, run_time, paths, learning_path
 
 

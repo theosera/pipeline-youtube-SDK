@@ -55,7 +55,7 @@ class TestDefaultPlaceholders:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = create_placeholder_notes(video, run_time)
+        paths = create_placeholder_notes(video, run_time, vault_root=config.get_vault_root())
 
         # Only 3 units in the returned dict
         assert set(paths.keys()) == {"scripts", "summary", "capture"}
@@ -81,6 +81,7 @@ class TestDefaultPlaceholders:
             video,
             run_time,
             units=("scripts", "summary", "capture", "learning"),
+            vault_root=config.get_vault_root(),
         )
 
         assert set(paths.keys()) == {"scripts", "summary", "capture", "learning"}
@@ -90,7 +91,12 @@ class TestDefaultPlaceholders:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
         with pytest.raises(ValueError, match="unknown unit key"):
-            create_placeholder_notes(video, run_time, units=("bogus",))  # type: ignore[arg-type]
+            create_placeholder_notes(
+                video,
+                run_time,
+                units=("bogus",),  # type: ignore[arg-type]
+                vault_root=config.get_vault_root(),
+            )
 
 
 class TestComputeNotePaths:
@@ -98,7 +104,7 @@ class TestComputeNotePaths:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = compute_note_paths(video, run_time)
+        paths = compute_note_paths(video, run_time, vault_root=config.get_vault_root())
 
         assert set(paths.keys()) == {"scripts", "summary", "capture", "learning"}
         # None of them should be written
@@ -109,7 +115,9 @@ class TestComputeNotePaths:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = compute_note_paths(video, run_time, units=("learning",))
+        paths = compute_note_paths(
+            video, run_time, units=("learning",), vault_root=config.get_vault_root()
+        )
 
         assert set(paths.keys()) == {"learning"}
         assert "04_Learning_Material" in str(paths["learning"])
@@ -121,12 +129,16 @@ class TestComputeNotePaths:
         run_time = datetime(2026, 4, 15, 21, 23)
 
         # Pre-create a colliding file
-        first_paths = compute_note_paths(video, run_time, units=("learning",))
+        first_paths = compute_note_paths(
+            video, run_time, units=("learning",), vault_root=config.get_vault_root()
+        )
         first_paths["learning"].parent.mkdir(parents=True, exist_ok=True)
         first_paths["learning"].write_text("existing", encoding="utf-8")
 
         # Compute again — should yield -2 suffix
-        second_paths = compute_note_paths(video, run_time, units=("learning",))
+        second_paths = compute_note_paths(
+            video, run_time, units=("learning",), vault_root=config.get_vault_root()
+        )
         assert second_paths["learning"] != first_paths["learning"]
         assert "-2.md" in str(second_paths["learning"])
 

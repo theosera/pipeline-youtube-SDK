@@ -108,8 +108,7 @@ class TestPrefetchedPathConsumed:
             "_resolve_capture_format",
             lambda _req, _backend: cap_mod._FormatChoice(ext="webp", strategy="direct"),
         )
-        monkeypatch.setattr(cap_mod, "get_vault_root", lambda: tmp_path)
-        monkeypatch.setattr(cap_mod, "ensure_safe_path", lambda p: p)
+        monkeypatch.setattr(cap_mod, "ensure_safe_path", lambda p, **kw: p)
 
         result = cap_mod.run_stage_capture(
             _video(),
@@ -117,6 +116,7 @@ class TestPrefetchedPathConsumed:
             capture_md,
             prefetched_video_path=fake_video,
             cache=_NO_CACHE,
+            vault_root=tmp_path,
         )
 
         assert called["download"] == 0
@@ -152,8 +152,7 @@ class TestPrefetchedPathConsumed:
             "_resolve_capture_format",
             lambda _req, _backend: cap_mod._FormatChoice(ext="webp", strategy="direct"),
         )
-        monkeypatch.setattr(cap_mod, "get_vault_root", lambda: tmp_path)
-        monkeypatch.setattr(cap_mod, "ensure_safe_path", lambda p: p)
+        monkeypatch.setattr(cap_mod, "ensure_safe_path", lambda p, **kw: p)
 
         result = cap_mod.run_stage_capture(
             _video(),
@@ -162,6 +161,7 @@ class TestPrefetchedPathConsumed:
             prefetched_video_path=missing_video,
             allow_download=False,
             cache=_NO_CACHE,
+            vault_root=tmp_path,
         )
 
         assert called["download"] == 0
@@ -193,7 +193,7 @@ class TestPrefetchSkippedOnCacheHit:
 
         # Stub _process_video collaborators so only the prefetch decision matters.
         paths = {k: tmp_path / f"{k}.md" for k in ("scripts", "summary", "capture", "learning")}
-        monkeypatch.setattr(main_mod, "compute_note_paths", lambda video, run_time: paths)
+        monkeypatch.setattr(main_mod, "compute_note_paths", lambda video, run_time, **kw: paths)
         monkeypatch.setattr(main_mod, "create_placeholder_notes", lambda *a, **kw: None)
         monkeypatch.setattr(
             main_mod,
@@ -248,6 +248,7 @@ class TestPrefetchSkippedOnCacheHit:
             models={"stage_02": "sonnet", "stage_04": "sonnet"},
             stop_after_capture=True,  # short-circuit before Stage 04
             cache=_FakeCache(),  # only get_video is exercised (stages are stubbed)
+            vault_root=tmp_path,
         )
         return prefetch_calls["n"]
 

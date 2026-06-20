@@ -141,7 +141,9 @@ def _prepare_proper_noun_sheet(
 
     if not plan.allow_proper_noun_sheet:
         return None, None
-    proper_noun_sheet_path = _proper_noun_sheet_path(videos[0], run_time)
+    proper_noun_sheet_path = _proper_noun_sheet_path(
+        videos[0], run_time, vault_root=runtime.vault_root
+    )
     start_sheet = load_sheet(proper_noun_sheet_path)
     known_terms = known_pairs(start_sheet) or None
     if runtime.cfg.glossary_path is not None:
@@ -287,6 +289,7 @@ def _process_all_videos(
                 known_terms=known_terms,
                 use_innertube=cfg.use_innertube,
                 cache=runtime.cache,
+                vault_root=runtime.vault_root,
             )
         )
         results.extend(concurrent_results)
@@ -309,6 +312,7 @@ def _process_all_videos(
                 known_terms=known_terms,
                 use_innertube=cfg.use_innertube,
                 cache=runtime.cache,
+                vault_root=runtime.vault_root,
             )
             results.append(result)
 
