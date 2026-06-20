@@ -8,6 +8,13 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/jst-timestamp.sh" }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Bash|mcp__github__.*",
