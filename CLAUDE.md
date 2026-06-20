@@ -8,6 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 > 詳細な作業規約は `.claude/skills/` に分離し、発火条件付きでオンデマンドにロードする
 > (トークン削減)。
 
+<!-- グローバル層を web/local 双方で確実にロードするため明示 import する。
+     web セッションは ~/.claude/ を読まないので、リポ同梱の本ファイル経由で読み込む。 -->
+@CLAUDE.global.md
+
 ## スキル発火表 (★着手前に必ずロード)
 
 タスクが発火条件に一致したら、**着手前に必ず対応スキルをロード**する (裁量で省略しない)。
