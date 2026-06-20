@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from pipeline_youtube.cache import configure_cache, get_cache
+from pipeline_youtube.cache import configure_cache
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import scripts as scripts_mod
 from pipeline_youtube.transcript.base import (
     TranscriptNotAvailable,
@@ -54,34 +55,33 @@ class TestWarmTranscriptCache:
         monkeypatch.setattr(scripts_mod, "fetch_official", counting)
         monkeypatch.setattr(scripts_mod, "fetch_auto", _not_available)
 
-        warmed = scripts_mod.warm_transcript_cache(_videos(3))
+        warmed = scripts_mod.warm_transcript_cache(_videos(3), cache=Cache(None, enabled=False))
         assert warmed == 0
         assert calls["n"] == 0
 
     def test_warms_and_populates_cache(self, tmp_path, monkeypatch):
-        configure_cache(tmp_path, enabled=True)
+        cache = configure_cache(tmp_path, enabled=True)
         monkeypatch.setattr(scripts_mod, "fetch_official", _official_ok)
         monkeypatch.setattr(scripts_mod, "fetch_auto", _not_available)
 
         videos = _videos(5)
-        warmed = scripts_mod.warm_transcript_cache(videos, concurrency=4)
+        warmed = scripts_mod.warm_transcript_cache(videos, concurrency=4, cache=cache)
 
         assert warmed == 5
         # Every video's official tier is now cached.
-        cache = get_cache()
         for v in videos:
             assert cache.get_transcript(v.video_id, "official", "ja") is not None
 
     def test_videos_without_captions_are_not_counted(self, tmp_path, monkeypatch):
-        configure_cache(tmp_path, enabled=True)
+        cache = configure_cache(tmp_path, enabled=True)
         monkeypatch.setattr(scripts_mod, "fetch_official", _not_available)
         monkeypatch.setattr(scripts_mod, "fetch_auto", _not_available)
 
-        warmed = scripts_mod.warm_transcript_cache(_videos(3))
+        warmed = scripts_mod.warm_transcript_cache(_videos(3), cache=cache)
         assert warmed == 0
 
     def test_per_video_errors_are_swallowed(self, tmp_path, monkeypatch):
-        configure_cache(tmp_path, enabled=True)
+        cache = configure_cache(tmp_path, enabled=True)
 
         def boom(video_id, languages):
             raise RuntimeError("network down")
@@ -90,8 +90,8 @@ class TestWarmTranscriptCache:
         monkeypatch.setattr(scripts_mod, "fetch_auto", boom)
 
         # Must not raise even though every fetch errors hard.
-        warmed = scripts_mod.warm_transcript_cache(_videos(2))
+        warmed = scripts_mod.warm_transcript_cache(_videos(2), cache=cache)
         assert warmed == 0
 
     def test_empty_list_returns_zero(self):
-        assert scripts_mod.warm_transcript_cache([]) == 0
+        assert scripts_mod.warm_transcript_cache([], cache=Cache(None, enabled=False)) == 0

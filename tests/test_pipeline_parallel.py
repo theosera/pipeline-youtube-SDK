@@ -173,7 +173,6 @@ class TestPrefetchSkippedOnCacheHit:
     def _drive_process_video(self, tmp_path: Path, monkeypatch, *, cached: bool) -> int:
         from datetime import datetime
 
-        import pipeline_youtube.cache as cache_mod
         from pipeline_youtube import video_processing as main_mod
         from pipeline_youtube.providers.base import LLMResponse
         from pipeline_youtube.stages.capture import CaptureResult, SummaryRange
@@ -234,8 +233,6 @@ class TestPrefetchSkippedOnCacheHit:
             def get_video(self, video_id: str, fmt: str):
                 return (tmp_path / "cached.mp4") if cached else None
 
-        monkeypatch.setattr(cache_mod, "get_cache", lambda: _FakeCache())
-
         main_mod._process_video(
             _video(),
             datetime(2026, 1, 1),
@@ -243,6 +240,7 @@ class TestPrefetchSkippedOnCacheHit:
             capture_format="auto",
             models={"stage_02": "sonnet", "stage_04": "sonnet"},
             stop_after_capture=True,  # short-circuit before Stage 04
+            cache=_FakeCache(),  # only get_video is exercised (stages are stubbed)
         )
         return prefetch_calls["n"]
 

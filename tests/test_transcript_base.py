@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.transcript.base import (
     TranscriptNotAvailable,
     TranscriptResult,
@@ -10,6 +11,10 @@ from pipeline_youtube.transcript.base import (
     build_result,
     fetch_with_fallback,
 )
+
+# Caching is exercised separately in TestInjectedCache; the fallback-chain tests
+# below only care about tier ordering, so they pass a disabled (no-op) cache.
+_NO_CACHE = Cache(None, enabled=False)
 
 
 def _stub_success(source: TranscriptSource):
@@ -40,6 +45,7 @@ class TestFetchWithFallback:
                 ("official", _stub_success(TranscriptSource.OFFICIAL)),
                 ("auto", _stub_success(TranscriptSource.AUTO)),
             ],
+            cache=_NO_CACHE,
         )
         assert result.source == TranscriptSource.OFFICIAL
         assert result.fallback_reason is None
@@ -53,6 +59,7 @@ class TestFetchWithFallback:
                 ("official", _stub_failure("no_manual_transcript_in_languages")),
                 ("auto", _stub_success(TranscriptSource.AUTO)),
             ],
+            cache=_NO_CACHE,
         )
         assert result.source == TranscriptSource.AUTO
         assert result.fallback_reason == "official:no_manual_transcript_in_languages"
@@ -66,6 +73,7 @@ class TestFetchWithFallback:
                 ("auto", _stub_failure("disabled")),
                 ("whisper", _stub_success(TranscriptSource.WHISPER)),
             ],
+            cache=_NO_CACHE,
         )
         assert result.source == TranscriptSource.WHISPER
         assert "official:disabled" in (result.fallback_reason or "")
@@ -80,6 +88,7 @@ class TestFetchWithFallback:
                 ("auto", _stub_failure("err2")),
                 ("whisper", _stub_failure("err3")),
             ],
+            cache=_NO_CACHE,
         )
         assert result.source == TranscriptSource.ERROR
         assert result.error == "all transcript tiers failed"
@@ -97,6 +106,7 @@ class TestFetchWithFallback:
                 ("whisper", None),  # whisper extra not installed
                 ("auto", _stub_success(TranscriptSource.AUTO)),
             ],
+            cache=_NO_CACHE,
         )
         assert result.source == TranscriptSource.AUTO
         assert "whisper:disabled" in (result.fallback_reason or "")
@@ -108,6 +118,7 @@ class TestFetchWithFallback:
             [
                 ("official", _stub_success(TranscriptSource.OFFICIAL)),
             ],
+            cache=_NO_CACHE,
         )
         assert result.fallback_reason is None
 
