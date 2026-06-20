@@ -17,6 +17,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 | このリポの Python を書く / 直す / レビューする | `py-coding-conventions` |
 | コマンド学習ログ機能の hook 設定 (`.claude/settings.json`) を書く・直す / マスキング規則・ログ出力先を変える / `capture-command.sh`・`push-log.sh` を触る | `ops-logging` |
 
+## PR 分割規律 (★PR 作成前に必ず適用)
+
+PR を作成する前に、変更内容を**性質別に分類**する。レビュー容易性のため
+**性質が異なるものは束ねない**:
+
+- **異なる実行経路 / 異なるレビュー観点は別 PR** にする。
+- **live 実注入 (runtime wiring) と seam-only (準備) は別 PR** にする。
+- **依存更新とアプリロジックを混在させない**。
+- 束ね PR を作る場合は **Draft かつ umbrella と明記し、直接 merge の対象にしない**
+  (個別の分割 PR を merge 対象とする)。
+
+> 1 PR = 1 レビュー観点。チェックリストは `.github/pull_request_template.md` の
+> Change Type / PR Scope Check を使う。
+
 ## Architecture invariant: main.py is a thin orchestrator (★ハードルール / 常時適用)
 
 `main.py` は合成ルート (composition root)。残してよいのは
