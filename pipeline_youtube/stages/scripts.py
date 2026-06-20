@@ -22,8 +22,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from youtube_transcript_api import YouTubeTranscriptApi
 
 from ..code_fetch import (
     extract_github_urls,
@@ -100,13 +103,18 @@ def warm_transcript_cache(
     )
 
     def _warm_one(video: VideoMeta) -> bool:
+        # One YouTubeTranscriptApi (its own requests.Session) per worker task:
+        # _warm_one runs under asyncio.to_thread at high fan-out, so a shared
+        # instance would mean concurrent threads racing one mutable HTTP
+        # session. official + auto within this task share it.
+        api = YouTubeTranscriptApi()
         result = fetch_with_fallback(
             video.video_id,
             langs,
             fetchers=[
                 innertube_tier,
-                ("official", fetch_official),
-                ("auto", fetch_auto),
+                ("official", partial(fetch_official, api=api)),
+                ("auto", partial(fetch_auto, api=api)),
             ],
             cache=cache,
         )
@@ -217,13 +225,16 @@ def run_stage_scripts(
             "innertube",
             fetch_innertube if use_innertube else None,
         )
+        # One YouTubeTranscriptApi per Stage-01 call, shared by the official +
+        # auto tiers below (single-threaded within a video).
+        api = YouTubeTranscriptApi()
         result = fetch_with_fallback(
             video.video_id,
             langs,
             fetchers=[
                 innertube_tier,
-                ("official", fetch_official),
-                ("auto", fetch_auto),
+                ("official", partial(fetch_official, api=api)),
+                ("auto", partial(fetch_auto, api=api)),
                 (whisper_tier, whisper_fetcher),
             ],
             cache=cache,

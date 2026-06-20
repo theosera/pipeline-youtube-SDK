@@ -22,10 +22,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video(i: int) -> VideoMeta:
@@ -156,7 +154,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="Small Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.skipped is True
         assert result.skip_reason is not None
@@ -173,7 +171,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.skipped is False
         assert result.error is None
@@ -188,7 +186,7 @@ class TestSkipRules:
             playlist_title="Test Playlist",
             min_playlist_size=5,
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.skipped is True
         assert result.skip_reason is not None
@@ -215,7 +213,7 @@ class TestSkipRules:
             playlist_title="Test Playlist",
             max_chapters=4,
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert "最大 4 章" in captured["prompt"]
 
@@ -226,7 +224,7 @@ class TestSkipRules:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.error is not None
         assert "length mismatch" in result.error
@@ -249,7 +247,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         assert result.error is None
@@ -273,7 +271,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         moc_content = result.moc_path.read_text(encoding="utf-8")
@@ -294,7 +292,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         # First chapter is core → has > [!important] callout
@@ -314,7 +312,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         assert result.meta_path is not None
@@ -339,7 +337,7 @@ class TestHappyPath:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         # 3 agent calls (alpha + beta + leader); γ was replaced by a Python set diff.
@@ -359,7 +357,7 @@ class TestHappyPath:
             playlist_title="Test Playlist",
             dry_run=True,
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         assert result.moc_path is None
@@ -382,7 +380,7 @@ class TestErrorHandling:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.error is not None
         assert "alpha_parse_failed" in result.error
@@ -396,7 +394,7 @@ class TestErrorHandling:
             run_time=datetime(2026, 4, 15),
             playlist_title="x",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.error is not None
         assert "beta_parse_failed" in result.error
@@ -449,7 +447,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         assert result.error is None
@@ -472,7 +470,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         assert result.error is None
         assert len(result.agent_results) == 3
@@ -490,7 +488,7 @@ class TestReflexionLoop:
             run_time=datetime(2026, 4, 15),
             playlist_title="Test Playlist",
             cache=_NO_CACHE,
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
         # Pipeline completes; coverage still shows the miss so Leader can handle it.
         assert result.error is None

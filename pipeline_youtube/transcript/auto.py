@@ -7,6 +7,7 @@ YouTube's ASR output. Only reached when `official.py` raised
 
 from __future__ import annotations
 
+from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     CouldNotRetrieveTranscript,
     IpBlocked,
@@ -22,19 +23,22 @@ from .base import (
     TranscriptSource,
     build_result,
 )
-from .official import _get_api
 
 
-def fetch_auto(video_id: str, languages: list[str]) -> TranscriptResult:
+def fetch_auto(
+    video_id: str, languages: list[str], *, api: YouTubeTranscriptApi
+) -> TranscriptResult:
     """Fetch auto-generated captions for a video.
 
     Raises `TranscriptNotAvailable` when no auto-generated captions
     exist in any of the requested languages.
+
+    ``api`` is injected by the caller (see ``fetch_official`` for the
+    per-worker session rationale).
     """
     if not video_id:
         raise TranscriptNotAvailable("empty video_id")
 
-    api = _get_api()
     try:
         transcript_list = api.list(video_id)
         transcript = transcript_list.find_generated_transcript(languages)

@@ -24,10 +24,8 @@ _NO_CACHE = Cache(None, enabled=False)
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video():
@@ -91,9 +89,7 @@ class TestRunStageSummary:
     def test_end_to_end_appends_body(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         summary_path = paths["summary"]
 
         transcript = _transcript(
@@ -126,9 +122,7 @@ class TestRunStageSummary:
     def test_empty_transcript_writes_placeholder(self, vault):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         summary_path = paths["summary"]
         transcript = _transcript([])
 
@@ -143,9 +137,7 @@ class TestRunStageSummary:
     def test_dry_run_does_not_write_file(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         summary_path = paths["summary"]
         pre = summary_path.read_text(encoding="utf-8")
 
@@ -164,7 +156,7 @@ class TestRunStageSummary:
 
     def test_missing_placeholder_raises(self, vault, monkeypatch):
         video = _video()
-        ghost = config.get_vault_root() / "ghost.md"
+        ghost = vault / "ghost.md"
         transcript = _transcript([TranscriptSnippet("hi", 0.0, 5.0)])
         monkeypatch.setattr(
             summary_stage,
@@ -201,9 +193,7 @@ class TestRepairRetry:
     def test_repair_recovers_and_aggregates_cost(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke([_BAD_OUTPUT, SAMPLE_SUMMARY_OUTPUT])
@@ -228,9 +218,7 @@ class TestRepairRetry:
     def test_degraded_fallback_after_exhausting_retries(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke([_BAD_OUTPUT])
@@ -253,9 +241,7 @@ class TestRepairRetry:
     def test_empty_output_triggers_repair(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke(["", SAMPLE_SUMMARY_OUTPUT])
@@ -272,9 +258,7 @@ class TestPromptBuilding:
     def test_prompt_wraps_in_untrusted_content(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript([TranscriptSnippet("本文テキスト", 0.0, 30.0)])
 
         captured: dict = {}
@@ -298,9 +282,7 @@ class TestPromptBuilding:
     def test_prompt_uses_chunk_timestamps(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         # Three snippets spread across ~90s so chunking produces 3 chunks at 30s window
         transcript = _transcript(
             [
@@ -331,9 +313,7 @@ class TestPromptBuilding:
     def test_system_prompt_is_append_mode(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript([TranscriptSnippet("hi", 0.0, 5.0)])
         captured: dict = {}
         monkeypatch.setattr(
@@ -359,9 +339,7 @@ class TestPromptBuilding:
     def test_sanitizes_control_chars_in_transcript(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         # Transcript contains zero-width and control chars
         evil_text = "normal\u200btext\x01with\x08nasties"
         transcript = _transcript([TranscriptSnippet(evil_text, 0.0, 30.0)])
@@ -402,9 +380,7 @@ class TestGlossaryNormalization:
     def _run(self, vault, monkeypatch, glossary):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(
-            video, run_time, dry_run=False, vault_root=config.get_vault_root()
-        )
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         transcript = _transcript(
             [
                 TranscriptSnippet(

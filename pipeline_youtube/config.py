@@ -12,18 +12,17 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import Any
 
 from .domain.errors import VaultRootError as VaultRootError
 
-_vault_root: Path | None = None
 _dry_run: bool = False
-_providers_config: dict[str, Any] = {}
-_models_config: dict[str, dict[str, str]] = {}
 
 
-def set_vault_root(path: str | Path, *, strict: bool = False) -> None:
-    """Set the vault root after symlink resolution + safety checks.
+def validate_vault_root(path: str | Path, *, strict: bool = False) -> Path:
+    """Resolve + safety-check a vault root and return the resolved ``Path``.
+
+    Pure validation: no module-global state is mutated. The resolved path is
+    returned for the caller to inject (e.g. ``runtime.vault_root``).
 
     `strict=True` (production path — `main.cli()`):
       - Rejects the user's home directory itself (too broad).
@@ -34,7 +33,6 @@ def set_vault_root(path: str | Path, *, strict: bool = False) -> None:
     `resolve` so symlinks/realpath are still normalized. This preserves
     the legacy behavior for callers that assign a fresh `tmp_path`.
     """
-    global _vault_root
     resolved = Path(path).expanduser().resolve()
 
     if strict:
@@ -49,18 +47,7 @@ def set_vault_root(path: str | Path, *, strict: bool = False) -> None:
                 stacklevel=2,
             )
 
-    _vault_root = resolved
-
-
-def get_vault_root() -> Path:
-    if _vault_root is None:
-        raise RuntimeError("vault_root is not set. Call set_vault_root() before using path_safety.")
-    return _vault_root
-
-
-def reset_vault_root() -> None:
-    global _vault_root
-    _vault_root = None
+    return resolved
 
 
 def set_dry_run(flag: bool) -> None:
@@ -70,28 +57,3 @@ def set_dry_run(flag: bool) -> None:
 
 def is_dry_run() -> bool:
     return _dry_run
-
-
-# =====================================================
-# Provider configuration (SDK-specific)
-# =====================================================
-
-
-def set_providers_config(config: dict[str, Any]) -> None:
-    """Store the ``providers`` section from config.json."""
-    global _providers_config
-    _providers_config = dict(config)
-
-
-def get_providers_config() -> dict[str, Any]:
-    return dict(_providers_config)
-
-
-def set_models_config(config: dict[str, dict[str, str]]) -> None:
-    """Store the ``models`` section from config.json."""
-    global _models_config
-    _models_config = dict(config)
-
-
-def get_models_config() -> dict[str, dict[str, str]]:
-    return dict(_models_config)

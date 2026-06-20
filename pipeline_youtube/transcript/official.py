@@ -24,29 +24,26 @@ from .base import (
     build_result,
 )
 
-# Module-level cache so repeated calls in a run share the HTTP session.
-_api: YouTubeTranscriptApi | None = None
 
-
-def _get_api() -> YouTubeTranscriptApi:
-    global _api
-    if _api is None:
-        _api = YouTubeTranscriptApi()
-    return _api
-
-
-def fetch_official(video_id: str, languages: list[str]) -> TranscriptResult:
+def fetch_official(
+    video_id: str, languages: list[str], *, api: YouTubeTranscriptApi
+) -> TranscriptResult:
     """Fetch manually-created captions for a video.
 
     Raises `TranscriptNotAvailable` with a short reason string when the
     video has no manually-created captions in any of the requested
     languages. Re-raises nothing else — IpBlocked and other fatal
     conditions are also wrapped so the fallback chain can move on.
+
+    ``api`` is injected by the caller (the fetch-chain wiring in
+    ``stages/scripts.py``). Each worker creates its own instance — and thus
+    its own ``requests.Session`` — so the high fan-out transcript warm-up no
+    longer shares one mutable HTTP session across threads (the global-state
+    parallelization blocker this DI removes; migration §3-6/§6-3).
     """
     if not video_id:
         raise TranscriptNotAvailable("empty video_id")
 
-    api = _get_api()
     try:
         transcript_list = api.list(video_id)
         transcript = transcript_list.find_manually_created_transcript(languages)

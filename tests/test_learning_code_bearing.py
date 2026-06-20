@@ -35,10 +35,8 @@ def vault(tmp_path: Path, monkeypatch):
     """Minimal vault setup + a pair of 02/03 md files."""
     from pipeline_youtube import config as cfg
 
-    cfg.set_vault_root(tmp_path)
     cfg.set_dry_run(False)
     yield tmp_path
-    cfg.reset_vault_root()
 
 
 def _video() -> VideoMeta:

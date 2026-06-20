@@ -23,10 +23,8 @@ from pipeline_youtube.playlist import VideoMeta
 
 @pytest.fixture
 def vault(tmp_path: Path):
-    config.set_vault_root(tmp_path)
     config.set_dry_run(False)
-    yield config.get_vault_root()
-    config.reset_vault_root()
+    yield tmp_path
 
 
 def _video():
@@ -55,7 +53,7 @@ class TestDefaultPlaceholders:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = create_placeholder_notes(video, run_time, vault_root=config.get_vault_root())
+        paths = create_placeholder_notes(video, run_time, vault_root=vault)
 
         # Only 3 units in the returned dict
         assert set(paths.keys()) == {"scripts", "summary", "capture"}
@@ -81,7 +79,7 @@ class TestDefaultPlaceholders:
             video,
             run_time,
             units=("scripts", "summary", "capture", "learning"),
-            vault_root=config.get_vault_root(),
+            vault_root=vault,
         )
 
         assert set(paths.keys()) == {"scripts", "summary", "capture", "learning"}
@@ -95,7 +93,7 @@ class TestDefaultPlaceholders:
                 video,
                 run_time,
                 units=("bogus",),  # type: ignore[arg-type]
-                vault_root=config.get_vault_root(),
+                vault_root=vault,
             )
 
 
@@ -104,7 +102,7 @@ class TestComputeNotePaths:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = compute_note_paths(video, run_time, vault_root=config.get_vault_root())
+        paths = compute_note_paths(video, run_time, vault_root=vault)
 
         assert set(paths.keys()) == {"scripts", "summary", "capture", "learning"}
         # None of them should be written
@@ -115,9 +113,7 @@ class TestComputeNotePaths:
         video = _video()
         run_time = datetime(2026, 4, 15, 21, 23)
 
-        paths = compute_note_paths(
-            video, run_time, units=("learning",), vault_root=config.get_vault_root()
-        )
+        paths = compute_note_paths(video, run_time, units=("learning",), vault_root=vault)
 
         assert set(paths.keys()) == {"learning"}
         assert "04_Learning_Material" in str(paths["learning"])
@@ -129,16 +125,12 @@ class TestComputeNotePaths:
         run_time = datetime(2026, 4, 15, 21, 23)
 
         # Pre-create a colliding file
-        first_paths = compute_note_paths(
-            video, run_time, units=("learning",), vault_root=config.get_vault_root()
-        )
+        first_paths = compute_note_paths(video, run_time, units=("learning",), vault_root=vault)
         first_paths["learning"].parent.mkdir(parents=True, exist_ok=True)
         first_paths["learning"].write_text("existing", encoding="utf-8")
 
         # Compute again — should yield -2 suffix
-        second_paths = compute_note_paths(
-            video, run_time, units=("learning",), vault_root=config.get_vault_root()
-        )
+        second_paths = compute_note_paths(video, run_time, units=("learning",), vault_root=vault)
         assert second_paths["learning"] != first_paths["learning"]
         assert "-2.md" in str(second_paths["learning"])
 
