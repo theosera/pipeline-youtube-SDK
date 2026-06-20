@@ -9,6 +9,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from pipeline_youtube import code_fetch
+from pipeline_youtube.services.cache import Cache
+
+# These tests stub the HTTP fetch and don't exercise the per-URL cache, so they
+# thread a disabled (no-op) cache.
+_NO_CACHE = Cache(None, enabled=False)
 
 # =====================================================
 # extract_github_urls
@@ -115,7 +120,7 @@ class TestFetchSnippetsForUrls:
             return_value=("print('hi')\n", False),
         ) as fetch:
             snippets = code_fetch.fetch_snippets_for_urls(
-                ["https://github.com/anthropics/foo/blob/main/x.py"]
+                ["https://github.com/anthropics/foo/blob/main/x.py"], cache=_NO_CACHE
             )
 
         assert len(snippets) == 1
@@ -133,7 +138,7 @@ class TestFetchSnippetsForUrls:
         """Bare repo URLs should be skipped (no /blob/, no fetch)."""
         with patch.object(code_fetch, "_fetch_raw") as fetch:
             snippets = code_fetch.fetch_snippets_for_urls(
-                ["https://github.com/anthropics/claude-code"]
+                ["https://github.com/anthropics/claude-code"], cache=_NO_CACHE
             )
         assert snippets == []
         fetch.assert_not_called()
@@ -146,13 +151,13 @@ class TestFetchSnippetsForUrls:
             "_fetch_raw",
             return_value=("ok", False),
         ) as fetch:
-            snippets = code_fetch.fetch_snippets_for_urls(urls)
+            snippets = code_fetch.fetch_snippets_for_urls(urls, cache=_NO_CACHE)
         assert len(snippets) == code_fetch.MAX_URLS_PER_VIDEO
         assert fetch.call_count == code_fetch.MAX_URLS_PER_VIDEO
 
     def test_failed_fetch_skipped(self):
         with patch.object(code_fetch, "_fetch_raw", return_value=None):
-            snippets = code_fetch.fetch_snippets_for_urls(["https://github.com/o/r/blob/main/x.py"])
+            snippets = code_fetch.fetch_snippets_for_urls(["https://github.com/o/r/blob/main/x.py"], cache=_NO_CACHE)
         assert snippets == []
 
     def test_truncation_flag_propagated(self):
@@ -162,7 +167,7 @@ class TestFetchSnippetsForUrls:
             return_value=("x" * 50_000, True),
         ):
             snippets = code_fetch.fetch_snippets_for_urls(
-                ["https://github.com/o/r/blob/main/big.py"]
+                ["https://github.com/o/r/blob/main/big.py"], cache=_NO_CACHE
             )
         assert len(snippets) == 1
         assert snippets[0].truncated is True
@@ -174,7 +179,7 @@ class TestFetchSnippetsForUrls:
         mock_resp.__exit__ = lambda *a: None
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            snippets = code_fetch.fetch_snippets_for_urls(["https://gist.github.com/abc123def456"])
+            snippets = code_fetch.fetch_snippets_for_urls(["https://gist.github.com/abc123def456"], cache=_NO_CACHE)
 
         assert len(snippets) == 1
         s = snippets[0]
