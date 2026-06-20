@@ -11,7 +11,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/jst-timestamp.sh" }
+          { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/jst-timestamp.sh\"" }
         ]
       }
     ],
