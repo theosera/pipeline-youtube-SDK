@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Modern CodeQL Python analysis no longer uses third-party dependencies,
       # so there is no uv/deps install step, CODEQL_PYTHON is unsupported, and
