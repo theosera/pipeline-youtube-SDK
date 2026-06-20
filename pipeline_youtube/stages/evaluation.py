@@ -27,6 +27,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..evaluation.evaluators import call_coverage_evaluator, call_pedagogy_evaluator
 from ..evaluation.fidelity import scan_fidelity
@@ -43,6 +44,9 @@ from ..obsidian import format_playlist_folder_name
 from ..playlist import VideoMeta
 from ..synthesis.agents import AgentCallResult
 from .synthesis import SynthesisStageResult
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 
 @dataclass(frozen=True)
@@ -74,6 +78,7 @@ def run_stage_evaluation(
     summary_bodies: dict[str, str] | None = None,
     folder_name_override: str | None = None,
     dry_run: bool = False,
+    cache: Cache | None = None,
 ) -> EvaluationStageResult:
     """Run ONE advisory evaluation pass after Stage 05 (no regeneration).
 
@@ -89,6 +94,10 @@ def run_stage_evaluation(
 
     Every evaluator is advisory: a failure degrades to an empty report for
     that perspective rather than aborting the stage.
+
+    ``cache`` may be injected explicitly (DI); forwarded to the coverage /
+    pedagogy evaluator LLM calls. When omitted they fall back to the
+    process-global ``get_cache()`` for backward compatibility.
     """
     if max_loops <= 0:
         return EvaluationStageResult(
@@ -113,6 +122,7 @@ def run_stage_evaluation(
             model=em.get("eval_coverage", model),
             playlist_title=playlist_title,
             summary_bodies=summary_bodies,
+            cache=cache,
         ),
         agent_results,
     )
@@ -124,6 +134,7 @@ def run_stage_evaluation(
             synthesis_result,
             model=em.get("eval_pedagogy", model),
             playlist_title=playlist_title,
+            cache=cache,
         ),
         agent_results,
     )

@@ -40,6 +40,7 @@ from .schemas import (
 from .skills import load_rubric
 
 if TYPE_CHECKING:
+    from ..services.cache import Cache
     from ..stages.synthesis import SynthesisStageResult
 
 # =====================================================
@@ -74,6 +75,7 @@ def call_coverage_evaluator(
     playlist_title: str | None = None,
     summary_bodies: dict[str, str] | None = None,
     timeout: int = _DEFAULT_EVAL_TIMEOUT,
+    cache: Cache | None = None,
 ) -> tuple[EvaluatorReport, AgentCallResult]:
     """Coverage/Duplication evaluator (one advisory pass).
 
@@ -87,7 +89,7 @@ def call_coverage_evaluator(
     """
     if synthesis_result.leader_output is None:
         return EvaluatorReport(perspective="coverage"), _noop_call(
-            COVERAGE_SYSTEM_PROMPT, model, timeout, "eval_coverage"
+            COVERAGE_SYSTEM_PROMPT, model, timeout, "eval_coverage", cache=cache
         )
 
     missing = synthesis_result.coverage.missing_topic_ids if synthesis_result.coverage else []
@@ -106,6 +108,7 @@ def call_coverage_evaluator(
         model=model,
         timeout=timeout,
         role="eval_coverage",
+        cache=cache,
     )
     return parse_coverage_evaluator_output(response.text), _wrap_result(response)
 
@@ -118,6 +121,7 @@ def call_pedagogy_evaluator(
     model: str = "sonnet",
     playlist_title: str | None = None,
     timeout: int = _DEFAULT_EVAL_TIMEOUT,
+    cache: Cache | None = None,
 ) -> tuple[EvaluatorReport, AgentCallResult]:
     """Pedagogical-quality evaluator (one advisory pass).
 
@@ -127,7 +131,7 @@ def call_pedagogy_evaluator(
     """
     if synthesis_result.leader_output is None:
         return EvaluatorReport(perspective="pedagogy"), _noop_call(
-            PEDAGOGY_SYSTEM_PROMPT, model, timeout, "eval_pedagogy"
+            PEDAGOGY_SYSTEM_PROMPT, model, timeout, "eval_pedagogy", cache=cache
         )
 
     parts = [
@@ -147,11 +151,14 @@ def call_pedagogy_evaluator(
         model=model,
         timeout=timeout,
         role="eval_pedagogy",
+        cache=cache,
     )
     return parse_pedagogy_evaluator_output(response.text), _wrap_result(response)
 
 
-def _noop_call(system_prompt: str, model: str, timeout: int, role: str) -> AgentCallResult:
+def _noop_call(
+    system_prompt: str, model: str, timeout: int, role: str, *, cache: Cache | None = None
+) -> AgentCallResult:
     """Synthetic call used when there is nothing to evaluate.
 
     Still goes through the provider so cost/usage logging stays uniform,
@@ -164,6 +171,7 @@ def _noop_call(system_prompt: str, model: str, timeout: int, role: str) -> Agent
             model=model,
             timeout=timeout,
             role=role,
+            cache=cache,
         )
     )
 
