@@ -175,7 +175,7 @@ def _select_synthesis_inputs(
     if not plan.run_video_stages:
         click.echo("\n=== --synthesis-only: loading existing 04 md files ===")
         matched_videos, matched_bodies, folder_override = _collect_existing_learning_bodies(
-            videos, resolved.playlist_title, run_time
+            videos, resolved.playlist_title, run_time, vault_root=runtime.vault_root
         )
         click.echo(f"matched: {len(matched_videos)}/{len(videos)} videos")
         if len(matched_videos) < request.min_playlist_size:
@@ -246,7 +246,9 @@ def _process_all_videos(
 
     if plan.filter_reviewed_only:
         # Phase 3: filter to videos whose 02_Summary.md has `reviewed: true`.
-        to_process = _filter_to_reviewed(to_process, playlist_title, run_time)
+        to_process = _filter_to_reviewed(
+            to_process, playlist_title, run_time, vault_root=runtime.vault_root
+        )
 
     # Warm the transcript cache for all to-be-processed videos up front, at a
     # higher fan-out than --concurrency. Skipped under --resume-reviewed (Stage

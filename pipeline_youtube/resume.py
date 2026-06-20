@@ -54,18 +54,19 @@ def _load_existing_04_body(video_id: str, playlist_title: str, run_date: datetim
     return None
 
 
-def _find_summary_md(video_id: str, playlist_title: str, run_date: datetime) -> Path | None:
+def _find_summary_md(
+    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
+) -> Path | None:
     """Locate the existing 02_Summary.md for `video_id` within a given run date.
 
     Used by Phase 3 (`--resume-reviewed`) to look up summaries written
     in a prior Phase 1 run. Falls back across date-prefix matches so
     users can resume on a different clock day.
-    """
-    from .config import get_vault_root
 
-    vault_root = get_vault_root()
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    """
     rel = f"{LEARNING_BASE}/{UNIT_DIRS['summary']}"
-    safe_rel = ensure_safe_path(rel)
+    safe_rel = ensure_safe_path(rel, vault_root=vault_root)
     base = vault_root / safe_rel
     if not base.exists():
         return None
@@ -84,13 +85,20 @@ def _filter_to_reviewed(
     to_process: list[tuple[int, VideoMeta]],
     playlist_title: str,
     run_time: datetime,
+    *,
+    vault_root: Path,
 ) -> list[tuple[int, VideoMeta]]:
-    """Keep only videos whose 02_Summary.md frontmatter has `reviewed: true`."""
+    """Keep only videos whose 02_Summary.md frontmatter has `reviewed: true`.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    """
     from .obsidian import read_frontmatter_field
 
     kept: list[tuple[int, VideoMeta]] = []
     for i, video in to_process:
-        summary_md = _find_summary_md(video.video_id, playlist_title, run_time)
+        summary_md = _find_summary_md(
+            video.video_id, playlist_title, run_time, vault_root=vault_root
+        )
         if summary_md is None:
             click.echo(f"  [skip] {video.video_id}: no 02_Summary.md found")
             continue
@@ -153,18 +161,20 @@ def _collect_existing_learning_bodies(
     videos: list[VideoMeta],
     playlist_title: str,
     run_time: datetime,
+    *,
+    vault_root: Path,
 ) -> tuple[list[VideoMeta], list[str], str]:
     """Scan the existing 04_Learning_Material folder for the given playlist date
     and return `(videos, bodies, folder_name)` aligned by input video_id order.
 
     Also returns the resolved folder name so stage 05 can reuse the exact
     legacy name instead of creating a new one next to it.
-    """
-    from .config import get_vault_root
 
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    """
     rel_base = f"{LEARNING_BASE}/{UNIT_DIRS['learning']}"
-    safe_rel_base = ensure_safe_path(rel_base)
-    base_dir = get_vault_root() / safe_rel_base
+    safe_rel_base = ensure_safe_path(rel_base, vault_root=vault_root)
+    base_dir = vault_root / safe_rel_base
 
     preferred = format_playlist_folder_name(run_time, playlist_title)
     learning_dir = base_dir / preferred
