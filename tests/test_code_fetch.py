@@ -157,7 +157,9 @@ class TestFetchSnippetsForUrls:
 
     def test_failed_fetch_skipped(self):
         with patch.object(code_fetch, "_fetch_raw", return_value=None):
-            snippets = code_fetch.fetch_snippets_for_urls(["https://github.com/o/r/blob/main/x.py"], cache=_NO_CACHE)
+            snippets = code_fetch.fetch_snippets_for_urls(
+                ["https://github.com/o/r/blob/main/x.py"], cache=_NO_CACHE
+            )
         assert snippets == []
 
     def test_truncation_flag_propagated(self):
@@ -179,7 +181,9 @@ class TestFetchSnippetsForUrls:
         mock_resp.__exit__ = lambda *a: None
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            snippets = code_fetch.fetch_snippets_for_urls(["https://gist.github.com/abc123def456"], cache=_NO_CACHE)
+            snippets = code_fetch.fetch_snippets_for_urls(
+                ["https://gist.github.com/abc123def456"], cache=_NO_CACHE
+            )
 
         assert len(snippets) == 1
         s = snippets[0]
