@@ -95,9 +95,9 @@ def _safe_segment(seg: str) -> str:
 class Cache:
     """Content-addressed cache rooted at a directory.
 
-    Construct via :func:`configure_cache` / :func:`get_cache`; a disabled
-    instance (``enabled=False``) is a no-op used for ``--no-cache``, tests,
-    and library callers that never opt in.
+    Construct via :func:`configure_cache`; a disabled instance
+    (``enabled=False``) is a no-op used for ``--no-cache``, tests, and
+    library callers that never opt in.
     """
 
     def __init__(
@@ -262,10 +262,8 @@ class _suppress_oserror:
 
 
 # =====================================================
-# Module-level singleton (mirrors config.py setter/getter pattern)
+# Cache factory
 # =====================================================
-
-_cache: Cache | None = None
 
 
 def configure_cache(
@@ -274,28 +272,12 @@ def configure_cache(
     enabled: bool = True,
     max_video_bytes: int = DEFAULT_MAX_VIDEO_BYTES,
 ) -> Cache:
-    """Install the process-wide cache. Called once from ``main.cli()``."""
-    global _cache
-    if not enabled:
-        _cache = Cache(None, enabled=False)
-    else:
-        _cache = Cache(resolve_cache_root(root), enabled=True, max_video_bytes=max_video_bytes)
-    return _cache
+    """Build the cache from config and return it (no process-global).
 
-
-def get_cache() -> Cache:
-    """Return the configured cache, defaulting to a disabled no-op.
-
-    Defaulting to disabled keeps tests and library callers from writing to
-    the real ``~/.cache`` unless they explicitly opt in via ``configure_cache``.
+    Called once from ``main``; the result is threaded explicitly via
+    ``Runtime.cache`` to every consumer (DI). ``enabled=False`` (``--no-cache``)
+    yields a disabled no-op ``Cache``.
     """
-    global _cache
-    if _cache is None:
-        _cache = Cache(None, enabled=False)
-    return _cache
-
-
-def reset_cache() -> None:
-    """Reset the singleton (test hook)."""
-    global _cache
-    _cache = None
+    if not enabled:
+        return Cache(None, enabled=False)
+    return Cache(resolve_cache_root(root), enabled=True, max_video_bytes=max_video_bytes)
