@@ -205,6 +205,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="standard",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert result.profile is SynthesisProfile.STANDARD
@@ -222,6 +223,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="full",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert result.profile is SynthesisProfile.FULL
@@ -245,6 +247,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="full",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert result.reviewer_feedback is not None
@@ -313,6 +316,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="parallel",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert result.profile is SynthesisProfile.PARALLEL
@@ -331,6 +335,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="not-a-profile",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is not None
         assert "invalid profile" in result.error
@@ -346,6 +351,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="auto",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.error is None
         assert result.profile is SynthesisProfile.STANDARD
@@ -361,6 +367,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="standard",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         assert result.meta_path is not None
         meta = json.loads(result.meta_path.read_text(encoding="utf-8"))
@@ -378,6 +385,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="full",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         meta = json.loads(result.meta_path.read_text(encoding="utf-8"))
         assert meta["reviewer_status"] == "ok"
@@ -406,6 +414,7 @@ class TestRunStageWithProfile:
             playlist_title="Test Playlist",
             profile="full",
             cache=_NO_CACHE,
+            vault_root=config.get_vault_root(),
         )
         # Stage completes with the original Leader output; Reviewer's
         # failure is logged and recorded in meta.

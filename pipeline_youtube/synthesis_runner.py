@@ -63,4 +63,5 @@ def run_synthesis(
         profile=runtime.synthesis_profile,
         proper_noun_glossary=proper_noun_glossary,
         cache=runtime.cache,
+        vault_root=runtime.vault_root,
     )
