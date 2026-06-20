@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..glossary.schema import Glossary
 from ..glossary.text import normalize_text
@@ -39,6 +40,9 @@ from ..sanitize import sanitize_untrusted_text, wrap_untrusted
 from ..synthesis.body_validator import validate_chapter_body
 from ..transcript.base import TranscriptResult
 from ..transcript.chunking import Chunk, chunk_by_window
+
+if TYPE_CHECKING:
+    from ..services.cache import Cache
 
 _log = logging.getLogger(__name__)
 
@@ -147,6 +151,7 @@ def run_stage_summary(
     filler_words: tuple[str, ...] | list[str] | None = None,
     glossary: Glossary | None = None,
     dry_run: bool = False,
+    cache: Cache | None = None,
 ) -> ClaudeResponse:
     """Generate a 02_Summary md body and append it to the placeholder.
 
@@ -160,6 +165,9 @@ def run_stage_summary(
     so existing callers and behavior are unchanged. The model still does
     context-only cleansing; this layer adds glossary-backed correction
     without inventing anything not already in the glossary.
+
+    ``cache`` may be injected explicitly (DI); when omitted the LLM calls
+    fall back to the process-global ``get_cache()`` for backward compat.
     """
     chunks = chunk_by_window(transcript_result.snippets, window_seconds, filler_words=filler_words)
 
@@ -174,6 +182,7 @@ def run_stage_summary(
         append_system_prompt=SUMMARY_SYSTEM_PROMPT,
         model=model,
         role="stage_02",
+        cache=cache,
     )
 
     if dry_run:
@@ -183,7 +192,9 @@ def run_stage_summary(
     # exact defect (bounded by MAX_SUMMARY_REPAIR_RETRIES) and, if every
     # attempt still fails, fall back to a degraded placeholder so the video
     # still produces a note instead of being dropped entirely.
-    body_to_write, one_liner, response = _validate_with_repair(video, chunks, response, model=model)
+    body_to_write, one_liner, response = _validate_with_repair(
+        video, chunks, response, model=model, cache=cache
+    )
     if glossary is not None:
         body_to_write = normalize_text(body_to_write, glossary)
         if one_liner is not None:
@@ -201,6 +212,7 @@ def _validate_with_repair(
     response: ClaudeResponse,
     *,
     model: str,
+    cache: Cache | None = None,
 ) -> tuple[str, str | None, ClaudeResponse]:
     """Validate Stage 02 output, re-prompting the model on structural failure.
 
@@ -240,6 +252,7 @@ def _validate_with_repair(
             append_system_prompt=SUMMARY_SYSTEM_PROMPT,
             model=model,
             role="stage_02",
+            cache=cache,
         )
         attempts.append(repair)
         body = repair.text.strip()

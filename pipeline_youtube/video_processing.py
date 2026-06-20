@@ -72,6 +72,7 @@ def _process_video(
             correct_model=correct_model,
             known_terms=known_terms,
             use_innertube=use_innertube,
+            cache=cache,
         )
         with contextlib.suppress(Exception):
             record_transcript_stat(video, transcript)
@@ -132,6 +133,7 @@ def _process_video(
             filler_words=filler_words,
             glossary=glossary,
             dry_run=dry_run,
+            cache=cache,
         )
         click.echo(
             f" in={summary_resp.input_tokens or 0}"
@@ -207,6 +209,7 @@ def _process_video(
             model=models["stage_04"],
             dry_run=dry_run,
             code_bearing=code_bearing,
+            cache=cache,
         )
         click.echo(
             f" in={learning_resp.input_tokens or 0}"

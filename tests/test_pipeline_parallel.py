@@ -192,7 +192,7 @@ class TestPrefetchSkippedOnCacheHit:
         monkeypatch.setattr(
             main_mod,
             "run_stage_scripts",
-            lambda video, path, *, dry_run, include_code_blocks=False, media_path=None, correct_model=None, known_terms=None, use_innertube=True: (
+            lambda video, path, *, dry_run, include_code_blocks=False, media_path=None, correct_model=None, known_terms=None, use_innertube=True, cache=None: (
                 build_result(
                     video_id=video.video_id,
                     source=TranscriptSource.OFFICIAL,
