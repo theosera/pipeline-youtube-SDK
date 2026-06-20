@@ -32,7 +32,11 @@ def build_runtime(request: CliRequest) -> Runtime:
         raise click.UsageError(str(exc)) from exc
     set_dry_run(request.dry_run)
     configure_whisper(backend=cfg.whisper_backend, model=cfg.whisper_model)
-    vault_root = cfg.vault_root
+    # Canonical (symlink-resolved) vault root — the same normalization
+    # set_vault_root() applies. Injected as runtime.vault_root so DI consumers
+    # validate (ensure_safe_path) and write (vault_root / safe_rel) against the
+    # identical resolved root, never the raw cfg path (Codex P2 on #63).
+    vault_root = cfg.vault_root.expanduser().resolve()
     filler_words = cfg.filler_words
 
     project_root = Path(__file__).resolve().parent.parent
