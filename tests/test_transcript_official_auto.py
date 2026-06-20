@@ -6,7 +6,7 @@ youtube-transcript-api is mocked so these tests run offline.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from youtube_transcript_api._errors import (
@@ -53,6 +53,20 @@ def _make_fake_transcript_list(
     return tl
 
 
+def _fake_api(list_return=None, list_side_effect=None) -> MagicMock:
+    """A stand-in YouTubeTranscriptApi injected straight into the fetchers.
+
+    The api is now an explicit parameter (the module-global singleton is
+    gone), so tests pass a mock instead of patching ``_get_api``.
+    """
+    api = MagicMock()
+    if list_side_effect is not None:
+        api.list.side_effect = list_side_effect
+    else:
+        api.list.return_value = list_return
+    return api
+
+
 class TestFetchOfficial:
     def test_success(self):
         snippets = [
@@ -62,9 +76,7 @@ class TestFetchOfficial:
         fake_t = _make_fake_transcript(snippets, language_code="ja")
         tl = _make_fake_transcript_list(manual=fake_t)
 
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.return_value = tl
-            result = fetch_official("vid123", ["ja", "en"])
+        result = fetch_official("vid123", ["ja", "en"], api=_fake_api(list_return=tl))
 
         assert result.source == TranscriptSource.OFFICIAL
         assert result.language == "ja"
@@ -74,46 +86,38 @@ class TestFetchOfficial:
 
     def test_no_manual_raises_not_available(self):
         tl = _make_fake_transcript_list(manual=None)
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.return_value = tl
-            with pytest.raises(TranscriptNotAvailable, match="no_manual"):
-                fetch_official("vid123", ["ja"])
+        with pytest.raises(TranscriptNotAvailable, match="no_manual"):
+            fetch_official("vid123", ["ja"], api=_fake_api(list_return=tl))
 
     def test_transcripts_disabled(self):
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.side_effect = TranscriptsDisabled("vid")
-            with pytest.raises(TranscriptNotAvailable, match="transcripts_disabled"):
-                fetch_official("vid", ["ja"])
+        api = _fake_api(list_side_effect=TranscriptsDisabled("vid"))
+        with pytest.raises(TranscriptNotAvailable, match="transcripts_disabled"):
+            fetch_official("vid", ["ja"], api=api)
 
     def test_video_unavailable(self):
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.side_effect = VideoUnavailable("vid")
-            with pytest.raises(TranscriptNotAvailable, match="video_unavailable"):
-                fetch_official("vid", ["ja"])
+        api = _fake_api(list_side_effect=VideoUnavailable("vid"))
+        with pytest.raises(TranscriptNotAvailable, match="video_unavailable"):
+            fetch_official("vid", ["ja"], api=api)
 
     def test_ip_blocked(self):
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.side_effect = IpBlocked("vid")
-            with pytest.raises(TranscriptNotAvailable, match="ip_blocked"):
-                fetch_official("vid", ["ja"])
+        api = _fake_api(list_side_effect=IpBlocked("vid"))
+        with pytest.raises(TranscriptNotAvailable, match="ip_blocked"):
+            fetch_official("vid", ["ja"], api=api)
 
     def test_empty_video_id(self):
         with pytest.raises(TranscriptNotAvailable, match="empty"):
-            fetch_official("", ["ja"])
+            fetch_official("", ["ja"], api=_fake_api())
 
     def test_empty_snippets_raises(self):
         fake_t = _make_fake_transcript([], language_code="ja")
         tl = _make_fake_transcript_list(manual=fake_t)
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.return_value = tl
-            with pytest.raises(TranscriptNotAvailable, match="empty_transcript"):
-                fetch_official("vid", ["ja"])
+        with pytest.raises(TranscriptNotAvailable, match="empty_transcript"):
+            fetch_official("vid", ["ja"], api=_fake_api(list_return=tl))
 
     def test_unexpected_exception_wrapped(self):
-        with patch("pipeline_youtube.transcript.official._get_api") as gapi:
-            gapi.return_value.list.side_effect = RuntimeError("boom")
-            with pytest.raises(TranscriptNotAvailable, match="unexpected"):
-                fetch_official("vid", ["ja"])
+        api = _fake_api(list_side_effect=RuntimeError("boom"))
+        with pytest.raises(TranscriptNotAvailable, match="unexpected"):
+            fetch_official("vid", ["ja"], api=api)
 
 
 class TestFetchAuto:
@@ -125,11 +129,7 @@ class TestFetchAuto:
         fake_t = _make_fake_transcript(snippets, language_code="ja")
         tl = _make_fake_transcript_list(generated=fake_t)
 
-        # auto.py imports `_get_api` from official, so the binding in
-        # auto's namespace must be patched (not official's).
-        with patch("pipeline_youtube.transcript.auto._get_api") as gapi:
-            gapi.return_value.list.return_value = tl
-            result = fetch_auto("vid123", ["ja"])
+        result = fetch_auto("vid123", ["ja"], api=_fake_api(list_return=tl))
 
         assert result.source == TranscriptSource.AUTO
         assert result.language == "ja"
@@ -137,7 +137,5 @@ class TestFetchAuto:
 
     def test_no_generated_raises(self):
         tl = _make_fake_transcript_list(generated=None)
-        with patch("pipeline_youtube.transcript.auto._get_api") as gapi:
-            gapi.return_value.list.return_value = tl
-            with pytest.raises(TranscriptNotAvailable, match="no_auto"):
-                fetch_auto("vid", ["ja"])
+        with pytest.raises(TranscriptNotAvailable, match="no_auto"):
+            fetch_auto("vid", ["ja"], api=_fake_api(list_return=tl))

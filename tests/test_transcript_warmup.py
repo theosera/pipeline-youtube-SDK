@@ -30,7 +30,10 @@ def _videos(n: int) -> list[VideoMeta]:
     ]
 
 
-def _official_ok(video_id: str, languages: list[str]):
+# official/auto are now wired via partial(..., api=<YouTubeTranscriptApi>), so the
+# fakes that replace them accept (and ignore) the injected api. innertube is still
+# called without api, hence the keyword default.
+def _official_ok(video_id: str, languages: list[str], *, api: object = None):
     from pipeline_youtube.transcript.base import TranscriptSnippet
 
     return build_result(
@@ -41,7 +44,7 @@ def _official_ok(video_id: str, languages: list[str]):
     )
 
 
-def _not_available(video_id: str, languages: list[str]):
+def _not_available(video_id: str, languages: list[str], *, api: object = None):
     raise TranscriptNotAvailable("none")
 
 
@@ -59,7 +62,7 @@ class TestWarmTranscriptCache:
         # Default cache is disabled; warming must do nothing (and not fetch).
         calls = {"n": 0}
 
-        def counting(video_id, languages):
+        def counting(video_id, languages, *, api=None):
             calls["n"] += 1
             return _official_ok(video_id, languages)
 
@@ -94,7 +97,7 @@ class TestWarmTranscriptCache:
     def test_per_video_errors_are_swallowed(self, tmp_path, monkeypatch):
         cache = configure_cache(tmp_path, enabled=True)
 
-        def boom(video_id, languages):
+        def boom(video_id, languages, *, api=None):
             raise RuntimeError("network down")
 
         monkeypatch.setattr(scripts_mod, "fetch_official", boom)
