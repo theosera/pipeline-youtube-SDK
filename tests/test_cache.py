@@ -8,7 +8,6 @@ from pathlib import Path
 from pipeline_youtube.cache import (
     Cache,
     configure_cache,
-    get_cache,
     llm_key,
     resolve_cache_root,
     url_key,
@@ -67,10 +66,6 @@ class TestDisabledCache:
         assert c.get_llm("k") is None
         # Nothing written to disk.
         assert not any(tmp_path.iterdir())
-
-    def test_get_cache_defaults_disabled(self):
-        # conftest resets the singleton before each test.
-        assert get_cache().enabled is False
 
 
 class TestRoundTrip:
@@ -150,12 +145,11 @@ class TestVideoCache:
         assert c.get_video("v0", "480") is not None
 
 
-class TestConfigureSingleton:
+class TestConfigureCache:
     def test_configure_enabled_uses_env_root(self, tmp_path, monkeypatch):
         monkeypatch.setenv("PIPELINE_YOUTUBE_CACHE", str(tmp_path / "root"))
         c = configure_cache(None, enabled=True)
         assert c.enabled and c.root == tmp_path / "root"
-        assert get_cache() is c
 
     def test_configure_disabled(self):
         c = configure_cache(None, enabled=False)
