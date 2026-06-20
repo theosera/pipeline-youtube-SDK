@@ -111,7 +111,7 @@ def fetch_with_fallback(
     languages: list[str],
     fetchers: list[tuple[str, Fetcher | None]],
     *,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> TranscriptResult:
     """Try each tier in order; return the first successful result.
 
@@ -119,13 +119,9 @@ def fetch_with_fallback(
     `None` fetcher is skipped (used when the Whisper extra is not
     installed or disabled for cost reasons).
 
-    ``cache`` may be injected explicitly (DI); when omitted it falls back to
-    the process-global ``get_cache()`` for backward compatibility.
+    ``cache`` is the transcript cache to read/write (injected by the caller;
+    a disabled ``Cache`` no-ops every lookup/store).
     """
-    if cache is None:
-        from ..cache import get_cache
-
-        cache = get_cache()
     lang_key = languages[0] if languages else "none"
 
     fallback_reasons: list[str] = []

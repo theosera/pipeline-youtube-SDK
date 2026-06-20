@@ -52,7 +52,7 @@ def _process_video(
     correct_transcript: bool = False,
     known_terms: list[tuple[str, str]] | None = None,
     use_innertube: bool = True,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> VideoRunResult:
     try:
         paths = compute_note_paths(video, run_time)
@@ -115,14 +115,14 @@ def _process_video(
         # In --local-media mode the file is already on disk, so skip the
         # network prefetch entirely (Stage 03 uses media_path directly below).
         prefetch = None
-        if media_path is None and not dry_run:
-            if cache is None:
-                from .cache import get_cache
-
-                cache = get_cache()
-            if cache.get_video(video.video_id, DEFAULT_RESOLUTION) is None:
-                with contextlib.suppress(Exception):
-                    prefetch = prefetch_video_download(video, backend=capture_backend)
+        need_prefetch = (
+            media_path is None
+            and not dry_run
+            and cache.get_video(video.video_id, DEFAULT_RESOLUTION) is None
+        )
+        if need_prefetch:
+            with contextlib.suppress(Exception):
+                prefetch = prefetch_video_download(video, backend=capture_backend)
 
         click.echo(f"  [02] summary (model={models['stage_02']})...", nl=False)
         summary_resp = run_stage_summary(
@@ -173,8 +173,7 @@ def _process_video(
             allow_download=media_path is None,
             # Never delete the user's --local-media source file.
             delete_video=media_path is None,
-            # Forward the injected cache (None ⇒ run_stage_capture falls back to
-            # the process-global get_cache(), preserving prior behavior).
+            # Forward the injected cache (Stage 03 reuses cached downloads).
             cache=cache,
         )
         if capture_result.error and not capture_result.outcomes:
@@ -256,7 +255,7 @@ async def _run_videos_concurrent(
     correct_transcript: bool = False,
     known_terms: list[tuple[str, str]] | None = None,
     use_innertube: bool = True,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> list[VideoRunResult]:
     """Process multiple videos concurrently with bounded parallelism."""
     sem = asyncio.Semaphore(concurrency)

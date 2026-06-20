@@ -56,7 +56,7 @@ def warm_transcript_cache(
     languages: list[str] | None = None,
     concurrency: int = DEFAULT_TRANSCRIPT_CONCURRENCY,
     use_innertube: bool = True,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> int:
     """Pre-fetch caption transcripts for many videos concurrently.
 
@@ -75,16 +75,11 @@ def warm_transcript_cache(
 
     Returns the number of videos for which a caption tier was cached.
 
-    ``cache`` may be injected explicitly (DI); when omitted it falls back to
-    the process-global ``get_cache()`` for backward compatibility.
+    ``cache`` is the transcript cache to warm (injected by the caller; a
+    disabled ``Cache`` makes this a no-op via the ``cache.enabled`` guard below).
     """
     if not videos:
         return 0
-
-    if cache is None:
-        from ..cache import get_cache
-
-        cache = get_cache()
 
     # Without a persistent cache there is nothing to warm — Stage 01 would
     # re-fetch regardless, so skip the extra pass entirely.
@@ -147,7 +142,8 @@ def run_stage_scripts(
     correct_model: str | None = None,
     known_terms: list[tuple[str, str]] | None = None,
     use_innertube: bool = True,
-    cache: Cache | None = None,
+    *,
+    cache: Cache,
 ) -> TranscriptResult:
     """Fetch transcript, chunk it, and append the body to `scripts_md_path`.
 
@@ -170,9 +166,8 @@ def run_stage_scripts(
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
 
-    ``cache`` may be injected explicitly (DI); when omitted the transcript /
-    code-fetch / correction calls below fall back to the process-global
-    ``get_cache()`` for backward compatibility.
+    ``cache`` is injected by the caller and threaded into the transcript /
+    code-fetch / correction calls below (a disabled ``Cache`` no-ops them).
     """
     langs = languages or DEFAULT_LANGUAGES
 

@@ -15,12 +15,17 @@ import pytest
 from pipeline_youtube import config
 from pipeline_youtube.pipeline import create_placeholder_notes
 from pipeline_youtube.playlist import VideoMeta
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import scripts as scripts_stage
 from pipeline_youtube.transcript.base import (
     TranscriptSnippet,
     TranscriptSource,
     build_result,
 )
+
+# These stage-01 tests stub the transcript chain; caching is verified separately
+# (test_injected_cache_*), so they thread a disabled (no-op) cache.
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -81,7 +86,9 @@ class TestRunStageScripts:
             lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
         )
 
-        result = scripts_stage.run_stage_scripts(video, scripts_path, window_seconds=30.0)
+        result = scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, cache=_NO_CACHE
+        )
 
         assert result.source == TranscriptSource.OFFICIAL
 
@@ -129,6 +136,7 @@ class TestRunStageScripts:
             window_seconds=30.0,
             correct_model="opus",
             known_terms=[("ぐぐる", "Google")],
+            cache=_NO_CACHE,
         )
 
         assert result.snippets
@@ -154,7 +162,7 @@ class TestRunStageScripts:
         )
 
         result = scripts_stage.run_stage_scripts(
-            video, scripts_path, window_seconds=30.0, dry_run=True
+            video, scripts_path, window_seconds=30.0, dry_run=True, cache=_NO_CACHE
         )
 
         assert result.source == TranscriptSource.OFFICIAL
@@ -177,7 +185,7 @@ class TestRunStageScripts:
 
         monkeypatch.setattr(scripts_stage, "fetch_with_fallback", _empty_fetch)
 
-        result = scripts_stage.run_stage_scripts(video, scripts_path)
+        result = scripts_stage.run_stage_scripts(video, scripts_path, cache=_NO_CACHE)
         assert result.source == TranscriptSource.ERROR
         assert scripts_path.read_text(encoding="utf-8") == pre_content
 
@@ -192,7 +200,7 @@ class TestRunStageScripts:
         )
 
         with pytest.raises(FileNotFoundError):
-            scripts_stage.run_stage_scripts(video, ghost_path)
+            scripts_stage.run_stage_scripts(video, ghost_path, cache=_NO_CACHE)
 
     def test_injected_cache_reaches_transcript_and_correction(self, vault, monkeypatch):
         """DI: the cache passed to run_stage_scripts is forwarded verbatim to the

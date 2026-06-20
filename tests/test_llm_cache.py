@@ -112,7 +112,7 @@ def _fail_fetcher(msg):
 
 class TestTranscriptCacheIntegration:
     def test_second_run_hits_cache_without_calling_fetcher(self, tmp_path):
-        cache_mod.configure_cache(tmp_path / "c", enabled=True)
+        cache = cache_mod.configure_cache(tmp_path / "c", enabled=True)
         calls = {"n": 0}
 
         def counting(video_id, languages):
@@ -120,30 +120,32 @@ class TestTranscriptCacheIntegration:
             return build_result(video_id, TranscriptSource.WHISPER, languages[0], [])
 
         fetchers = [("whisper", counting)]
-        r1 = fetch_with_fallback("vidX", ["ja"], fetchers)
-        r2 = fetch_with_fallback("vidX", ["ja"], fetchers)
+        r1 = fetch_with_fallback("vidX", ["ja"], fetchers, cache=cache)
+        r2 = fetch_with_fallback("vidX", ["ja"], fetchers, cache=cache)
         assert calls["n"] == 1  # second run served from cache
         assert r1.source == r2.source == TranscriptSource.WHISPER
 
     def test_tier_ordering_preserved_with_cache(self, tmp_path):
-        cache_mod.configure_cache(tmp_path / "c", enabled=True)
+        cache = cache_mod.configure_cache(tmp_path / "c", enabled=True)
         fetchers = [
             ("official", _fail_fetcher("no")),
             ("auto", _ok_fetcher(TranscriptSource.AUTO)),
         ]
-        result = fetch_with_fallback("vidY", ["ja"], fetchers)
+        result = fetch_with_fallback("vidY", ["ja"], fetchers, cache=cache)
         assert result.source == TranscriptSource.AUTO
         # Re-run still yields AUTO from cache (official remains unavailable).
-        assert fetch_with_fallback("vidY", ["ja"], fetchers).source == TranscriptSource.AUTO
+        assert fetch_with_fallback("vidY", ["ja"], fetchers, cache=cache).source == (
+            TranscriptSource.AUTO
+        )
 
     def test_disabled_cache_always_calls_fetcher(self, tmp_path):
-        cache_mod.configure_cache(None, enabled=False)
+        cache = cache_mod.configure_cache(None, enabled=False)
         calls = {"n": 0}
 
         def counting(video_id, languages):
             calls["n"] += 1
             return build_result(video_id, TranscriptSource.WHISPER, languages[0], [])
 
-        fetch_with_fallback("v", ["ja"], [("whisper", counting)])
-        fetch_with_fallback("v", ["ja"], [("whisper", counting)])
+        fetch_with_fallback("v", ["ja"], [("whisper", counting)], cache=cache)
+        fetch_with_fallback("v", ["ja"], [("whisper", counting)], cache=cache)
         assert calls["n"] == 2
