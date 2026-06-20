@@ -58,7 +58,7 @@ def resolve_input(request: CliRequest, runtime: Runtime) -> ResolvedInput:
         click.echo(f"genre: (inherited from parent) code_bearing={code_bearing}")
     else:
         genre, genre_rationale = classify_playlist_genre(
-            playlist_title, videos, model=runtime.models["router"]
+            playlist_title, videos, model=runtime.models["router"], cache=runtime.cache
         )
         code_bearing = genre in CODE_BEARING_GENRES
         click.echo(f"genre: {genre.value} (code_bearing={code_bearing}) — {genre_rationale[:120]}")

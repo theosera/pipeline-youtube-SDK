@@ -11,6 +11,8 @@ Verify:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pipeline_youtube.genres import (
@@ -163,6 +165,22 @@ class TestClassifyHappyPath:
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
         classify_playlist_genre("p", [_video(1, "t")], model="sonnet")
         assert captured["model"] == "sonnet"
+
+    def test_injected_cache_is_forwarded(self, monkeypatch):
+        """DI: the cache passed to classify_playlist_genre reaches invoke_llm."""
+        from pipeline_youtube import genres as genres_mod
+        from pipeline_youtube.services.cache import Cache
+
+        captured: dict = {}
+
+        def fake(**kw):
+            captured.update(kw)
+            return _resp('{"genre": "other", "rationale": ""}')
+
+        monkeypatch.setattr(genres_mod, "invoke_claude", fake)
+        sentinel = Cache(Path("/tmp/genre-cache-di"), enabled=False)
+        classify_playlist_genre("p", [_video(1, "t")], cache=sentinel)
+        assert captured["cache"] is sentinel
 
 
 # =====================================================

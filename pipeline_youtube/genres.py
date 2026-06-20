@@ -31,11 +31,15 @@ from __future__ import annotations
 
 import json
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from .playlist import VideoMeta
 from .providers.base import LLMError as ClaudeCliError
 from .providers.registry import invoke_llm as invoke_claude
 from .sanitize import sanitize_untrusted_text, wrap_untrusted
+
+if TYPE_CHECKING:
+    from .services.cache import Cache
 
 
 class Genre(StrEnum):
@@ -86,6 +90,7 @@ def classify_playlist_genre(
     videos: list[VideoMeta],
     *,
     model: str = "haiku",
+    cache: Cache | None = None,
 ) -> tuple[Genre, str]:
     """Classify a playlist into a single Genre.
 
@@ -95,6 +100,9 @@ def classify_playlist_genre(
 
     The function is intentionally side-effect free; the caller decides
     whether to log the result.
+
+    ``cache`` may be injected explicitly (DI); when omitted the router LLM
+    call falls back to the process-global ``get_cache()``.
     """
     if not videos:
         return Genre.OTHER, "no videos"
@@ -127,6 +135,7 @@ def classify_playlist_genre(
             model=model,
             max_retries=2,
             role="router",
+            cache=cache,
         )
     except ClaudeCliError as e:
         return Genre.OTHER, f"router_call_failed: {str(e)[:200]}"
