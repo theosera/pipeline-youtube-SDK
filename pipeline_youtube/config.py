@@ -12,14 +12,11 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import Any
 
 from .domain.errors import VaultRootError as VaultRootError
 
 _vault_root: Path | None = None
 _dry_run: bool = False
-_providers_config: dict[str, Any] = {}
-_models_config: dict[str, dict[str, str]] = {}
 
 
 def set_vault_root(path: str | Path, *, strict: bool = False) -> None:
@@ -70,28 +67,3 @@ def set_dry_run(flag: bool) -> None:
 
 def is_dry_run() -> bool:
     return _dry_run
-
-
-# =====================================================
-# Provider configuration (SDK-specific)
-# =====================================================
-
-
-def set_providers_config(config: dict[str, Any]) -> None:
-    """Store the ``providers`` section from config.json."""
-    global _providers_config
-    _providers_config = dict(config)
-
-
-def get_providers_config() -> dict[str, Any]:
-    return dict(_providers_config)
-
-
-def set_models_config(config: dict[str, dict[str, str]]) -> None:
-    """Store the ``models`` section from config.json."""
-    global _models_config
-    _models_config = dict(config)
-
-
-def get_models_config() -> dict[str, dict[str, str]]:
-    return dict(_models_config)
