@@ -30,13 +30,17 @@ from .playlist import VideoMeta
 from .run_result import VideoRunResult
 
 
-def _proper_noun_sheet_path(video: VideoMeta, run_time: datetime) -> Path:
+def _proper_noun_sheet_path(video: VideoMeta, run_time: datetime, *, vault_root: Path) -> Path:
     """Path of the per-playlist proper-noun sheet (under the 01_Scripts folder).
 
     Every video in a playlist shares the same 01_Scripts playlist folder, so the
     sheet's parent is stable regardless of which video is used to derive it.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    scripts_path = compute_note_paths(video, run_time, units=("scripts",))["scripts"]
+    scripts_path = compute_note_paths(video, run_time, units=("scripts",), vault_root=vault_root)[
+        "scripts"
+    ]
     return scripts_path.parent / SHEET_FILENAME
 
 

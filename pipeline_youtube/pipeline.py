@@ -25,7 +25,6 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from .config import get_vault_root
 from .obsidian import (
     build_frontmatter,
     format_playlist_folder_name,
@@ -57,6 +56,7 @@ def compute_note_paths(
     run_time: datetime,
     *,
     units: tuple[str, ...] = ("scripts", "summary", "capture", "learning"),
+    vault_root: Path,
 ) -> dict[str, Path]:
     """Return the target md path for each requested unit without writing.
 
@@ -64,8 +64,9 @@ def compute_note_paths(
     before the stage runs — e.g. stage 04 creating its own md file
     directly. The path is collision-resolved (-2, -3 suffix) against the
     existing filesystem state.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    vault_root = get_vault_root()
     playlist_folder = format_playlist_folder_name(run_time, video.playlist_title)
     note_base = format_video_note_base(run_time, video.title)
 
@@ -74,7 +75,7 @@ def compute_note_paths(
         if unit_key not in UNIT_DIRS:
             raise ValueError(f"unknown unit key: {unit_key!r}")
         rel_path = f"{LEARNING_BASE}/{UNIT_DIRS[unit_key]}/{playlist_folder}"
-        safe_rel = ensure_safe_path(rel_path)
+        safe_rel = ensure_safe_path(rel_path, vault_root=vault_root)
         folder = vault_root / safe_rel
         paths[unit_key] = resolve_unique_path(folder, note_base, ".md")
     return paths
@@ -86,6 +87,7 @@ def create_placeholder_notes(
     *,
     units: tuple[str, ...] = DEFAULT_PLACEHOLDER_UNITS,
     dry_run: bool = False,
+    vault_root: Path,
 ) -> dict[str, Path]:
     """Create empty md placeholders for the specified units.
 
@@ -95,8 +97,9 @@ def create_placeholder_notes(
     if all four are needed (e.g. legacy tests).
 
     Returns `{unit_key: absolute_path}` for whatever was created.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    vault_root = get_vault_root()
     playlist_folder = format_playlist_folder_name(run_time, video.playlist_title)
     note_base = format_video_note_base(run_time, video.title)
 
@@ -106,7 +109,7 @@ def create_placeholder_notes(
             raise ValueError(f"unknown unit key: {unit_key!r}")
         unit_dir = UNIT_DIRS[unit_key]
         rel_path = f"{LEARNING_BASE}/{unit_dir}/{playlist_folder}"
-        safe_rel = ensure_safe_path(rel_path)
+        safe_rel = ensure_safe_path(rel_path, vault_root=vault_root)
         folder = vault_root / safe_rel
 
         if not dry_run:

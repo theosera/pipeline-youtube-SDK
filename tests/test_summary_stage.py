@@ -91,7 +91,9 @@ class TestRunStageSummary:
     def test_end_to_end_appends_body(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         summary_path = paths["summary"]
 
         transcript = _transcript(
@@ -124,7 +126,9 @@ class TestRunStageSummary:
     def test_empty_transcript_writes_placeholder(self, vault):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         summary_path = paths["summary"]
         transcript = _transcript([])
 
@@ -139,7 +143,9 @@ class TestRunStageSummary:
     def test_dry_run_does_not_write_file(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         summary_path = paths["summary"]
         pre = summary_path.read_text(encoding="utf-8")
 
@@ -195,7 +201,9 @@ class TestRepairRetry:
     def test_repair_recovers_and_aggregates_cost(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke([_BAD_OUTPUT, SAMPLE_SUMMARY_OUTPUT])
@@ -220,7 +228,9 @@ class TestRepairRetry:
     def test_degraded_fallback_after_exhausting_retries(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke([_BAD_OUTPUT])
@@ -243,7 +253,9 @@ class TestRepairRetry:
     def test_empty_output_triggers_repair(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript([TranscriptSnippet("本文", 0.0, 30.0)])
 
         fake, calls = _sequenced_invoke(["", SAMPLE_SUMMARY_OUTPUT])
@@ -260,7 +272,9 @@ class TestPromptBuilding:
     def test_prompt_wraps_in_untrusted_content(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript([TranscriptSnippet("本文テキスト", 0.0, 30.0)])
 
         captured: dict = {}
@@ -284,7 +298,9 @@ class TestPromptBuilding:
     def test_prompt_uses_chunk_timestamps(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         # Three snippets spread across ~90s so chunking produces 3 chunks at 30s window
         transcript = _transcript(
             [
@@ -315,7 +331,9 @@ class TestPromptBuilding:
     def test_system_prompt_is_append_mode(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript([TranscriptSnippet("hi", 0.0, 5.0)])
         captured: dict = {}
         monkeypatch.setattr(
@@ -341,7 +359,9 @@ class TestPromptBuilding:
     def test_sanitizes_control_chars_in_transcript(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         # Transcript contains zero-width and control chars
         evil_text = "normal\u200btext\x01with\x08nasties"
         transcript = _transcript([TranscriptSnippet(evil_text, 0.0, 30.0)])
@@ -382,7 +402,9 @@ class TestGlossaryNormalization:
     def _run(self, vault, monkeypatch, glossary):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         transcript = _transcript(
             [
                 TranscriptSnippet(

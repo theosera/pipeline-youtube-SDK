@@ -71,7 +71,9 @@ class TestRunStageScripts:
     def test_end_to_end_writes_formatted_body(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         scripts_path = paths["scripts"]
 
         # Ensure placeholder has frontmatter but no body
@@ -110,7 +112,9 @@ class TestRunStageScripts:
 
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         scripts_path = paths["scripts"]
 
         monkeypatch.setattr(
@@ -151,7 +155,9 @@ class TestRunStageScripts:
     def test_dry_run_does_not_touch_file(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         scripts_path = paths["scripts"]
         pre_content = scripts_path.read_text(encoding="utf-8")
 
@@ -171,7 +177,9 @@ class TestRunStageScripts:
     def test_empty_transcript_writes_nothing(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         scripts_path = paths["scripts"]
         pre_content = scripts_path.read_text(encoding="utf-8")
 
@@ -210,7 +218,9 @@ class TestRunStageScripts:
 
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
-        paths = create_placeholder_notes(video, run_time, dry_run=False)
+        paths = create_placeholder_notes(
+            video, run_time, dry_run=False, vault_root=config.get_vault_root()
+        )
         scripts_path = paths["scripts"]
 
         injected = Cache(config.get_vault_root() / "cache", enabled=True)
