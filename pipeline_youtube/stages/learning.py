@@ -163,7 +163,7 @@ def run_stage_learning(
     model: str = "sonnet",
     dry_run: bool = False,
     code_bearing: bool = False,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> ClaudeResponse:
     """Integrate 02 + 03 into 04 and write directly to `learning_md_path`.
 
@@ -177,8 +177,8 @@ def run_stage_learning(
     top-level sections so theoretical and practical content stay
     separated.
 
-    ``cache`` may be injected explicitly (DI); when omitted the LLM call
-    falls back to the process-global ``get_cache()`` for backward compat.
+    ``cache`` is injected by the caller and threaded into the LLM call
+    (a disabled ``Cache`` no-ops the LLM-output cache).
     """
     if not summary_md_path.exists():
         raise FileNotFoundError(f"summary md not found: {summary_md_path}")

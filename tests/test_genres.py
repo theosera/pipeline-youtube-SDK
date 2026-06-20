@@ -24,6 +24,9 @@ from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers import registry as claude_cli_mod
 from pipeline_youtube.providers.base import LLMError as ClaudeCliError
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 def _video(i: int, title: str) -> VideoMeta:
@@ -101,7 +104,7 @@ class TestClassifyHappyPath:
             _video(1, "Claude Code 入門"),
             _video(2, "Cursor で AI コーディング"),
         ]
-        genre, rationale = classify_playlist_genre("AI 開発入門", videos)
+        genre, rationale = classify_playlist_genre("AI 開発入門", videos, cache=_NO_CACHE)
 
         assert genre == Genre.CODING
         assert "Claude Code" in rationale
@@ -125,7 +128,7 @@ class TestClassifyHappyPath:
         )
 
         videos = [_video(1, "ニーチェの永劫回帰"), _video(2, "カントの定言命法")]
-        genre, _ = classify_playlist_genre("哲学入門", videos)
+        genre, _ = classify_playlist_genre("哲学入門", videos, cache=_NO_CACHE)
         assert genre == Genre.HUMANITIES
 
     def test_strips_code_fences(self, monkeypatch):
@@ -139,7 +142,7 @@ class TestClassifyHappyPath:
         )
 
         videos = [_video(1, "量子力学")]
-        genre, _ = classify_playlist_genre("物理学", videos)
+        genre, _ = classify_playlist_genre("物理学", videos, cache=_NO_CACHE)
         assert genre == Genre.SCIENCE
 
     def test_uses_haiku_by_default(self, monkeypatch):
@@ -151,7 +154,7 @@ class TestClassifyHappyPath:
             return _resp('{"genre": "other", "rationale": ""}')
 
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
-        classify_playlist_genre("p", [_video(1, "t")])
+        classify_playlist_genre("p", [_video(1, "t")], cache=_NO_CACHE)
         assert captured["model"] == "haiku"
 
     def test_explicit_model_override(self, monkeypatch):
@@ -163,7 +166,7 @@ class TestClassifyHappyPath:
             return _resp('{"genre": "other", "rationale": ""}')
 
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
-        classify_playlist_genre("p", [_video(1, "t")], model="sonnet")
+        classify_playlist_genre("p", [_video(1, "t")], model="sonnet", cache=_NO_CACHE)
         assert captured["model"] == "sonnet"
 
     def test_injected_cache_is_forwarded(self, monkeypatch):
@@ -196,7 +199,7 @@ class TestClassifyErrorPaths:
             raise ClaudeCliError("network down")
 
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
-        genre, rationale = classify_playlist_genre("p", [_video(1, "t")])
+        genre, rationale = classify_playlist_genre("p", [_video(1, "t")], cache=_NO_CACHE)
         assert genre == Genre.OTHER
         assert "router_call_failed" in rationale
 
@@ -204,7 +207,7 @@ class TestClassifyErrorPaths:
         from pipeline_youtube import genres as genres_mod
 
         monkeypatch.setattr(genres_mod, "invoke_claude", lambda **kw: _resp("definitely not json"))
-        genre, rationale = classify_playlist_genre("p", [_video(1, "t")])
+        genre, rationale = classify_playlist_genre("p", [_video(1, "t")], cache=_NO_CACHE)
         assert genre == Genre.OTHER
         assert "router_parse_failed" in rationale
 
@@ -216,7 +219,7 @@ class TestClassifyErrorPaths:
             "invoke_claude",
             lambda **kw: _resp('{"genre": "cooking", "rationale": "lol"}'),
         )
-        genre, _ = classify_playlist_genre("p", [_video(1, "t")])
+        genre, _ = classify_playlist_genre("p", [_video(1, "t")], cache=_NO_CACHE)
         assert genre == Genre.OTHER
 
     def test_missing_genre_key_returns_other(self, monkeypatch):
@@ -227,7 +230,7 @@ class TestClassifyErrorPaths:
             "invoke_claude",
             lambda **kw: _resp('{"category": "coding"}'),
         )
-        genre, rationale = classify_playlist_genre("p", [_video(1, "t")])
+        genre, rationale = classify_playlist_genre("p", [_video(1, "t")], cache=_NO_CACHE)
         assert genre == Genre.OTHER
         assert "router_parse_failed" in rationale
 
@@ -240,7 +243,7 @@ class TestClassifyErrorPaths:
             return _resp('{"genre": "coding", "rationale": ""}')
 
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
-        genre, rationale = classify_playlist_genre("p", [])
+        genre, rationale = classify_playlist_genre("p", [], cache=_NO_CACHE)
         assert genre == Genre.OTHER
         assert rationale == "no videos"
         assert not called  # no LLM call when there's nothing to classify
@@ -263,7 +266,7 @@ class TestPromptShape:
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
 
         videos = [_video(i, f"Video {i}") for i in range(50)]
-        classify_playlist_genre("Big Playlist", videos)
+        classify_playlist_genre("Big Playlist", videos, cache=_NO_CACHE)
 
         # Only first 30 titles in prompt
         prompt = captured["prompt"]
@@ -283,7 +286,7 @@ class TestPromptShape:
         monkeypatch.setattr(genres_mod, "invoke_claude", fake)
 
         videos = [_video(1, "title\x01with\x07control")]
-        classify_playlist_genre("p", videos)
+        classify_playlist_genre("p", videos, cache=_NO_CACHE)
         prompt = captured["prompt"]
         assert "\x01" not in prompt
         assert "\x07" not in prompt
@@ -301,5 +304,5 @@ class TestPromptShape:
             lambda **kw: _resp('{"genre": "other", "rationale": ""}'),
         )
         # Should not raise
-        genre, _ = classify_playlist_genre(title, [_video(1, "t")])
+        genre, _ = classify_playlist_genre(title, [_video(1, "t")], cache=_NO_CACHE)
         assert genre == Genre.OTHER

@@ -211,7 +211,7 @@ def invoke_llm(
     messages: list[dict[str, str]] | None = None,
     web_search: bool = False,
     thinking: bool = False,
-    cache: Cache | None = None,
+    cache: Cache,
     # Legacy kwargs (accepted but ignored for backward compat).
     append_system_prompt: str | None = None,
     disallow_tools: bool = True,
@@ -231,8 +231,8 @@ def invoke_llm(
     ``extra_args``) are accepted for backward compatibility but
     have no effect in SDK mode.
 
-    ``cache`` may be injected explicitly (DI); when omitted it falls back to
-    the process-global ``get_cache()`` for backward compatibility.
+    ``cache`` is injected by the caller: the LLM-output cache (a disabled
+    ``Cache`` no-ops every lookup/store).
     """
     # Handle append_system_prompt → system_prompt mapping.
     if append_system_prompt and not system_prompt:
@@ -253,10 +253,6 @@ def invoke_llm(
     # key does not capture, so they bypass the cache.
     from ..cache import llm_key
 
-    if cache is None:
-        from ..cache import get_cache
-
-        cache = get_cache()
     use_cache = cache.enabled and messages is None and _llm_cache_enabled_for_role(role)
     key = ""
     if use_cache:

@@ -19,12 +19,15 @@ import pytest
 
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import learning as learning_mod
 from pipeline_youtube.stages.learning import (
     LEARNING_CODE_BEARING_ADDENDUM,
     LEARNING_SYSTEM_PROMPT,
     run_stage_learning,
 )
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -92,6 +95,7 @@ class TestCodeBearingAddendum:
                 learning_path,
                 run_time=datetime(2026, 4, 21, 12, 0),
                 model="sonnet",
+                cache=_NO_CACHE,
             )
 
         assert captured["append_system_prompt"] == LEARNING_SYSTEM_PROMPT
@@ -119,6 +123,7 @@ class TestCodeBearingAddendum:
                 run_time=datetime(2026, 4, 21, 12, 0),
                 model="sonnet",
                 code_bearing=True,
+                cache=_NO_CACHE,
             )
 
         sp = captured["append_system_prompt"]

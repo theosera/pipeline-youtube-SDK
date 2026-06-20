@@ -11,6 +11,9 @@ from __future__ import annotations
 from pipeline_youtube.providers import registry as registry_mod
 from pipeline_youtube.providers.base import LLMResponse
 from pipeline_youtube.providers.selection import HEAVY_STAGES, apply_selection
+from pipeline_youtube.services.cache import Cache
+
+_NO_CACHE = Cache(None, enabled=False)
 
 _STAGES = ("router", "stage_02", "stage_04", "alpha", "beta", "leader", "reviewer")
 _PROVIDERS = {
@@ -112,7 +115,7 @@ def _resolved_model_sent_to_provider(monkeypatch, effective: dict, role: str) ->
     monkeypatch.setitem(registry_mod._provider_cache, provider_name, _FakeProvider())
     # CLI builds the stage model map this way:
     stage_model = registry_mod.resolve_role(role)[1]
-    registry_mod.invoke_llm(prompt="hi", model=stage_model, role=role)
+    registry_mod.invoke_llm(prompt="hi", model=stage_model, role=role, cache=_NO_CACHE)
     return str(captured["model"])
 
 

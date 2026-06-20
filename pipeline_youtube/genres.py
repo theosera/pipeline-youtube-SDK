@@ -90,7 +90,7 @@ def classify_playlist_genre(
     videos: list[VideoMeta],
     *,
     model: str = "haiku",
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> tuple[Genre, str]:
     """Classify a playlist into a single Genre.
 
@@ -101,8 +101,8 @@ def classify_playlist_genre(
     The function is intentionally side-effect free; the caller decides
     whether to log the result.
 
-    ``cache`` may be injected explicitly (DI); when omitted the router LLM
-    call falls back to the process-global ``get_cache()``.
+    ``cache`` is injected by the caller and threaded into the router LLM
+    call (a disabled ``Cache`` no-ops the LLM-output cache).
     """
     if not videos:
         return Genre.OTHER, "no videos"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pipeline_youtube.evaluation import evaluators as ev
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.synthesis import SynthesisStageResult
 from pipeline_youtube.synthesis.scoring import (
     ChapterPlan,
@@ -13,6 +14,8 @@ from pipeline_youtube.synthesis.scoring import (
     SynthesisChapterBody,
     SynthesisMoc,
 )
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 def _video() -> VideoMeta:
@@ -59,7 +62,9 @@ def test_coverage_evaluator_parses_and_injects_missing_signal(monkeypatch) -> No
 
     monkeypatch.setattr(ev, "invoke_claude", fake_invoke)
 
-    report, _result = ev.call_coverage_evaluator([_video()], ["body"], _synth(leader=True))
+    report, _result = ev.call_coverage_evaluator(
+        [_video()], ["body"], _synth(leader=True), cache=_NO_CACHE
+    )
 
     assert report.perspective == "coverage"
     assert report.findings[0].finding_id == "f001"
@@ -74,13 +79,17 @@ def test_pedagogy_evaluator_parses(monkeypatch) -> None:
         "invoke_claude",
         lambda **kw: LLMResponse(text='{"summary": "p", "findings": []}', model="sonnet"),
     )
-    report, _ = ev.call_pedagogy_evaluator([_video()], ["body"], _synth(leader=True))
+    report, _ = ev.call_pedagogy_evaluator(
+        [_video()], ["body"], _synth(leader=True), cache=_NO_CACHE
+    )
     assert report.perspective == "pedagogy"
     assert report.findings == []
 
 
 def test_evaluator_returns_empty_when_no_leader_output(monkeypatch) -> None:
     monkeypatch.setattr(ev, "invoke_claude", lambda **kw: LLMResponse(text="", model="sonnet"))
-    report, _ = ev.call_coverage_evaluator([_video()], ["body"], _synth(leader=False))
+    report, _ = ev.call_coverage_evaluator(
+        [_video()], ["body"], _synth(leader=False), cache=_NO_CACHE
+    )
     assert report.perspective == "coverage"
     assert report.findings == []

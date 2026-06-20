@@ -9,6 +9,7 @@ import pytest
 
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.synthesis import agents as agents_mod
 from pipeline_youtube.synthesis.agents import (
     call_alpha,
@@ -32,6 +33,8 @@ from pipeline_youtube.synthesis.scoring import (
     SynthesisParseError,
     Topic,
 )
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 def _video(video_id: str, title: str) -> VideoMeta:
@@ -139,7 +142,7 @@ class TestCallAlpha:
         ]
         bodies = ["body1", "body2", "body3"]
 
-        topics, result = call_alpha(videos, bodies, playlist_title="Test Playlist")
+        topics, result = call_alpha(videos, bodies, playlist_title="Test Playlist", cache=_NO_CACHE)
 
         assert len(topics) == 2
         assert topics[0].topic_id == "t001"
@@ -186,7 +189,7 @@ class TestCallAlpha:
         )
 
         with pytest.raises(SynthesisParseError):
-            call_alpha([_video("v1", "t1")], ["body"], playlist_title="x")
+            call_alpha([_video("v1", "t1")], ["body"], playlist_title="x", cache=_NO_CACHE)
 
 
 # =====================================================
@@ -244,7 +247,7 @@ class TestCallBeta:
                 category="supporting",
             ),
         ]
-        chapters, result = call_beta(topics)
+        chapters, result = call_beta(topics, cache=_NO_CACHE)
 
         assert len(chapters) == 2
         assert chapters[0].index == 1
@@ -271,7 +274,7 @@ class TestCallBeta:
         topics = [
             Topic(topic_id="t001", label="A", duplication_count=3, category="core"),
         ]
-        call_beta(topics, max_chapters=5)
+        call_beta(topics, max_chapters=5, cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "最大 5 章" in prompt
@@ -287,7 +290,7 @@ class TestCallBeta:
         topics = [
             Topic(topic_id="t001", label="A", duplication_count=3, category="core"),
         ]
-        call_beta(topics)
+        call_beta(topics, cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "最大" not in prompt
@@ -302,7 +305,7 @@ class TestCallBeta:
         )
 
         topics = [Topic(topic_id="t001", label="A", duplication_count=1, category="unique")]
-        call_beta(topics, missing_topic_ids=["t005", "t009"])
+        call_beta(topics, missing_topic_ids=["t005", "t009"], cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "エラー: 前回の章立てに漏れがあります" in prompt
@@ -319,7 +322,7 @@ class TestCallBeta:
         )
 
         topics = [Topic(topic_id="t001", label="A", duplication_count=1, category="unique")]
-        call_beta(topics, missing_topic_ids=[])
+        call_beta(topics, missing_topic_ids=[], cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "エラー" not in prompt
@@ -456,6 +459,7 @@ class TestCallLeader:
             chapters,
             coverage,
             playlist_title="Test Playlist",
+            cache=_NO_CACHE,
         )
 
         assert leader_out.moc.title == "Test Playlist ハンズオン"
@@ -651,6 +655,7 @@ class TestCallAlphaBatched:
             bodies,
             batch_size=2,
             playlist_title="Playlist",
+            cache=_NO_CACHE,
         )
 
         # 2 batches → 2 results
@@ -665,10 +670,10 @@ class TestCallAlphaBatched:
 
     def test_length_mismatch_raises(self):
         with pytest.raises(ValueError, match="length mismatch"):
-            call_alpha_batched([_video("v1", "t1")], ["b1", "b2"])
+            call_alpha_batched([_video("v1", "t1")], ["b1", "b2"], cache=_NO_CACHE)
 
     def test_empty_inputs(self):
-        merged, results = call_alpha_batched([], [])
+        merged, results = call_alpha_batched([], [], cache=_NO_CACHE)
         assert merged == []
         assert results == []
 
@@ -690,6 +695,7 @@ class TestCallAlphaBatched:
             bodies,
             batch_size=2,
             playlist_title="Playlist",
+            cache=_NO_CACHE,
         )
 
         # 1 batch succeeded, so 1 AgentCallResult and the topics from
@@ -709,7 +715,9 @@ class TestCallAlphaBatched:
         videos = [_video(f"vid{i}", f"t{i}") for i in range(1, 5)]
         bodies = [f"body{i}" for i in range(1, 5)]
         with pytest.raises(SynthesisParseError, match="all .* α batches failed"):
-            call_alpha_batched(videos, bodies, batch_size=2, playlist_title="Playlist")
+            call_alpha_batched(
+                videos, bodies, batch_size=2, playlist_title="Playlist", cache=_NO_CACHE
+            )
 
 
 # =====================================================
@@ -771,6 +779,7 @@ class TestCallReviewer:
                 )
             ],
             CoverageReport(covered_topic_ids=["t001"], missing_topic_ids=[]),
+            cache=_NO_CACHE,
         )
         assert feedback.needs_revision is False
         assert feedback.fixes == []
@@ -790,6 +799,7 @@ class TestCallReviewer:
             [],
             [],
             CoverageReport(),
+            cache=_NO_CACHE,
         )
         assert feedback.needs_revision is True
         assert len(feedback.fixes) == 1
@@ -807,6 +817,7 @@ class TestCallReviewer:
             [],
             [],
             CoverageReport(),
+            cache=_NO_CACHE,
         )
         # Advisory parse failure falls back to no_revision so the stage
         # continues with the original leader output.

@@ -30,9 +30,13 @@ class _CountingProvider:
 
 @pytest.fixture
 def provider(monkeypatch, tmp_path):
-    """Enabled cache + a counting provider wired into the registry."""
-    cache_mod.configure_cache(tmp_path / "c", enabled=True)
+    """Enabled cache + a counting provider wired into the registry.
+
+    The configured ``Cache`` is attached as ``provider.cache`` so tests inject
+    it explicitly into ``invoke_llm`` (the LLM-output cache under test).
+    """
     p = _CountingProvider()
+    p.cache = cache_mod.configure_cache(tmp_path / "c", enabled=True)
     monkeypatch.setattr(registry, "get_provider", lambda name: p)
     # Resolve any role to ("fake", "fake-model") so invoke_llm doesn't touch config.
     monkeypatch.setattr(registry, "resolve_role", lambda role: ("fake", "fake-model"))
@@ -42,8 +46,12 @@ def provider(monkeypatch, tmp_path):
 class TestPerRolePolicy:
     def test_stage_02_cached_by_default(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=False)
-        r1 = registry.invoke_llm("p", system_prompt="s", role="stage_02", provider_name="fake")
-        r2 = registry.invoke_llm("p", system_prompt="s", role="stage_02", provider_name="fake")
+        r1 = registry.invoke_llm(
+            "p", system_prompt="s", role="stage_02", provider_name="fake", cache=provider.cache
+        )
+        r2 = registry.invoke_llm(
+            "p", system_prompt="s", role="stage_02", provider_name="fake", cache=provider.cache
+        )
         assert provider.calls == 1  # second call served from cache
         assert r1.text == r2.text
 
@@ -51,48 +59,80 @@ class TestPerRolePolicy:
         # Stage 01b correction is a paid web-search call — re-runs must hit the
         # LLM cache instead of repeating it.
         registry.configure_llm_cache(stages=True, synthesis=False)
-        registry.invoke_llm("p", system_prompt="s", role="stage_01_correct", provider_name="fake")
-        registry.invoke_llm("p", system_prompt="s", role="stage_01_correct", provider_name="fake")
+        registry.invoke_llm(
+            "p",
+            system_prompt="s",
+            role="stage_01_correct",
+            provider_name="fake",
+            cache=provider.cache,
+        )
+        registry.invoke_llm(
+            "p",
+            system_prompt="s",
+            role="stage_01_correct",
+            provider_name="fake",
+            cache=provider.cache,
+        )
         assert provider.calls == 1  # second call served from cache
 
     def test_synthesis_not_cached_by_default(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=False)
-        registry.invoke_llm("p", system_prompt="s", role="alpha", provider_name="fake")
-        registry.invoke_llm("p", system_prompt="s", role="alpha", provider_name="fake")
+        registry.invoke_llm(
+            "p", system_prompt="s", role="alpha", provider_name="fake", cache=provider.cache
+        )
+        registry.invoke_llm(
+            "p", system_prompt="s", role="alpha", provider_name="fake", cache=provider.cache
+        )
         assert provider.calls == 2  # synthesis fresh each time
 
     def test_synthesis_cached_when_opted_in(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=True)
-        registry.invoke_llm("p", system_prompt="s", role="leader", provider_name="fake")
-        registry.invoke_llm("p", system_prompt="s", role="leader", provider_name="fake")
+        registry.invoke_llm(
+            "p", system_prompt="s", role="leader", provider_name="fake", cache=provider.cache
+        )
+        registry.invoke_llm(
+            "p", system_prompt="s", role="leader", provider_name="fake", cache=provider.cache
+        )
         assert provider.calls == 1
 
     def test_unknown_role_never_cached(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=True)
-        registry.invoke_llm("p", role=None, provider_name="fake")
-        registry.invoke_llm("p", role=None, provider_name="fake")
+        registry.invoke_llm("p", role=None, provider_name="fake", cache=provider.cache)
+        registry.invoke_llm("p", role=None, provider_name="fake", cache=provider.cache)
         assert provider.calls == 2
 
     def test_different_prompt_misses(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=False)
-        registry.invoke_llm("p1", system_prompt="s", role="stage_04", provider_name="fake")
-        registry.invoke_llm("p2", system_prompt="s", role="stage_04", provider_name="fake")
+        registry.invoke_llm(
+            "p1", system_prompt="s", role="stage_04", provider_name="fake", cache=provider.cache
+        )
+        registry.invoke_llm(
+            "p2", system_prompt="s", role="stage_04", provider_name="fake", cache=provider.cache
+        )
         assert provider.calls == 2
 
     def test_multi_turn_bypasses_cache(self, provider):
         registry.configure_llm_cache(stages=True, synthesis=False)
         msgs = [{"role": "user", "content": "hi"}]
-        registry.invoke_llm("p", role="stage_02", provider_name="fake", messages=msgs)
-        registry.invoke_llm("p", role="stage_02", provider_name="fake", messages=msgs)
+        registry.invoke_llm(
+            "p", role="stage_02", provider_name="fake", messages=msgs, cache=provider.cache
+        )
+        registry.invoke_llm(
+            "p", role="stage_02", provider_name="fake", messages=msgs, cache=provider.cache
+        )
         assert provider.calls == 2
 
     def test_disabled_cache_master_switch(self, monkeypatch, tmp_path):
-        cache_mod.configure_cache(None, enabled=False)  # --no-cache
+        cache = cache_mod.configure_cache(None, enabled=False)  # --no-cache
         p = _CountingProvider()
         monkeypatch.setattr(registry, "get_provider", lambda name: p)
         registry.configure_llm_cache(stages=True, synthesis=True)
-        registry.invoke_llm("p", system_prompt="s", role="stage_02", provider_name="fake")
-        registry.invoke_llm("p", system_prompt="s", role="stage_02", provider_name="fake")
+        registry.invoke_llm(
+            "p", system_prompt="s", role="stage_02", provider_name="fake", cache=cache
+        )
+        registry.invoke_llm(
+            "p", system_prompt="s", role="stage_02", provider_name="fake", cache=cache
+        )
         assert p.calls == 2
 
 

@@ -11,12 +11,15 @@ from pipeline_youtube import config
 from pipeline_youtube.pipeline import create_placeholder_notes
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import summary as summary_stage
 from pipeline_youtube.transcript.base import (
     TranscriptSnippet,
     TranscriptSource,
     build_result,
 )
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -105,7 +108,7 @@ class TestRunStageSummary:
             lambda **kw: _fake_claude_response(SAMPLE_SUMMARY_OUTPUT),
         )
 
-        response = summary_stage.run_stage_summary(video, summary_path, transcript)
+        response = summary_stage.run_stage_summary(video, summary_path, transcript, cache=_NO_CACHE)
 
         assert response.text == SAMPLE_SUMMARY_OUTPUT
         assert response.input_tokens == 120
@@ -125,7 +128,7 @@ class TestRunStageSummary:
         summary_path = paths["summary"]
         transcript = _transcript([])
 
-        response = summary_stage.run_stage_summary(video, summary_path, transcript)
+        response = summary_stage.run_stage_summary(video, summary_path, transcript, cache=_NO_CACHE)
 
         assert response.input_tokens is None  # synthetic, no API call
         post = summary_path.read_text(encoding="utf-8")
@@ -147,7 +150,9 @@ class TestRunStageSummary:
             lambda **kw: _fake_claude_response(SAMPLE_SUMMARY_OUTPUT),
         )
 
-        summary_stage.run_stage_summary(video, summary_path, transcript, dry_run=True)
+        summary_stage.run_stage_summary(
+            video, summary_path, transcript, dry_run=True, cache=_NO_CACHE
+        )
 
         assert summary_path.read_text(encoding="utf-8") == pre
 
@@ -162,7 +167,7 @@ class TestRunStageSummary:
         )
 
         with pytest.raises(FileNotFoundError):
-            summary_stage.run_stage_summary(video, ghost, transcript)
+            summary_stage.run_stage_summary(video, ghost, transcript, cache=_NO_CACHE)
 
 
 # =====================================================
@@ -196,7 +201,9 @@ class TestRepairRetry:
         fake, calls = _sequenced_invoke([_BAD_OUTPUT, SAMPLE_SUMMARY_OUTPUT])
         monkeypatch.setattr(summary_stage, "invoke_claude", fake)
 
-        response = summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        response = summary_stage.run_stage_summary(
+            video, paths["summary"], transcript, cache=_NO_CACHE
+        )
 
         assert calls["n"] == 2  # one repair attempt
         # The repair prompt names the defect and the required structure.
@@ -219,7 +226,9 @@ class TestRepairRetry:
         fake, calls = _sequenced_invoke([_BAD_OUTPUT])
         monkeypatch.setattr(summary_stage, "invoke_claude", fake)
 
-        response = summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        response = summary_stage.run_stage_summary(
+            video, paths["summary"], transcript, cache=_NO_CACHE
+        )
 
         # Initial call + MAX_SUMMARY_REPAIR_RETRIES repairs.
         assert calls["n"] == summary_stage.MAX_SUMMARY_REPAIR_RETRIES + 1
@@ -240,7 +249,7 @@ class TestRepairRetry:
         fake, calls = _sequenced_invoke(["", SAMPLE_SUMMARY_OUTPUT])
         monkeypatch.setattr(summary_stage, "invoke_claude", fake)
 
-        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
 
         assert calls["n"] == 2
         post = paths["summary"].read_text(encoding="utf-8")
@@ -264,7 +273,7 @@ class TestPromptBuilding:
 
         monkeypatch.setattr(summary_stage, "invoke_claude", fake_invoke)
 
-        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "<untrusted_content>" in prompt
@@ -296,7 +305,7 @@ class TestPromptBuilding:
             )[1],
         )
 
-        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "[00:00]" in prompt
@@ -320,7 +329,7 @@ class TestPromptBuilding:
             )[1],
         )
 
-        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
 
         # Append mode preserves Claude Code default context.
         # (--system-prompt replace mode gave no cache savings in live runs.)
@@ -348,7 +357,7 @@ class TestPromptBuilding:
             )[1],
         )
 
-        summary_stage.run_stage_summary(video, paths["summary"], transcript)
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
 
         prompt = captured["prompt"]
         assert "\x01" not in prompt
@@ -386,7 +395,9 @@ class TestGlossaryNormalization:
             "invoke_claude",
             lambda **kw: _fake_claude_response(self._SUMMARY_WITH_VARIANT),
         )
-        summary_stage.run_stage_summary(video, paths["summary"], transcript, glossary=glossary)
+        summary_stage.run_stage_summary(
+            video, paths["summary"], transcript, glossary=glossary, cache=_NO_CACHE
+        )
         return paths["summary"].read_text(encoding="utf-8")
 
     def test_glossary_normalizes_body_and_one_liner(self, vault, monkeypatch):

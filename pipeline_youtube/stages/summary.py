@@ -151,7 +151,7 @@ def run_stage_summary(
     filler_words: tuple[str, ...] | list[str] | None = None,
     glossary: Glossary | None = None,
     dry_run: bool = False,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> ClaudeResponse:
     """Generate a 02_Summary md body and append it to the placeholder.
 
@@ -166,8 +166,8 @@ def run_stage_summary(
     context-only cleansing; this layer adds glossary-backed correction
     without inventing anything not already in the glossary.
 
-    ``cache`` may be injected explicitly (DI); when omitted the LLM calls
-    fall back to the process-global ``get_cache()`` for backward compat.
+    ``cache`` is injected by the caller and threaded into the LLM calls
+    (a disabled ``Cache`` no-ops the LLM-output cache).
     """
     chunks = chunk_by_window(transcript_result.snippets, window_seconds, filler_words=filler_words)
 
@@ -212,7 +212,7 @@ def _validate_with_repair(
     response: ClaudeResponse,
     *,
     model: str,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> tuple[str, str | None, ClaudeResponse]:
     """Validate Stage 02 output, re-prompting the model on structural failure.
 

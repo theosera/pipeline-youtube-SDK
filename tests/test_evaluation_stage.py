@@ -18,6 +18,7 @@ from pipeline_youtube.evaluation.schemas import EvaluatorReport, Finding
 from pipeline_youtube.glossary.schema import Glossary, GlossaryEntry
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import evaluation as eval_stage
 from pipeline_youtube.stages.evaluation import run_stage_evaluation
 from pipeline_youtube.stages.synthesis import SynthesisStageResult
@@ -29,6 +30,8 @@ from pipeline_youtube.synthesis.scoring import (
     SynthesisChapterBody,
     SynthesisMoc,
 )
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -105,7 +108,13 @@ def _patch_evaluators(monkeypatch, *, coverage=None, pedagogy=None, cov_raises=F
 def test_eval_zero_is_noop(vault) -> None:
     synth = _synth_with_leader()
     result = run_stage_evaluation(
-        [_video()], ["body"], synth, run_time=datetime(2026, 6, 15), playlist_title="P", max_loops=0
+        [_video()],
+        ["body"],
+        synth,
+        run_time=datetime(2026, 6, 15),
+        playlist_title="P",
+        max_loops=0,
+        cache=_NO_CACHE,
     )
     assert result.loop_result.skipped is True
     assert result.synthesis_result is synth
@@ -130,6 +139,7 @@ def test_advisory_writes_report_and_returns_synthesis_unchanged(vault, monkeypat
         max_loops=1,
         glossary=glossary,
         folder_name_override="2026-06-15 Test",
+        cache=_NO_CACHE,
     )
 
     # synthesis is returned UNCHANGED (advisory only)
@@ -160,6 +170,7 @@ def test_dry_run_skips_artifact_writes(vault, monkeypatch) -> None:
         playlist_title="P",
         max_loops=1,
         dry_run=True,
+        cache=_NO_CACHE,
     )
     assert result.report_paths == []
     assert result.summary_path is None
@@ -175,6 +186,7 @@ def test_evaluator_failure_degrades_to_empty_report(vault, monkeypatch) -> None:
         playlist_title="P",
         max_loops=1,
         folder_name_override="2026-06-15 Test",
+        cache=_NO_CACHE,
     )
     # coverage crashed -> empty coverage report, stage still succeeds
     report = result.loop_result.iterations[0].report
@@ -194,5 +206,6 @@ def test_no_glossary_yields_empty_fidelity(vault, monkeypatch) -> None:
         max_loops=1,
         glossary=None,
         folder_name_override="2026-06-15 Test",
+        cache=_NO_CACHE,
     )
     assert result.loop_result.iterations[0].report.fidelity.findings == []

@@ -11,8 +11,11 @@ from pipeline_youtube import config
 from pipeline_youtube.pipeline import compute_note_paths, create_placeholder_notes
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse as ClaudeResponse
+from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages import learning as learning_stage
 from pipeline_youtube.stages.learning import _strip_frontmatter
+
+_NO_CACHE = Cache(None, enabled=False)
 
 
 @pytest.fixture
@@ -156,6 +159,7 @@ class TestRunStageLearning:
             capture_md_path=paths["capture"],
             learning_md_path=learning_path,
             run_time=run_time,
+            cache=_NO_CACHE,
         )
 
         assert response.text == SAMPLE_LEARNING_BODY
@@ -185,6 +189,7 @@ class TestRunStageLearning:
             capture_md_path=paths["capture"],
             learning_md_path=learning_path,
             run_time=run_time,
+            cache=_NO_CACHE,
         )
 
         # The file exists with full frontmatter + body in a single write
@@ -211,6 +216,7 @@ class TestRunStageLearning:
             learning_md_path=learning_path,
             run_time=run_time,
             dry_run=True,
+            cache=_NO_CACHE,
         )
 
         assert response.text == SAMPLE_LEARNING_BODY
@@ -227,6 +233,7 @@ class TestRunStageLearning:
                 capture_md_path=paths["capture"],
                 learning_md_path=learning_path,
                 run_time=run_time,
+                cache=_NO_CACHE,
             )
 
     def test_missing_capture_raises(self, vault, monkeypatch):
@@ -240,6 +247,7 @@ class TestRunStageLearning:
                 capture_md_path=paths["capture"],
                 learning_md_path=learning_path,
                 run_time=run_time,
+                cache=_NO_CACHE,
             )
 
 
@@ -260,6 +268,7 @@ class TestPromptBuilding:
             capture_md_path=paths["capture"],
             learning_md_path=learning_path,
             run_time=run_time,
+            cache=_NO_CACHE,
         )
 
         prompt = captured["prompt"]
@@ -287,6 +296,7 @@ class TestPromptBuilding:
             capture_md_path=paths["capture"],
             learning_md_path=learning_path,
             run_time=run_time,
+            cache=_NO_CACHE,
         )
 
         assert "append_system_prompt" in captured
@@ -309,6 +319,7 @@ class TestPromptBuilding:
             capture_md_path=paths["capture"],
             learning_md_path=learning_path,
             run_time=run_time,
+            cache=_NO_CACHE,
         )
 
         prompt = captured["prompt"]

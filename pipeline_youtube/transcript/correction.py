@@ -213,7 +213,7 @@ def correct_chunks(
     batch_size: int = DEFAULT_BATCH_SIZE,
     timeout: int = DEFAULT_TIMEOUT,
     known_terms: list[tuple[str, str]] | None = None,
-    cache: Cache | None = None,
+    cache: Cache,
 ) -> CorrectionResult:
     """Return corrected chunks (timestamps unchanged), total cost, and terms.
 
@@ -233,8 +233,8 @@ def correct_chunks(
     (a batch whose ``invoke`` raised before returning contributes nothing; a
     batch that returned but failed to parse still counts, since it was billed).
 
-    ``cache`` is forwarded to ``invoke`` (DI); when omitted the underlying
-    ``invoke_llm`` falls back to the process-global ``get_cache()``.
+    ``cache`` is injected by the caller and forwarded to ``invoke`` (a
+    disabled ``Cache`` no-ops the LLM-output cache).
     """
     if not chunks:
         return CorrectionResult(chunks=chunks, cost_usd=0.0)
