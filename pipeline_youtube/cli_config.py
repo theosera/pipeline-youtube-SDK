@@ -40,7 +40,8 @@ _MODEL_KEYS = frozenset(
     }
 )
 # "gamma" accepted silently for backward-compat with existing config.json,
-# but the γ LLM role has been replaced by a Python set diff — the value is ignored.
+# but the coverage role it named is now a Python set diff (compute_coverage);
+# the value is ignored. Kept only so old configs don't error on an unknown key.
 _DEPRECATED_MODEL_KEYS = frozenset({"gamma"})
 
 _SYNTHESIS_PROFILE_CHOICES = ("auto", "standard", "parallel", "full", "parallel+full")

@@ -297,7 +297,7 @@ def format_learning_materials(
 
 
 def _topics_to_json_block(topics: list[Topic]) -> str:
-    """Serialize α's topics list back to JSON (for β/γ/leader input)."""
+    """Serialize α's topics list back to JSON (for β/leader input)."""
     import json
 
     return json.dumps(
@@ -360,7 +360,7 @@ def _coverage_to_json_block(report: CoverageReport) -> str:
 
 
 # =====================================================
-# α / β / γ / leader agent calls
+# α / β / leader agent calls
 # =====================================================
 
 
@@ -452,7 +452,7 @@ def compute_coverage(
 ) -> CoverageReport:
     """Deterministic coverage check: set diff on topic_ids.
 
-    Replaces the former γ (CoverageReviewer) LLM call. Set operations
+    Replaces the former CoverageReviewer LLM role (retired). Set operations
     give the same `covered` / `missing` split in microseconds with zero
     LLM cost and no hallucination risk.
     """
