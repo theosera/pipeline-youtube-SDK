@@ -38,7 +38,7 @@ run_time: 2026-04-16T19:32:07
   [03] capture... 4/4 ranges fmt=webp
   [04] learning... in=9512 out=3800 cost=$0.041
 
-[3/3] kJ9mXpqRsT2 α/β/γ/leader 設計パターン
+[3/3] kJ9mXpqRsT2 α/β/leader 設計パターン
   [01] scripts... source=official snippets=309 lang=ja
   [02] summary... in=10201 out=3602 cost=$0.039
   [03] capture... 6/6 ranges fmt=webp
@@ -53,7 +53,7 @@ chapters:  5
   - 01_Agent Teams の基礎概念.md
   - 02_ハーネスエンジニアリング.md
   - 03_コンテキスト管理戦略.md
-  - 04_α_β_γ_leader の役割分担.md
+  - 04_α_β_leader の役割分担.md
   - 05_実践パターンと落とし穴.md
 meta:      /Users/you/Obsidian Vault/Permanent Note/08_YouTube学習/05_Synthesis/2026-04-16 1932 Agent Teams 実践/_meta/duplicate_score.json
 tokens:    in=47821 out=11302 cache_read=95200 cache_create=26100
@@ -99,7 +99,7 @@ cost:      $X.XXX
 duration:  Y.Ys
 ```
 
-`tokens` の 4 項目は α/β/γ/leader の合計。Claude の server-side cache が 5 分以内の連続呼び出しでは cache_read 主体になる (`cache_create` は α の初回のみ)。
+`tokens` の 4 項目は α/β/leader の合計。Claude の server-side cache が 5 分以内の連続呼び出しでは cache_read 主体になる (`cache_create` は α の初回のみ)。
 
 ## スキップケース
 
@@ -159,7 +159,7 @@ uv run python -m pipeline_youtube.main \
   [03] capture... 4/4 ranges fmt=webp
   [stop-after-capture] review 02_Summary.md then re-run with --resume-reviewed
 
-[3/3] kJ9mXpqRsT2 α/β/γ/leader 設計パターン
+[3/3] kJ9mXpqRsT2 α/β/leader 設計パターン
   [01] scripts... source=official snippets=309 lang=ja
   [02] summary (model=haiku)... in=10201 out=3602 cost=$0.010
   [03] capture... 6/6 ranges fmt=webp
@@ -185,7 +185,7 @@ checkpoint: 0 videos already complete, will skip
 [1/3] _h3decBW12Q Agent Teams とは何か
   [04] learning (model=sonnet)... in=12034 out=4211 cost=$0.045
 
-[3/3] kJ9mXpqRsT2 α/β/γ/leader 設計パターン
+[3/3] kJ9mXpqRsT2 α/β/leader 設計パターン
   [04] learning (model=sonnet)... in=14800 out=4902 cost=$0.053
 
 === Video processing summary ===
@@ -204,7 +204,7 @@ succeeded: 2/3
   [02] summary (model=haiku)...
   [04] learning (model=sonnet)...
 === Stage 05 Synthesis (Agent Teams) ===
-  (α=haiku / β=sonnet / γ=haiku / leader=opus でそれぞれ発話)
+  (α=haiku / β=sonnet / leader=opus でそれぞれ発話)
 ```
 
 未設定のキーは CLI `--model` (デフォルト `sonnet`) にフォールバック。

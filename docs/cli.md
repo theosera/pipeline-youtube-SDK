@@ -66,7 +66,7 @@ Options:
 
 - **`--dry-run`**: Vault への書き込みを一切行わず、stdout に生成内容を出力。`config.json` の `vault_root` 存在チェックは依然必要 (実際の書き込みはしない)。
 - **`--skip-synthesis`**: 動画単位の 01〜04 のみ実行。プレイリスト単位の Stage 05 はバイパス。
-- **`--synthesis-only`**: 今日の日付のプレイリストフォルダ配下にある既存 `04_Learning_Material/*.md` を読み込み、Stage 05 のみ再実行。α/β/γ/leader の章立てを作り直したいときに使う。当日の 04 フォルダが無いと `click.UsageError` で exit。
+- **`--synthesis-only`**: 今日の日付のプレイリストフォルダ配下にある既存 `04_Learning_Material/*.md` を読み込み、Stage 05 のみ再実行。α/β/leader の章立てを作り直したいときに使う。当日の 04 フォルダが無いと `click.UsageError` で exit。
 - **`--stop-after-capture`**: Phase 1 実行。Stage 01〜03 を動画単位で完了させて停止する。続けてユーザーが Obsidian 上で 02_Summary.md を校閲し `reviewed: true` に書き換える運用向け。
 - **`--resume-reviewed`**: Phase 3 実行。Stage 01〜03 をスキップし、02_Summary.md の frontmatter `reviewed: true` が付いた動画だけを対象に Stage 04〜05 を走らせる。`--synthesis-only` とは異なり Stage 04 を含めて再実行する。
 
