@@ -8,6 +8,8 @@ The CLI derives each stage's explicit ``model=`` name from the SAME
 
 from __future__ import annotations
 
+import pytest
+
 from pipeline_youtube.providers import registry as registry_mod
 from pipeline_youtube.providers.base import LLMResponse
 from pipeline_youtube.providers.selection import HEAVY_STAGES, apply_selection
@@ -25,6 +27,20 @@ _PROVIDERS = {
 
 def _all_ollama() -> dict[str, dict[str, str]]:
     return {s: {"provider": "ollama", "model": "qwen3:8b"} for s in _STAGES}
+
+
+def test_resolve_env_vars_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unset ${VAR} reference must fail loud, not silently resolve to ''."""
+    monkeypatch.delenv("PYTL_TEST_MISSING_KEY", raising=False)
+    with pytest.raises(registry_mod.LLMError):
+        registry_mod._resolve_env_vars("${PYTL_TEST_MISSING_KEY}")
+
+
+def test_resolve_env_vars_present_and_literal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A set ${VAR} resolves; a plain literal passes through unchanged."""
+    monkeypatch.setenv("PYTL_TEST_PRESENT_KEY", "secret-value")
+    assert registry_mod._resolve_env_vars("${PYTL_TEST_PRESENT_KEY}") == "secret-value"
+    assert registry_mod._resolve_env_vars("literal-key") == "literal-key"
 
 
 def test_no_flags_leaves_effective_unchanged_no_warning() -> None:

@@ -116,11 +116,23 @@ def configure_providers(
 
 
 def _resolve_env_vars(value: str) -> str:
-    """Replace ``${ENV_VAR}`` patterns with environment variable values."""
+    """Resolve a ``${ENV_VAR}`` reference to the environment variable's value.
+
+    Fails loud: an unset/empty referenced variable raises ``LLMError`` instead
+    of silently resolving to ``""`` (which previously flowed downstream as an
+    empty API key and surfaced only as an opaque upstream 401). Plain literal
+    values pass through unchanged.
+    """
     if not value.startswith("${") or not value.endswith("}"):
         return value
     env_name = value[2:-1]
-    return os.environ.get(env_name, "")
+    resolved = os.environ.get(env_name, "")
+    if not resolved:
+        raise LLMError(
+            f"Environment variable {env_name!r} (referenced in config.json) is not set "
+            f"or is empty. Export it, or set the provider's api_key to a literal value."
+        )
+    return resolved
 
 
 def get_provider(provider_name: str) -> LLMProvider:
