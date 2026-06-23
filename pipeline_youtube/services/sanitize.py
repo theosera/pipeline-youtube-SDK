@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -114,6 +115,14 @@ def _redact(sample: str, max_len: int = 24) -> str:
 
 
 def _emit_alert(context: str, before_len: int, after_len: int, sample: str) -> None:
+    # Surface every detection on stderr so a stripped-injection signal is never
+    # silent — the JSONL sink is persistence/audit, but operators watch stderr.
+    # Redacted fingerprint only; the plaintext sample is never printed.
+    print(
+        f"⚠️  sanitize: potential injection in {context!r} — "
+        f"removed {before_len - after_len} chars {_redact(sample)}",
+        file=sys.stderr,
+    )
     if _alert_sink is None:
         return
     try:
