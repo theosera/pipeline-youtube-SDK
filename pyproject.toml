@@ -5,7 +5,7 @@ description = "YouTube playlist → Obsidian vault learning pipeline (Multi-LLM 
 requires-python = ">=3.13"
 dependencies = [
     "click>=8.1",
-    "yt-dlp>=2026.3",
+    "yt-dlp>=2026.6.9",  # 2026.6.9 fixes CVE-2026-50019/50023/50574 + GHSA-69qj-pvh9-c5wg
     "youtube-transcript-api>=0.6",
     "httpx>=0.27",
     "openai>=1.30",
