@@ -1,0 +1,25 @@
+# CODEOWNERS
+#
+# 自動レビュワー指定。`.github/` 配下と CI/CD・ビルド設定の変更時に必ず所有者の
+# レビューを要求することで、Megalodon (2026-05) / CISA Nx (2026-06) 系の
+# "Direct Poisoned Pipeline Execution" — リポジトリの workflow を直接書き換えて
+# Secrets / OIDC トークンを抜く攻撃 — を機械的に防ぐ。
+#
+# branch protection で "Require review from Code Owners" を有効化することで
+# 効力を発揮する。
+#
+# Syntax: <pattern> <owner...>  (後勝ち。最も具体的な行が適用される)
+
+# CI / GitHub Actions / dependabot などの自動化設定。
+# .github/workflows/ と composite action への手出しは攻撃面が大きすぎるので必ず人手レビュー。
+/.github/                @theosera
+
+# CODEOWNERS 自体の改ざんも防ぐ (自己防衛)。
+/.github/CODEOWNERS      @theosera
+
+# 依存・ビルド設定 (supply-chain 面)。lockfile / build backend の改変も人手レビュー。
+/pyproject.toml          @theosera
+/uv.lock                 @theosera
+
+# 運用スクリプト。
+/scripts/                @theosera
