@@ -78,17 +78,17 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - uses: ./.github/actions/setup-python-uv
 
-      # Distinguish vulnerability findings (advisory) from tool failures (real errors):
-      #   exit 0  -> clean
-      #   exit 1  -> vulnerabilities found; emit a warning annotation, don't fail
-      #   other   -> resolver / network / tooling failure; surface as error and fail
-      #              so dependency auditing isn't silently disabled.
-      - name: pip-audit (advisory)
+      # Fail the job on any non-zero exit: vulnerability findings (exit 1) now
+      #   block instead of warning, forcing dependency-CVE triage; tooling /
+      #   resolver failures (other codes) still surface as errors. If a
+      #   pre-existing advisory turns CI red, pin/upgrade the affected dep or
+      #   add an explicit, time-boxed `--ignore-vuln <ID>` with a rationale.
+      - name: pip-audit
         run: |
           rc=0
           uv run --with pip-audit pip-audit || rc=$?
           case "$rc" in
             0) ;;
-            1) echo "::warning::pip-audit reported findings — see job log." ;;
+            1) echo "::error::pip-audit reported vulnerabilities — see job log."; exit 1 ;;
             *) echo "::error::pip-audit failed to run (exit $rc)"; exit "$rc" ;;
           esac
