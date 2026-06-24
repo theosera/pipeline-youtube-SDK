@@ -7,6 +7,10 @@ import json
 import pytest
 
 from pipeline_youtube.synthesis.scoring import (
+    _MAX_BODY_CHARS,
+    _MAX_FIELD_CHARS,
+    _MAX_ITEMS,
+    _MAX_LIST,
     LeaderOutput,
     ReviewerFeedback,
     SynthesisParseError,
@@ -17,6 +21,42 @@ from pipeline_youtube.synthesis.scoring import (
     parse_leader_output,
     parse_reviewer_output,
 )
+
+
+class TestDefensiveCaps:
+    def test_topic_count_capped(self):
+        raw = json.dumps({"topics": [{"label": f"t{i}"} for i in range(_MAX_ITEMS + 50)]})
+        assert len(parse_alpha_topics(raw)) == _MAX_ITEMS
+
+    def test_oversized_topic_fields_capped(self):
+        raw = json.dumps(
+            {
+                "topics": [
+                    {
+                        "label": "x" * (_MAX_FIELD_CHARS + 100),
+                        "summary": "y" * (_MAX_FIELD_CHARS + 100),
+                        "aliases": ["a"] * (_MAX_LIST + 50),
+                    }
+                ]
+            }
+        )
+        t = parse_alpha_topics(raw)[0]
+        assert len(t.label) == _MAX_FIELD_CHARS
+        assert len(t.summary) == _MAX_FIELD_CHARS
+        assert len(t.aliases) == _MAX_LIST
+
+    def test_leader_body_capped_at_body_limit(self):
+        raw = json.dumps(
+            {
+                "moc": {"title": "t", "body_markdown": "z" * (_MAX_BODY_CHARS + 100)},
+                "chapters": [
+                    {"chapter_index": 1, "label": "c", "body_markdown": "w" * (_MAX_BODY_CHARS + 100)}
+                ],
+            }
+        )
+        out = parse_leader_output(raw)
+        assert len(out.moc.body_markdown) == _MAX_BODY_CHARS
+        assert len(out.chapters[0].body_markdown) == _MAX_BODY_CHARS
 
 
 class TestDeriveCategory:

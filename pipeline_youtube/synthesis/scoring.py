@@ -195,6 +195,29 @@ def extract_json(raw: str) -> dict[str, Any]:
 # =====================================================
 
 
+# Defensive bounds on parsed synthesis output. A runaway or prompt-injected
+# model response could emit an enormous item count or oversized fields; these
+# caps sit far above any legitimate pedagogical run, so they only trip on
+# pathological output. (Vault-write injection is separately neutralized by
+# validate_chapter_body.)
+_MAX_ITEMS = 500  # topics / chapters per response
+_MAX_LIST = 200  # aliases / source_videos / topic_ids / excerpts / fixes per item
+_MAX_FIELD_CHARS = 4_000  # short free-text (label / summary / rationale / quote / id)
+_MAX_BODY_CHARS = 50_000  # chapter / MoC body_markdown
+
+
+def _cap_str(value: object, limit: int = _MAX_FIELD_CHARS) -> str:
+    """Coerce to str and cap length (injection / runaway-padding guard)."""
+    return str(value or "")[:limit]
+
+
+def _cap_strs(values: object, limit: int = _MAX_LIST) -> list[str]:
+    """Coerce to a capped list of non-empty strings (non-list → empty)."""
+    if not isinstance(values, list):
+        return []
+    return [_cap_str(v) for v in values[:limit] if v]
+
+
 def parse_alpha_topics(raw: str) -> list[Topic]:
     """Parse α's topic extraction output.
 
@@ -222,17 +245,17 @@ def parse_alpha_topics(raw: str) -> list[Topic]:
         raise SynthesisParseError(f"topics must be a list, got {type(topics_raw).__name__}")
 
     topics: list[Topic] = []
-    for i, t in enumerate(topics_raw):
+    for i, t in enumerate(topics_raw[:_MAX_ITEMS]):
         if not isinstance(t, dict):
             continue
         excerpts_raw = t.get("excerpts") or []
         excerpts = [
             TopicExcerpt(
-                video_id=str(e.get("video_id", "")),
-                range_str=str(e.get("range", "")),
-                quote=str(e.get("quote", "")),
+                video_id=_cap_str(e.get("video_id", "")),
+                range_str=_cap_str(e.get("range", "")),
+                quote=_cap_str(e.get("quote", "")),
             )
-            for e in excerpts_raw
+            for e in (excerpts_raw[:_MAX_LIST] if isinstance(excerpts_raw, list) else [])
             if isinstance(e, dict)
         ]
         dup = int(t.get("duplication_count") or len(t.get("source_videos") or []))
@@ -245,13 +268,13 @@ def parse_alpha_topics(raw: str) -> list[Topic]:
             category = derive_category(dup)
         topics.append(
             Topic(
-                topic_id=str(t.get("topic_id") or f"t{i + 1:03d}"),
-                label=str(t.get("label") or ""),
-                aliases=[str(a) for a in (t.get("aliases") or []) if a],
-                source_videos=[str(v) for v in (t.get("source_videos") or []) if v],
+                topic_id=_cap_str(t.get("topic_id") or f"t{i + 1:03d}"),
+                label=_cap_str(t.get("label")),
+                aliases=_cap_strs(t.get("aliases")),
+                source_videos=_cap_strs(t.get("source_videos")),
                 duplication_count=dup,
                 category=category,
-                summary=str(t.get("summary") or ""),
+                summary=_cap_str(t.get("summary")),
                 excerpts=excerpts,
             )
         )
@@ -281,7 +304,7 @@ def parse_beta_chapters(raw: str) -> list[ChapterPlan]:
         raise SynthesisParseError(f"chapters must be a list, got {type(chapters_raw).__name__}")
 
     chapters: list[ChapterPlan] = []
-    for i, c in enumerate(chapters_raw):
+    for i, c in enumerate(chapters_raw[:_MAX_ITEMS]):
         if not isinstance(c, dict):
             continue
         raw_cat = str(c.get("category") or "unique").lower()
@@ -289,11 +312,11 @@ def parse_beta_chapters(raw: str) -> list[ChapterPlan]:
         chapters.append(
             ChapterPlan(
                 index=int(c.get("index") or (i + 1)),
-                label=str(c.get("label") or ""),
+                label=_cap_str(c.get("label")),
                 category=category,
-                topic_ids=[str(t) for t in (c.get("topic_ids") or []) if t],
-                source_videos=[str(v) for v in (c.get("source_videos") or []) if v],
-                rationale=str(c.get("rationale") or ""),
+                topic_ids=_cap_strs(c.get("topic_ids")),
+                source_videos=_cap_strs(c.get("source_videos")),
+                rationale=_cap_str(c.get("rationale")),
             )
         )
     return chapters
@@ -322,8 +345,8 @@ def parse_leader_output(raw: str) -> LeaderOutput:
     if not isinstance(moc_raw, dict):
         raise SynthesisParseError("moc field must be an object")
     moc = SynthesisMoc(
-        title=str(moc_raw.get("title") or ""),
-        body_markdown=str(moc_raw.get("body_markdown") or ""),
+        title=_cap_str(moc_raw.get("title")),
+        body_markdown=_cap_str(moc_raw.get("body_markdown"), _MAX_BODY_CHARS),
     )
 
     chapters_raw = data.get("chapters") or []
@@ -331,7 +354,7 @@ def parse_leader_output(raw: str) -> LeaderOutput:
         raise SynthesisParseError("chapters must be a list")
 
     chapters: list[SynthesisChapterBody] = []
-    for i, c in enumerate(chapters_raw):
+    for i, c in enumerate(chapters_raw[:_MAX_ITEMS]):
         if not isinstance(c, dict):
             continue
         raw_cat = str(c.get("category") or "unique").lower()
@@ -339,10 +362,10 @@ def parse_leader_output(raw: str) -> LeaderOutput:
         chapters.append(
             SynthesisChapterBody(
                 chapter_index=int(c.get("chapter_index") or (i + 1)),
-                label=str(c.get("label") or ""),
+                label=_cap_str(c.get("label")),
                 category=category,
-                source_video_ids=[str(v) for v in (c.get("source_video_ids") or []) if v],
-                body_markdown=str(c.get("body_markdown") or ""),
+                source_video_ids=_cap_strs(c.get("source_video_ids")),
+                body_markdown=_cap_str(c.get("body_markdown"), _MAX_BODY_CHARS),
             )
         )
 
@@ -380,18 +403,18 @@ def parse_reviewer_output(raw: str) -> ReviewerFeedback:
     fixes_raw = data.get("fixes") or []
     fixes: list[ReviewerFix] = []
     if isinstance(fixes_raw, list):
-        for f in fixes_raw:
+        for f in fixes_raw[:_MAX_LIST]:
             if not isinstance(f, dict):
                 continue
             fixes.append(
                 ReviewerFix(
-                    target=str(f.get("target") or ""),
-                    reason=str(f.get("reason") or ""),
-                    patch_hint=str(f.get("patch_hint") or ""),
+                    target=_cap_str(f.get("target")),
+                    reason=_cap_str(f.get("reason")),
+                    patch_hint=_cap_str(f.get("patch_hint")),
                 )
             )
     return ReviewerFeedback(
         needs_revision=needs and bool(fixes),
         fixes=fixes,
-        summary=str(data.get("summary") or ""),
+        summary=_cap_str(data.get("summary")),
     )
