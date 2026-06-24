@@ -50,7 +50,11 @@ class TestDefensiveCaps:
             {
                 "moc": {"title": "t", "body_markdown": "z" * (_MAX_BODY_CHARS + 100)},
                 "chapters": [
-                    {"chapter_index": 1, "label": "c", "body_markdown": "w" * (_MAX_BODY_CHARS + 100)}
+                    {
+                        "chapter_index": 1,
+                        "label": "c",
+                        "body_markdown": "w" * (_MAX_BODY_CHARS + 100),
+                    }
                 ],
             }
         )
