@@ -16,3 +16,15 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+
+  # Track the digest-pinned base image in docker/Dockerfile.capture so a newer
+  # python:3.13-slim digest (security/patch updates) still reaches us despite the
+  # pin. Dependabot proposes the digest bump as a reviewable PR.
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
