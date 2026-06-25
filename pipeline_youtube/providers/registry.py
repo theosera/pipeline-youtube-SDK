@@ -174,7 +174,9 @@ def _build_provider(provider_name: str) -> LLMProvider:
         extra_hosts = cfg.get("allowed_base_url_hosts", [])
         if isinstance(extra_hosts, str):
             extra_hosts = [extra_hosts]
-        base_url = validate_base_url(base_url, extra_allowed_hosts=extra_hosts)
+        base_url = validate_base_url(
+            base_url, provider_name=provider_name, extra_allowed_hosts=extra_hosts
+        )
 
         raw_key = cfg.get("api_key", "")
         api_key = _resolve_env_vars(raw_key) if raw_key else provider_name
