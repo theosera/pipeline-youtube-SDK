@@ -47,10 +47,7 @@ class TestValidateBaseUrl:
     def test_loopback_opt_in_for_managed_provider(self) -> None:
         url = "http://localhost:8080/v1"
         assert (
-            validate_base_url(
-                url, provider_name="openai", extra_allowed_hosts=["localhost"]
-            )
-            == url
+            validate_base_url(url, provider_name="openai", extra_allowed_hosts=["localhost"]) == url
         )
 
     # P2: managed/public hosts must use https (no cleartext API keys).
@@ -68,18 +65,14 @@ class TestValidateBaseUrl:
     def test_https_for_self_host_opt_in_allowed(self) -> None:
         url = "https://my-gpu.lan:11434/v1"
         assert (
-            validate_base_url(
-                url, provider_name="ollama", extra_allowed_hosts=["my-gpu.lan"]
-            )
+            validate_base_url(url, provider_name="ollama", extra_allowed_hosts=["my-gpu.lan"])
             == url
         )
 
     def test_http_allowed_for_self_host_opt_in(self) -> None:
         url = "http://192.168.1.50:11434/v1"
         assert (
-            validate_base_url(
-                url, provider_name="lmstudio", extra_allowed_hosts=["192.168.1.50"]
-            )
+            validate_base_url(url, provider_name="lmstudio", extra_allowed_hosts=["192.168.1.50"])
             == url
         )
 
@@ -109,9 +102,7 @@ class TestValidateBaseUrl:
             validate_base_url("https://my-llm.example/v1", provider_name="myorg")
         url = "https://my-llm.example/v1"
         assert (
-            validate_base_url(
-                url, provider_name="myorg", extra_allowed_hosts=["my-llm.example"]
-            )
+            validate_base_url(url, provider_name="myorg", extra_allowed_hosts=["my-llm.example"])
             == url
         )
 
