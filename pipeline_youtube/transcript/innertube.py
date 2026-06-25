@@ -24,6 +24,7 @@ challenges, so this stays *behind the fallback chain*, never a sole dependency.
 from __future__ import annotations
 
 import html
+import math
 import random
 import re
 import time
@@ -98,6 +99,13 @@ _DTD_RE = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 # dropped to the next tier (defense in depth on top of ElementTree's linear
 # parse).
 _MAX_TIMEDTEXT_CHARS = 8_000_000
+# Cue-offset attribute shapes, mirroring the old digit-only attribute regexes so
+# a value like ``nan`` / ``inf`` / ``1e309`` is rejected (it would otherwise pass
+# ``float()`` and yield a non-finite timestamp that crashes Stage 01's
+# ``int(self.start)``). A digit-ish but malformed value (``1.2.3``) still raises
+# in the conversion below, degrading the tier as before.
+_DECIMAL_RE = re.compile(r"^[\d.]+$")
+_INT_RE = re.compile(r"^\d+$")
 
 # Injection seams so tests exercise selection/parsing without touching the
 # network. Defaults below do the real httpx calls.
@@ -174,21 +182,37 @@ def _default_fetch_track_text(
 
     for attempt in range(max_retries + 1):
         try:
-            resp = httpx.get(url, headers={"User-Agent": IOS_USER_AGENT}, timeout=timeout)
+            with httpx.stream(
+                "GET", url, headers={"User-Agent": IOS_USER_AGENT}, timeout=timeout
+            ) as resp:
+                if resp.status_code == 200:
+                    # Stream-decode with a hard char cap so a hostile/oversized
+                    # body is never fully materialized before the parser's size
+                    # guard runs (which stays as defense in depth for custom
+                    # fetchers). Real timedtext is far below the cap.
+                    chunks: list[str] = []
+                    total = 0
+                    for chunk in resp.iter_text():
+                        total += len(chunk)
+                        if total > _MAX_TIMEDTEXT_CHARS:
+                            raise TranscriptNotAvailable("innertube_timedtext_too_large")
+                        chunks.append(chunk)
+                    return "".join(chunks)
+                # Read status + Retry-After before the context manager closes.
+                status = resp.status_code
+                retry_after = _retry_after_seconds(resp.headers)
         except httpx.HTTPError as e:
             raise TranscriptNotAvailable(f"innertube_track_failed:{type(e).__name__}") from e
-        if resp.status_code == 200:
-            return resp.text
-        if resp.status_code not in RETRYABLE_STATUS:
-            raise TranscriptNotAvailable(f"innertube_track_http_{resp.status_code}")
+        if status not in RETRYABLE_STATUS:
+            raise TranscriptNotAvailable(f"innertube_track_http_{status}")
         if attempt < max_retries:
             base = DEFAULT_BACKOFF_BASE * (2**attempt)
-            time.sleep((_retry_after_seconds(resp.headers) or base) + random.uniform(0, 0.5))
+            time.sleep((retry_after or base) + random.uniform(0, 0.5))
             continue
         # Retryable status but no attempts left: report exhaustion (with the
         # final status) rather than a bare http_<status>, so stats.py shows the
         # chain gave up after retrying instead of looking like a single blip.
-        raise TranscriptNotAvailable(f"innertube_track_retries_exhausted:{resp.status_code}")
+        raise TranscriptNotAvailable(f"innertube_track_retries_exhausted:{status}")
     raise TranscriptNotAvailable("innertube_track_retries_exhausted")
 
 
@@ -257,25 +281,45 @@ def _element_text(el: ET.Element) -> str:
     return _WS_RE.sub(" ", html.unescape("".join(el.itertext()))).strip()
 
 
+def _decimal_or_none(value: str | None) -> float | None:
+    """Parse a ``[\\d.]+`` cue offset to a finite float, else None (skip the cue).
+
+    A malformed-but-digit-ish value (``1.2.3``) still raises in ``float`` so the
+    caller degrades the tier, matching the prior regex behaviour; ``nan`` / ``inf``
+    / scientific forms never match the pattern and are skipped.
+    """
+    if value is None or not _DECIMAL_RE.match(value):
+        return None
+    n = float(value)
+    return n if math.isfinite(n) else None
+
+
+def _int_or_none(value: str | None) -> int | None:
+    """Parse a ``\\d+`` millisecond offset to an int, else None (skip the cue)."""
+    if value is None or not _INT_RE.match(value):
+        return None
+    return int(value)
+
+
 def _text_snippet(el: ET.Element) -> TranscriptSnippet | None:
     """Build a snippet from a classic ``<text start dur>`` cue, or None to skip."""
-    start = el.get("start")
+    start = _decimal_or_none(el.get("start"))
     text = _element_text(el)
     if start is None or not text:
         return None
-    dur = el.get("dur")
-    return TranscriptSnippet(text=text, start=float(start), duration=float(dur) if dur else 0.0)
+    dur = _decimal_or_none(el.get("dur"))
+    return TranscriptSnippet(text=text, start=start, duration=dur if dur is not None else 0.0)
 
 
 def _p_snippet(el: ET.Element) -> TranscriptSnippet | None:
     """Build a snippet from a srv3 ``<p t d>`` (millisecond) cue, or None to skip."""
-    t = el.get("t")
+    t = _int_or_none(el.get("t"))
     text = _element_text(el)
     if t is None or not text:
         return None
-    d = el.get("d")
+    d = _int_or_none(el.get("d"))
     return TranscriptSnippet(
-        text=text, start=int(t) / 1000.0, duration=int(d) / 1000.0 if d else 0.0
+        text=text, start=t / 1000.0, duration=d / 1000.0 if d is not None else 0.0
     )
 
 

@@ -35,11 +35,22 @@ class TestRetryAfter:
 class TestFetchTrackTextRetry:
     """Retry/backoff behavior of the real track-text fetcher (httpx mocked)."""
 
-    class _Resp:
-        def __init__(self, status_code: int) -> None:
+    class _StreamResp:
+        """Minimal stand-in for the httpx.stream() context manager."""
+
+        def __init__(self, status_code: int, body: str = "") -> None:
             self.status_code = status_code
             self.headers: dict[str, str] = {}
-            self.text = ""
+            self._body = body
+
+        def __enter__(self) -> TestFetchTrackTextRetry._StreamResp:
+            return self
+
+        def __exit__(self, *_a: Any) -> bool:
+            return False
+
+        def iter_text(self) -> Any:
+            yield self._body
 
     def test_retryable_status_exhausts_with_reason(self, monkeypatch) -> None:
         # A persistent 429 must report retries_exhausted:<status> after using
@@ -50,11 +61,11 @@ class TestFetchTrackTextRetry:
 
         calls = {"n": 0}
 
-        def _fake_get(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._Resp:
+        def _fake_stream(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._StreamResp:
             calls["n"] += 1
-            return self._Resp(429)
+            return self._StreamResp(429)
 
-        monkeypatch.setattr(httpx, "get", _fake_get)
+        monkeypatch.setattr(httpx, "stream", _fake_stream)
         monkeypatch.setattr(it.time, "sleep", lambda *_: None)
         monkeypatch.setattr(it.random, "uniform", lambda *_: 0.0)
         with pytest.raises(TranscriptNotAvailable, match="innertube_track_retries_exhausted:429"):
@@ -68,14 +79,30 @@ class TestFetchTrackTextRetry:
 
         calls = {"n": 0}
 
-        def _fake_get(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._Resp:
+        def _fake_stream(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._StreamResp:
             calls["n"] += 1
-            return self._Resp(404)
+            return self._StreamResp(404)
 
-        monkeypatch.setattr(httpx, "get", _fake_get)
+        monkeypatch.setattr(httpx, "stream", _fake_stream)
         with pytest.raises(TranscriptNotAvailable, match="innertube_track_http_404"):
             it._default_fetch_track_text("http://x", 1.0, max_retries=2)
         assert calls["n"] == 1  # no retries on a non-retryable status
+
+    def test_streaming_body_is_capped(self, monkeypatch) -> None:
+        # A 200 body over the char cap is rejected while streaming, so the full
+        # response is never materialized (defense in depth before the parser).
+        import httpx
+
+        from pipeline_youtube.transcript import innertube as it
+
+        big = "x" * (it._MAX_TIMEDTEXT_CHARS + 1)
+
+        def _fake_stream(*_a: Any, **_k: Any) -> TestFetchTrackTextRetry._StreamResp:
+            return self._StreamResp(200, body=big)
+
+        monkeypatch.setattr(httpx, "stream", _fake_stream)
+        with pytest.raises(TranscriptNotAvailable, match="innertube_timedtext_too_large"):
+            it._default_fetch_track_text("http://x", 1.0, max_retries=0)
 
 
 class TestParseTimedtext:
@@ -150,6 +177,19 @@ class TestParseTimedtext:
         xml = '<timedtext><body><p t="0" d="1500"><s>Hel</s><s>lo</s></p></body></timedtext>'
         out = _parse_timedtext(xml)
         assert [(s.text, s.start, s.duration) for s in out] == [("Hello", 0.0, 1.5)]
+
+    def test_non_finite_text_offsets_are_skipped(self) -> None:
+        # nan/inf/scientific would pass float() but crash Stage 01's int(start);
+        # such cues must be skipped (as the old digit-only regex did), not
+        # returned with a non-finite timestamp.
+        xml = (
+            '<text start="nan" dur="1">a</text>'
+            '<text start="inf" dur="1">b</text>'
+            '<text start="1e309" dur="1">c</text>'
+            '<text start="2.0" dur="1">ok</text>'
+        )
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start) for s in out] == [("ok", 2.0)]
 
     def test_rejects_dtd_entity_expansion(self) -> None:
         # billion-laughs building block: a <!DOCTYPE>/<!ENTITY> must be refused
