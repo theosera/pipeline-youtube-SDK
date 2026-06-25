@@ -136,6 +136,28 @@ class TestParseTimedtext:
     def test_prefers_text_form_when_both_absent_returns_empty(self) -> None:
         assert _parse_timedtext("<nothing/>") == []
 
+    def test_rooted_document_with_xml_declaration(self) -> None:
+        # The real timedtext shape: an <?xml?> declaration + a single root.
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<transcript><text start="0" dur="1.5">Hello</text></transcript>'
+        )
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start, s.duration) for s in out] == [("Hello", 0.0, 1.5)]
+
+    def test_srv3_p_nested_under_body_with_segments(self) -> None:
+        # srv3 nests <p> under <body> and may split text into <s> segments.
+        xml = '<timedtext><body><p t="0" d="1500"><s>Hel</s><s>lo</s></p></body></timedtext>'
+        out = _parse_timedtext(xml)
+        assert [(s.text, s.start, s.duration) for s in out] == [("Hello", 0.0, 1.5)]
+
+    def test_rejects_dtd_entity_expansion(self) -> None:
+        # billion-laughs building block: a <!DOCTYPE>/<!ENTITY> must be refused
+        # (ElementTree would otherwise expand it) rather than parsed.
+        xml = '<!DOCTYPE r [<!ENTITY a "AAAA">]><transcript>&a;</transcript>'
+        with pytest.raises(ValueError, match="DTD/entity"):
+            _parse_timedtext(xml)
+
 
 class TestSelectTrack:
     def _tracks(self) -> list[dict[str, Any]]:
@@ -285,6 +307,21 @@ class TestFetchInnertube:
                 ["ja"],
                 fetch_player_json=lambda *_: _player(tracks),
                 fetch_track_text=lambda *_: '<text start="1.2.3" dur="1">x</text>',
+            )
+
+    def test_oversized_timedtext_is_rejected(self) -> None:
+        # A pathologically large body is dropped (defense in depth) rather than
+        # parsed, deferring to the next tier.
+        from pipeline_youtube.transcript import innertube as it
+
+        tracks = [{"languageCode": "ja", "baseUrl": "u"}]
+        huge = '<text start="0" dur="1">x</text>' * (it._MAX_TIMEDTEXT_CHARS // 10)
+        with pytest.raises(TranscriptNotAvailable, match="innertube_timedtext_too_large"):
+            fetch_innertube(
+                "vid",
+                ["ja"],
+                fetch_player_json=lambda *_: _player(tracks),
+                fetch_track_text=lambda *_: huge,
             )
 
     def test_track_missing_baseurl_raises(self) -> None:

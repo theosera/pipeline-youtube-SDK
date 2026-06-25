@@ -7,7 +7,7 @@ Posing as the **iOS YouTube client** sidesteps that: as of early 2026 the iOS
 InnerTube client returns caption-track URLs *without* a PO token (the trick the
 ``obsidian-yt-transcript`` plugin relies on). Two HTTP round-trips — POST
 ``youtubei/v1/player`` to get ``captionTracks[]``, then GET the chosen track's
-timedtext XML — and a regex parse. No audio download, no inference.
+timedtext XML — and an XML parse. No audio download, no inference.
 
 Best-effort by construction: any failure raises ``TranscriptNotAvailable`` so
 the existing ``youtube-transcript-api`` and Whisper tiers still run. This tier
@@ -27,6 +27,7 @@ import html
 import random
 import re
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from typing import Any
 
@@ -77,18 +78,26 @@ DEFAULT_BACKOFF_BASE = 1.0
 _GL_BY_LANG = {"ja": "JP", "en": "US", "ko": "KR", "zh": "CN", "fr": "FR", "de": "DE"}
 
 # Two timedtext shapes: the classic ``<text start dur>`` (seconds) and the srv3
-# ``<p t d>`` (milliseconds). We try the first, then the second. Match the tag
-# then pull attributes individually, because real timedtext does not guarantee
-# attribute order and may omit the duration on the final cue — pinning order in
-# one regex silently drops those cues and pushes a captioned video onto Whisper.
-_TEXT_TAG_RE = re.compile(r"<text\b([^>]*)>(.*?)</text>", re.DOTALL)
-_P_TAG_RE = re.compile(r"<p\b([^>]*)>(.*?)</p>", re.DOTALL)
-_ATTR_START_RE = re.compile(r'\bstart="([\d.]+)"')
-_ATTR_DUR_RE = re.compile(r'\bdur="([\d.]+)"')
-_ATTR_T_RE = re.compile(r'\bt="(\d+)"')
-_ATTR_D_RE = re.compile(r'\bd="(\d+)"')
-_TAG_RE = re.compile(r"<[^>]+>")
+# ``<p t d>`` (milliseconds). We try the first, then the second. timedtext is
+# external XML, so it is parsed with the stdlib ElementTree (linear, no
+# catastrophic backtracking) instead of regex — a crafted/pathological body
+# can't trigger ReDoS or runaway memory the way ``.*?`` + ``re.DOTALL`` could.
+# ElementTree does not expand external entities, so XXE is not a concern here.
 _WS_RE = re.compile(r"\s+")
+# Strip a leading ``<?xml ... ?>`` declaration so the body can be wrapped in a
+# synthetic root (real timedtext has one root, but the parser also accepts bare
+# multi-cue fragments this way).
+_XML_DECL_RE = re.compile(r"^\s*<\?xml.*?\?>\s*", re.DOTALL | re.IGNORECASE)
+# Any DTD / entity definition is rejected before parsing. Custom entities (the
+# billion-laughs / quadratic-blowup DoS vector that stdlib ElementTree DOES
+# expand) require a ``<!DOCTYPE>``/``<!ENTITY>``; real timedtext never uses one,
+# so refusing them closes that DoS without pulling in ``defusedxml``.
+_DTD_RE = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
+# Hard cap on the timedtext body we will parse. Real caption XML for even a
+# multi-hour video is well under this; a larger body is treated as hostile and
+# dropped to the next tier (defense in depth on top of ElementTree's linear
+# parse).
+_MAX_TIMEDTEXT_CHARS = 8_000_000
 
 # Injection seams so tests exercise selection/parsing without touching the
 # network. Defaults below do the real httpx calls.
@@ -237,55 +246,66 @@ def _select_track(tracks: list[dict[str, Any]], languages: list[str]) -> dict[st
     return tracks[0] if tracks else None
 
 
-def _clean_text(raw: str) -> str:
-    """Strip inner tags, unescape entities, collapse whitespace."""
-    return _WS_RE.sub(" ", html.unescape(_TAG_RE.sub("", raw))).strip()
+def _element_text(el: ET.Element) -> str:
+    """All descendant text of a cue, entity-unescaped, whitespace-collapsed.
+
+    ``itertext`` flattens inline formatting (``<b>``/``<s>`` segments) the way
+    the old inner-tag strip did. ElementTree already resolves XML entities; the
+    extra ``html.unescape`` handles timedtext's second (HTML) layer, e.g. an
+    ``&amp;#39;`` that decodes to a literal ``&#39;`` and then to ``'``.
+    """
+    return _WS_RE.sub(" ", html.unescape("".join(el.itertext()))).strip()
+
+
+def _text_snippet(el: ET.Element) -> TranscriptSnippet | None:
+    """Build a snippet from a classic ``<text start dur>`` cue, or None to skip."""
+    start = el.get("start")
+    text = _element_text(el)
+    if start is None or not text:
+        return None
+    dur = el.get("dur")
+    return TranscriptSnippet(text=text, start=float(start), duration=float(dur) if dur else 0.0)
+
+
+def _p_snippet(el: ET.Element) -> TranscriptSnippet | None:
+    """Build a snippet from a srv3 ``<p t d>`` (millisecond) cue, or None to skip."""
+    t = el.get("t")
+    text = _element_text(el)
+    if t is None or not text:
+        return None
+    d = el.get("d")
+    return TranscriptSnippet(
+        text=text, start=int(t) / 1000.0, duration=int(d) / 1000.0 if d else 0.0
+    )
 
 
 def _parse_timedtext(xml: str) -> list[TranscriptSnippet]:
     """Parse timedtext XML into snippets, handling both ``<text>`` and ``<p>``.
 
-    Tolerant of attribute order and of a missing duration on the final cue (both
-    real timedtext shapes): the start offset (``start``/``t``) is required, the
-    duration (``dur``/``d``) defaults to 0.0 when absent. A cue with no parseable
-    start offset is skipped rather than dropping the whole transcript.
+    Parsed with ElementTree (linear, no ReDoS). The body is wrapped in a
+    synthetic root after stripping any ``<?xml?>`` declaration, so both a real
+    rooted document (``<transcript>`` / ``<timedtext>``) and a bare multi-cue
+    fragment parse the same way; ``iter`` then finds cues at any depth (srv3
+    nests ``<p>`` under ``<body>``).
+
+    Tolerant of attribute order and of a missing duration on the final cue: the
+    start offset (``start``/``t``) is required, the duration (``dur``/``d``)
+    defaults to 0.0 when absent. A cue with no parseable start offset is skipped
+    rather than dropping the whole transcript.
     """
-    snippets: list[TranscriptSnippet] = []
-    text_tags = list(_TEXT_TAG_RE.finditer(xml))
-    if text_tags:
-        for m in text_tags:
-            attrs, body = m.group(1), m.group(2)
-            start_m = _ATTR_START_RE.search(attrs)
-            text = _clean_text(body)
-            if start_m is None or not text:
-                continue
-            dur_m = _ATTR_DUR_RE.search(attrs)
-            snippets.append(
-                TranscriptSnippet(
-                    text=text,
-                    start=float(start_m.group(1)),
-                    duration=float(dur_m.group(1)) if dur_m else 0.0,
-                )
-            )
-        # Only commit to the <text> shape if it actually yielded cues; otherwise
-        # fall through and try the <p>/srv3 shape ("try first, then second").
-        if snippets:
-            return snippets
-    for m in _P_TAG_RE.finditer(xml):
-        attrs, body = m.group(1), m.group(2)
-        t_m = _ATTR_T_RE.search(attrs)
-        text = _clean_text(body)
-        if t_m is None or not text:
-            continue
-        d_m = _ATTR_D_RE.search(attrs)
-        snippets.append(
-            TranscriptSnippet(
-                text=text,
-                start=int(t_m.group(1)) / 1000.0,
-                duration=int(d_m.group(1)) / 1000.0 if d_m else 0.0,
-            )
-        )
-    return snippets
+    body = _XML_DECL_RE.sub("", xml.lstrip("\ufeff"), count=1)
+    if _DTD_RE.search(body):
+        # No DTD/entities \u2192 ElementTree's parse is linear and entity-free, so
+        # the S314 "untrusted XML" risk (billion laughs / XXE) does not apply.
+        raise ValueError("DTD/entity definitions are not allowed in timedtext")
+    root = ET.fromstring(f"<timedtext_root>{body}</timedtext_root>")  # noqa: S314
+
+    # Try the <text> shape first; only commit to it if it yielded cues, else
+    # fall through to the <p>/srv3 shape ("try first, then second").
+    text_snippets = [s for s in map(_text_snippet, root.iter("text")) if s is not None]
+    if text_snippets:
+        return text_snippets
+    return [s for s in map(_p_snippet, root.iter("p")) if s is not None]
 
 
 def fetch_innertube(
@@ -331,6 +351,10 @@ def fetch_innertube(
         raise TranscriptNotAvailable("track_missing_baseurl")
 
     xml = fetch_track_text(base_url, timeout)
+    if len(xml) > _MAX_TIMEDTEXT_CHARS:
+        # Oversized body: treat as hostile and defer to the next tier rather
+        # than parsing it (defense in depth on top of the linear ET parse).
+        raise TranscriptNotAvailable("innertube_timedtext_too_large")
     try:
         snippets = _parse_timedtext(xml)
     except Exception as e:
