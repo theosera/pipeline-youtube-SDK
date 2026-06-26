@@ -13,10 +13,10 @@
 # Pinned by digest (not just the floating `3.13-slim` tag) for reproducible
 # builds + tamper detection: the same tag can be re-pushed with different
 # contents, so a digest is the only stable reference. Dependabot's `docker`
-# ecosystem (.github/dependabot.yml) opens a PR when a newer 3.13-slim digest
+# ecosystem (.github/dependabot.yml) opens a PR when a newer 3.14-slim digest
 # ships, so security updates still flow despite the pin. Update the tag and the
-# digest together; re-resolve via `docker buildx imagetools inspect python:3.13-slim`.
-FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS base
+# digest together; re-resolve via `docker buildx imagetools inspect python:3.14-slim`.
+FROM python:3.14-slim@sha256:63a4c7f612a00f92042cbdcc7cdc6a306f38485af0a200b9c89de7d9b1607d15 AS base
 
 # Pin tool versions so image builds are reproducible. yt-dlp releases
 # frequently — bump explicitly after testing against current YouTube
