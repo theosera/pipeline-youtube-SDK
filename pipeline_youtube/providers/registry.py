@@ -25,6 +25,7 @@ from dataclasses import asdict, fields
 from typing import TYPE_CHECKING, Any
 
 from .base import ClaudeCliError, LLMError, LLMProvider, LLMResponse
+from .base_url_policy import validate_base_url
 
 if TYPE_CHECKING:
     from ..services.cache import Cache
@@ -168,6 +169,14 @@ def _build_provider(provider_name: str) -> LLMProvider:
                 f"No base_url configured for provider {provider_name!r}. "
                 f"Set it in config.json providers.{provider_name}.base_url"
             )
+        # SSRF guard: only managed/loopback hosts (or per-provider opt-ins) may
+        # receive an API-key-bearing request. See providers/base_url_policy.py.
+        extra_hosts = cfg.get("allowed_base_url_hosts", [])
+        if isinstance(extra_hosts, str):
+            extra_hosts = [extra_hosts]
+        base_url = validate_base_url(
+            base_url, provider_name=provider_name, extra_allowed_hosts=extra_hosts
+        )
 
         raw_key = cfg.get("api_key", "")
         api_key = _resolve_env_vars(raw_key) if raw_key else provider_name
