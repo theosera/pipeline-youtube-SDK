@@ -10,7 +10,13 @@
 # vault _assets directories are bind-mounted in. See docs/docker.md for
 # the exact `docker run` invocation; DockerCaptureBackend mirrors it.
 
-FROM python:3.13-slim AS base
+# Pinned by digest (not just the floating `3.13-slim` tag) for reproducible
+# builds + tamper detection: the same tag can be re-pushed with different
+# contents, so a digest is the only stable reference. Dependabot's `docker`
+# ecosystem (.github/dependabot.yml) opens a PR when a newer 3.13-slim digest
+# ships, so security updates still flow despite the pin. Update the tag and the
+# digest together; re-resolve via `docker buildx imagetools inspect python:3.13-slim`.
+FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a49c766a811bc1e AS base
 
 # Pin tool versions so image builds are reproducible. yt-dlp releases
 # frequently — bump explicitly after testing against current YouTube
