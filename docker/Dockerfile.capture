@@ -21,7 +21,7 @@ FROM python:3.13-slim@sha256:2b7445fb71ca9cb15e9aab053fe8cb3162796f8e1d92ada12a4
 # Pin tool versions so image builds are reproducible. yt-dlp releases
 # frequently — bump explicitly after testing against current YouTube
 # extractor behavior.
-ARG YT_DLP_VERSION=2026.3.31
+ARG YT_DLP_VERSION=2026.6.9
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
