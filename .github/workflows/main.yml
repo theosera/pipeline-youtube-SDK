@@ -122,3 +122,27 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+
+  docker-build:
+    name: Capture image build + smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      # docker-scan only scans the pinned *base* image; it never builds the
+      # capture image. This job actually builds docker/Dockerfile.capture and
+      # smoke-tests the three binaries DockerCaptureBackend shells out to
+      # (yt-dlp / ffmpeg / gif2webp), so a broken Dockerfile (e.g. an
+      # unpublished yt-dlp pin) or a missing/unrunnable tool is caught here
+      # instead of at capture time on a user's host. ubuntu-latest ships
+      # Docker, so no third-party action is needed.
+      - name: Build capture image
+        run: docker build -f docker/Dockerfile.capture -t pipeline-youtube-capture:ci .
+
+      # ENTRYPOINT is empty (CMD ["bash"]), so the binary is the run argv —
+      # mirrors how DockerCaptureBackend invokes the image.
+      - name: Smoke test bundled binaries
+        run: |
+          docker run --rm pipeline-youtube-capture:ci yt-dlp --version
+          docker run --rm pipeline-youtube-capture:ci ffmpeg -version
+          docker run --rm pipeline-youtube-capture:ci gif2webp -version
