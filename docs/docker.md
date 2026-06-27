@@ -31,7 +31,7 @@ docker build -f docker/Dockerfile.capture -t pipeline-youtube-capture:latest .
 ```
 
 The build installs `ffmpeg`, `gif2webp` (via the `webp` package), and a
-pinned `yt-dlp` into a `python:3.13-slim` base. Total image size is
+pinned `yt-dlp` into a `python:3.14-slim` base. Total image size is
 around 380 MB.
 
 ## Enable it
