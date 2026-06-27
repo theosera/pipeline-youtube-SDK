@@ -128,6 +128,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # The build context is the repo root (`docker build … .`). Without
+          # this, checkout's persisted token (.git/config extraheader) would be
+          # sent to the Docker daemon in the build context. The build needs no
+          # git credentials.
+          persist-credentials: false
 
       # docker-scan only scans the pinned *base* image; it never builds the
       # capture image. This job actually builds docker/Dockerfile.capture and
