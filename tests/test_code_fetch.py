@@ -255,7 +255,10 @@ class TestFetchVideoExtraMetadata:
         fake_ydl.__exit__ = lambda *a: None
         fake_ydl.extract_info.return_value = {
             "description": "some description",
-            "chapters": [{"title": "Intro", "start_time": 0.0}, {"title": "Setup", "start_time": 90.0}],
+            "chapters": [
+                {"title": "Intro", "start_time": 0.0},
+                {"title": "Setup", "start_time": 90.0},
+            ],
         }
 
         with patch("yt_dlp.YoutubeDL", return_value=fake_ydl):

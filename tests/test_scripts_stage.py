@@ -352,9 +352,7 @@ class TestRunStageScripts:
         paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
         scripts_path = paths["scripts"]
 
-        extra = VideoExtraMetadata(
-            description="Code: https://github.com/foo/bar/blob/main/x.py"
-        )
+        extra = VideoExtraMetadata(description="Code: https://github.com/foo/bar/blob/main/x.py")
         called = {"n": 0}
 
         def _spy_extra(video_id, *, cache):

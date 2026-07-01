@@ -395,7 +395,10 @@ class TestPromptBuilding:
         assert "Anthropic" in prompt
         assert "Claude Code" in prompt
         assert "\u5c0e\u5165" in prompt
-        assert "\u5b57\u5e55\u672c\u6587\u3068\u77db\u76fe\u3059\u308b\u5834\u5408\u306f\u672c\u6587\u3092\u512a\u5148" in prompt
+        assert (
+            "\u5b57\u5e55\u672c\u6587\u3068\u77db\u76fe\u3059\u308b\u5834\u5408\u306f\u672c\u6587\u3092\u512a\u5148"
+            in prompt
+        )
 
     def test_no_description_omits_meta_lines(self, vault, monkeypatch):
         video = _video()

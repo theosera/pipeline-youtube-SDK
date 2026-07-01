@@ -281,9 +281,7 @@ def run_stage_scripts(
             confirmed_terms=tuple(correction.confirmed_terms),
         )
     if video_extra is not None:
-        result = replace(
-            result, description=video_extra.description, chapters=video_extra.chapters
-        )
+        result = replace(result, description=video_extra.description, chapters=video_extra.chapters)
     body = _render_chunks(video, chunks)
 
     code_section = ""

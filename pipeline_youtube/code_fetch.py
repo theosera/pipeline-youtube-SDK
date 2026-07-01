@@ -129,7 +129,9 @@ class VideoExtraMetadata:
     chapters: tuple[VideoChapter, ...] = ()
 
 
-def fetch_video_extra_metadata(video_id: str, *, timeout: int = 30, cache: Cache) -> VideoExtraMetadata:
+def fetch_video_extra_metadata(
+    video_id: str, *, timeout: int = 30, cache: Cache
+) -> VideoExtraMetadata:
     """Fetch a video's description + chapters via one non-video yt-dlp extract.
 
     Flat-playlist metadata has neither field, so this is a dedicated
