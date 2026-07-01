@@ -26,6 +26,7 @@ from ..domain.transcript import (
     TranscriptResult,
     TranscriptSnippet,
     TranscriptSource,
+    VideoChapter,
 )
 
 if TYPE_CHECKING:
@@ -39,6 +40,7 @@ __all__ = [
     "TranscriptResult",
     "TranscriptSnippet",
     "TranscriptSource",
+    "VideoChapter",
     "build_result",
     "fetch_with_fallback",
     "result_from_cache_dict",

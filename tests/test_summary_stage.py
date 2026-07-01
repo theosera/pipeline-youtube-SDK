@@ -363,6 +363,67 @@ class TestPromptBuilding:
         assert "\u200b" not in prompt
         assert "normaltextwithnasties" in prompt
 
+    def test_description_chapters_and_confirmed_terms_in_meta_block(self, vault, monkeypatch):
+        from dataclasses import replace
+
+        from pipeline_youtube.transcript.base import VideoChapter
+
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        transcript = replace(
+            _transcript([TranscriptSnippet("\u672c\u6587", 0.0, 30.0)]),
+            description="\u4eca\u56de\u306fAnthropic\u306eClaude Code\u306b\u3064\u3044\u3066\u89e3\u8aac\u3057\u307e\u3059",
+            chapters=(VideoChapter(title="\u5c0e\u5165", start_seconds=0.0),),
+            confirmed_terms=("Anthropic", "Claude Code"),
+        )
+        captured: dict = {}
+        monkeypatch.setattr(
+            summary_stage,
+            "invoke_claude",
+            lambda **kw: (
+                captured.update(kw),
+                _fake_claude_response(
+                    "## \u5168\u4f53\u30b5\u30de\u30ea\n\nok\n\n## \u8981\u70b9\u30bf\u30a4\u30e0\u30e9\u30a4\u30f3\n\n### [00:00 ~ 00:30] intro\n\u672c\u6587\n"
+                ),
+            )[1],
+        )
+
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
+
+        prompt = captured["prompt"]
+        assert "Anthropic" in prompt
+        assert "Claude Code" in prompt
+        assert "\u5c0e\u5165" in prompt
+        assert (
+            "\u5b57\u5e55\u672c\u6587\u3068\u77db\u76fe\u3059\u308b\u5834\u5408\u306f\u672c\u6587\u3092\u512a\u5148"
+            in prompt
+        )
+
+    def test_no_description_omits_meta_lines(self, vault, monkeypatch):
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        transcript = _transcript([TranscriptSnippet("\u672c\u6587", 0.0, 30.0)])
+        captured: dict = {}
+        monkeypatch.setattr(
+            summary_stage,
+            "invoke_claude",
+            lambda **kw: (
+                captured.update(kw),
+                _fake_claude_response(
+                    "## \u5168\u4f53\u30b5\u30de\u30ea\n\nok\n\n## \u8981\u70b9\u30bf\u30a4\u30e0\u30e9\u30a4\u30f3\n\n### [00:00 ~ 00:30] intro\n\u672c\u6587\n"
+                ),
+            )[1],
+        )
+
+        summary_stage.run_stage_summary(video, paths["summary"], transcript, cache=_NO_CACHE)
+
+        prompt = captured["prompt"]
+        assert "\u6982\u8981\u6b04" not in prompt
+        assert "\u30c1\u30e3\u30d7\u30bf\u30fc" not in prompt
+        assert "\u78ba\u5b9a\u6e08\u307f\u56fa\u6709\u540d\u8a5e" not in prompt
+
 
 class TestGlossaryNormalization:
     """Stage 02 applies deterministic proper-noun normalization when a

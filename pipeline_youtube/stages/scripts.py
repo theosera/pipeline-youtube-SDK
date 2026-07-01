@@ -10,11 +10,14 @@ The frontmatter above the body is already written by the placeholder
 step (`pipeline.create_placeholder_notes`), so this stage appends the
 chunked body to the existing file.
 
-When ``include_code_blocks=True`` is passed (set by the orchestrator
-when the Router classifies the playlist as ``coding``), this stage
-additionally fetches the video description, scrapes any GitHub
-blob/Gist URLs, downloads their raw content (size-capped), and appends
-a ``## 関連コード`` section after the transcript.
+The video's description + declared chapters are fetched once (best-effort,
+skipped under ``--local-media``) and attached to the returned
+``TranscriptResult`` for Stage 01b (known-context, fewer web searches) and
+Stage 02 (Mode-diagnosis context) to consume. When ``include_code_blocks=True``
+is also passed (set by the orchestrator when the Router classifies the
+playlist as ``coding``), this stage additionally scrapes the fetched
+description for GitHub blob/Gist URLs, downloads their raw content
+(size-capped), and appends a ``## 関連コード`` section after the transcript.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from ..code_fetch import (
     extract_github_urls,
     fetch_snippets_for_urls,
-    fetch_video_description,
+    fetch_video_extra_metadata,
     render_code_section,
 )
 from ..playlist import VideoMeta
@@ -168,8 +171,13 @@ def run_stage_scripts(
       ``TranscriptResult.snippets`` so Stage 02/03/04 consume it. Skipped
       under `dry_run`. `known_terms` (the per-playlist confirmed vocabulary)
       is forwarded so already-known proper nouns skip the web search; the
-      proper nouns the pass confirms are returned on
+      video's description (fetched once below) is forwarded too so the
+      correction pass can resolve proper nouns from it before searching.
+      The proper nouns the pass confirms are returned on
       ``TranscriptResult.confirmed_terms``.
+    - The video's description + chapters are fetched once (best-effort,
+      skipped under ``--local-media``) and attached to the returned
+      ``TranscriptResult`` regardless of `correct_model`/`include_code_blocks`.
     - Does NOT overwrite the frontmatter already present; appends below.
     - Returns the `TranscriptResult` so the caller can record stats and
       pass timing info to stages 02/03.
@@ -241,6 +249,16 @@ def run_stage_scripts(
         )
 
     chunks = chunk_by_window(result.snippets, window_seconds)
+
+    # Fetch description + chapters once, up front, so both Stage 01b (below)
+    # and the returned TranscriptResult (Stage 02) can use them. Skipped
+    # under --local-media: it hits YouTube (yt-dlp), defeating the fully-
+    # offline guarantee that mode provides. Best-effort — a failed fetch
+    # yields an empty VideoExtraMetadata, never raises.
+    video_extra = None
+    if media_path is None:
+        video_extra = fetch_video_extra_metadata(video.video_id, cache=cache)
+
     # Stage 01b: repair ASR/caption errors with an LLM + web search. Best-effort
     # and timestamp-preserving — never blocks the run. Skipped on dry runs (it
     # is a paid LLM call) and when there is nothing to correct. The corrected
@@ -248,7 +266,11 @@ def run_stage_scripts(
     # re-chunk the TranscriptResult) consume the correction, not just the 01 md.
     if correct_model and not dry_run and chunks:
         correction = correct_chunks(
-            chunks, model=correct_model, known_terms=known_terms, cache=cache
+            chunks,
+            model=correct_model,
+            known_terms=known_terms,
+            description=video_extra.description if video_extra else None,
+            cache=cache,
         )
         chunks = correction.chunks
         last = result.snippets[-1]
@@ -258,19 +280,15 @@ def run_stage_scripts(
             correction_cost_usd=correction.cost_usd,
             confirmed_terms=tuple(correction.confirmed_terms),
         )
+    if video_extra is not None:
+        result = replace(result, description=video_extra.description, chapters=video_extra.chapters)
     body = _render_chunks(video, chunks)
 
     code_section = ""
-    # Skip the description fetch under --local-media: it hits YouTube (yt-dlp),
-    # defeating the fully-offline guarantee this mode provides.
-    if include_code_blocks and media_path is None:
-        # Fetching description + raw code is best-effort. If anything
-        # fails, we silently skip — the transcript is the primary asset.
-        description = fetch_video_description(video.video_id)
-        if description:
-            urls = extract_github_urls(description)
-            snippets = fetch_snippets_for_urls(urls, cache=cache)
-            code_section = render_code_section(snippets)
+    if include_code_blocks and video_extra is not None and video_extra.description:
+        urls = extract_github_urls(video_extra.description)
+        snippets = fetch_snippets_for_urls(urls, cache=cache)
+        code_section = render_code_section(snippets)
 
     full_body = body + code_section if code_section else body
 
