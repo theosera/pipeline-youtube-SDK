@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from pipeline_youtube import config
+from pipeline_youtube.code_fetch import VideoExtraMetadata
 from pipeline_youtube.pipeline import create_placeholder_notes
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.services.cache import Cache
@@ -20,12 +21,17 @@ from pipeline_youtube.stages import scripts as scripts_stage
 from pipeline_youtube.transcript.base import (
     TranscriptSnippet,
     TranscriptSource,
+    VideoChapter,
     build_result,
 )
 
 # These stage-01 tests stub the transcript chain; caching is verified separately
 # (test_injected_cache_*), so they thread a disabled (no-op) cache.
 _NO_CACHE = Cache(None, enabled=False)
+
+# fetch_video_extra_metadata hits yt-dlp/YouTube; stubbed to empty by default
+# (see the autouse fixture below) so these tests stay offline/deterministic.
+_EMPTY_EXTRA = VideoExtraMetadata(description=None)
 
 
 @pytest.fixture
@@ -66,6 +72,17 @@ def _fake_fetch_success(source: TranscriptSource = TranscriptSource.OFFICIAL):
 
 
 class TestRunStageScripts:
+    @pytest.fixture(autouse=True)
+    def _stub_extra_metadata(self, monkeypatch):
+        """Default fetch_video_extra_metadata to an empty result.
+
+        Individual tests override this via monkeypatch when they need to
+        exercise description/chapters wiring specifically.
+        """
+        monkeypatch.setattr(
+            scripts_stage, "fetch_video_extra_metadata", lambda video_id, *, cache: _EMPTY_EXTRA
+        )
+
     def test_end_to_end_writes_formatted_body(self, vault, monkeypatch):
         video = _video()
         run_time = datetime(2026, 4, 14, 21, 41)
@@ -118,7 +135,7 @@ class TestRunStageScripts:
         )
         seen: dict[str, object] = {}
 
-        def _fake_correct(chunks, *, model, known_terms=None, cache=None):
+        def _fake_correct(chunks, *, model, known_terms=None, description=None, cache=None):
             seen["known_terms"] = known_terms
             return CorrectionResult(
                 chunks=[Chunk(start=c.start, text=c.text + " [FIX]") for c in chunks],
@@ -218,7 +235,7 @@ class TestRunStageScripts:
             seen["fetch_cache"] = cache
             return _fake_fetch_success()(video_id, languages)
 
-        def _spy_correct(chunks, *, model, known_terms=None, cache=None):
+        def _spy_correct(chunks, *, model, known_terms=None, description=None, cache=None):
             seen["correct_cache"] = cache
             return CorrectionResult(chunks=list(chunks), cost_usd=0.0)
 
@@ -231,3 +248,133 @@ class TestRunStageScripts:
 
         assert seen["fetch_cache"] is injected
         assert seen["correct_cache"] is injected
+
+    def test_description_and_chapters_attached_to_result(self, vault, monkeypatch):
+        """Stage 01a's description/chapters fetch lands on the returned
+        TranscriptResult regardless of correct_model/include_code_blocks, so
+        Stage 02 can use it for Mode-diagnosis context."""
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        scripts_path = paths["scripts"]
+
+        extra = VideoExtraMetadata(
+            description="今回はAnthropicのClaude Codeについて解説します",
+            chapters=(VideoChapter(title="導入", start_seconds=0.0),),
+        )
+        monkeypatch.setattr(
+            scripts_stage, "fetch_video_extra_metadata", lambda video_id, *, cache: extra
+        )
+        monkeypatch.setattr(
+            scripts_stage,
+            "fetch_with_fallback",
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
+        )
+
+        result = scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, cache=_NO_CACHE
+        )
+
+        assert result.description == extra.description
+        assert result.chapters == extra.chapters
+
+    def test_description_reaches_correction_as_known_context(self, vault, monkeypatch):
+        """The fetched description must be forwarded to Stage 01b's
+        correct_chunks call so it can skip a web search when the description
+        already names the proper noun."""
+        from pipeline_youtube.transcript.correction import CorrectionResult
+
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        scripts_path = paths["scripts"]
+
+        extra = VideoExtraMetadata(description="今回はGoogleのTensorFlowについて解説します")
+        monkeypatch.setattr(
+            scripts_stage, "fetch_video_extra_metadata", lambda video_id, *, cache: extra
+        )
+        monkeypatch.setattr(
+            scripts_stage,
+            "fetch_with_fallback",
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
+        )
+        seen: dict[str, object] = {}
+
+        def _spy_correct(chunks, *, model, known_terms=None, description=None, cache=None):
+            seen["description"] = description
+            return CorrectionResult(chunks=list(chunks), cost_usd=0.0)
+
+        monkeypatch.setattr(scripts_stage, "correct_chunks", _spy_correct)
+
+        scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, correct_model="opus", cache=_NO_CACHE
+        )
+
+        assert seen["description"] == extra.description
+
+    def test_local_media_skips_extra_metadata_fetch(self, vault, monkeypatch, tmp_path):
+        """--local-media is a fully-offline guarantee: the description/chapters
+        fetch (which hits YouTube via yt-dlp) must not run."""
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        scripts_path = paths["scripts"]
+
+        called = {"n": 0}
+
+        def _spy_extra(video_id, *, cache):
+            called["n"] += 1
+            return _EMPTY_EXTRA
+
+        monkeypatch.setattr(scripts_stage, "fetch_video_extra_metadata", _spy_extra)
+        monkeypatch.setattr(
+            scripts_stage,
+            "fetch_with_fallback",
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
+        )
+
+        media_path = tmp_path / "local.mp4"
+        media_path.write_bytes(b"")
+
+        result = scripts_stage.run_stage_scripts(
+            video, scripts_path, window_seconds=30.0, media_path=media_path, cache=_NO_CACHE
+        )
+
+        assert called["n"] == 0
+        assert result.description is None
+        assert result.chapters == ()
+
+    def test_coding_playlist_reuses_fetched_description_no_double_call(self, vault, monkeypatch):
+        """include_code_blocks must reuse the description already fetched for
+        the metadata block, not trigger a second yt-dlp extract."""
+        video = _video()
+        run_time = datetime(2026, 4, 14, 21, 41)
+        paths = create_placeholder_notes(video, run_time, dry_run=False, vault_root=vault)
+        scripts_path = paths["scripts"]
+
+        extra = VideoExtraMetadata(
+            description="Code: https://github.com/foo/bar/blob/main/x.py"
+        )
+        called = {"n": 0}
+
+        def _spy_extra(video_id, *, cache):
+            called["n"] += 1
+            return extra
+
+        monkeypatch.setattr(scripts_stage, "fetch_video_extra_metadata", _spy_extra)
+        monkeypatch.setattr(
+            scripts_stage,
+            "fetch_with_fallback",
+            lambda video_id, languages, fetchers, **kw: _fake_fetch_success()(video_id, languages),
+        )
+        monkeypatch.setattr(scripts_stage, "fetch_snippets_for_urls", lambda urls, *, cache: [])
+
+        scripts_stage.run_stage_scripts(
+            video,
+            scripts_path,
+            window_seconds=30.0,
+            include_code_blocks=True,
+            cache=_NO_CACHE,
+        )
+
+        assert called["n"] == 1

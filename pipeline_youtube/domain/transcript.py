@@ -44,6 +44,20 @@ class TranscriptSnippet:
 
 
 @dataclass(frozen=True)
+class VideoChapter:
+    """One YouTube-declared chapter, from the video's own metadata."""
+
+    title: str
+    start_seconds: float
+
+    @property
+    def mmss(self) -> str:
+        total = int(self.start_seconds)
+        mm, ss = divmod(total, 60)
+        return f"{mm:02d}:{ss:02d}"
+
+
+@dataclass(frozen=True)
 class TranscriptResult:
     video_id: str
     source: TranscriptSource
@@ -59,3 +73,9 @@ class TranscriptResult:
     # Proper nouns Stage 01b confirmed for this video (deduped). Written into the
     # per-playlist proper-noun sheet for human review and next-run reuse.
     confirmed_terms: tuple[str, ...] = ()
+    # Video description + declared chapters (Stage 01a, a single best-effort
+    # yt-dlp extract — ``None``/``()`` when skipped under ``--local-media`` or
+    # the fetch failed). Feeds Stage 01b's known-context block (fewer web
+    # searches) and Stage 02's content-mode diagnosis.
+    description: str | None = None
+    chapters: tuple[VideoChapter, ...] = ()

@@ -205,6 +205,39 @@ class TestCorrectChunks:
         correct_chunks(self._chunks(), model="opus", invoke=invoke, cache=_NO_CACHE)
         assert "確定済み固有名詞辞書" not in invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
 
+    def test_description_injected_as_known_context(self) -> None:
+        invoke = _stub_invoke('[{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]')
+        correct_chunks(
+            self._chunks(),
+            model="opus",
+            invoke=invoke,
+            description="今回はGoogleのTensorFlowについて解説します",
+            cache=_NO_CACHE,
+        )
+        sys_prompt = invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
+        assert "動画概要欄" in sys_prompt
+        assert "TensorFlow" in sys_prompt
+        assert "<untrusted_content>" in sys_prompt and "</untrusted_content>" in sys_prompt
+
+    def test_no_description_leaves_base_prompt(self) -> None:
+        invoke = _stub_invoke('[{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]')
+        correct_chunks(self._chunks(), model="opus", invoke=invoke, cache=_NO_CACHE)
+        assert "動画概要欄" not in invoke.calls[0]["system_prompt"]  # type: ignore[attr-defined]
+
+    def test_description_context_does_not_leak_into_prompt(self) -> None:
+        """The description is context for the model, not part of the batch
+        payload — it must land in system_prompt only, never in the per-batch
+        user prompt (which carries the transcript chunks)."""
+        invoke = _stub_invoke('[{"idx": 0, "text": "G"}, {"idx": 1, "text": "x"}]')
+        correct_chunks(
+            self._chunks(),
+            model="opus",
+            invoke=invoke,
+            description="ユニークな概要欄マーカーXYZ123",
+            cache=_NO_CACHE,
+        )
+        assert "XYZ123" not in invoke.calls[0]["prompt"]  # type: ignore[attr-defined]
+
     def test_chunks_to_snippets_preserves_timeline(self) -> None:
         chunks = [
             Chunk(start=0.0, text="A"),
