@@ -129,6 +129,25 @@ class VideoExtraMetadata:
     chapters: tuple[VideoChapter, ...] = ()
 
 
+def _parse_chapter(raw: object) -> VideoChapter | None:
+    """Parse one yt-dlp chapter entry; ``None`` on any malformed field.
+
+    A single bad chapter (non-dict entry, non-numeric ``start_time``, ...)
+    must not abort the whole extract — this stage is advisory and runs for
+    every non-local video now, not just coding playlists.
+    """
+    if not isinstance(raw, dict):
+        return None
+    title = raw.get("title")
+    if not title:
+        return None
+    try:
+        start_seconds = float(raw.get("start_time") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return VideoChapter(title=str(title).strip(), start_seconds=start_seconds)
+
+
 def fetch_video_extra_metadata(
     video_id: str, *, timeout: int = 30, cache: Cache
 ) -> VideoExtraMetadata:
@@ -169,9 +188,9 @@ def fetch_video_extra_metadata(
     desc = info.get("description")
     description = str(desc) if desc else None
     chapters = tuple(
-        VideoChapter(title=str(c["title"]).strip(), start_seconds=float(c.get("start_time") or 0.0))
-        for c in (info.get("chapters") or [])
-        if c.get("title")
+        chapter
+        for chapter in (_parse_chapter(c) for c in (info.get("chapters") or []))
+        if chapter is not None
     )
 
     result = VideoExtraMetadata(description=description, chapters=chapters)

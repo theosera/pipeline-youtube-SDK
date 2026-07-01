@@ -302,6 +302,25 @@ class TestFetchVideoExtraMetadata:
             result = code_fetch.fetch_video_extra_metadata("vid001", cache=_NO_CACHE)
         assert [c.title for c in result.chapters] == ["Named"]
 
+    def test_malformed_chapter_entries_skipped_not_fatal(self):
+        """A non-dict entry or non-numeric start_time must not abort the
+        whole extract — only that chapter is dropped."""
+        fake_ydl = MagicMock()
+        fake_ydl.__enter__ = lambda self: self
+        fake_ydl.__exit__ = lambda *a: None
+        fake_ydl.extract_info.return_value = {
+            "description": "d",
+            "chapters": [
+                "not a dict",
+                {"title": "Bad start", "start_time": "not-a-number"},
+                {"title": "Good", "start_time": 5.0},
+            ],
+        }
+
+        with patch("yt_dlp.YoutubeDL", return_value=fake_ydl):
+            result = code_fetch.fetch_video_extra_metadata("vid001", cache=_NO_CACHE)
+        assert [c.title for c in result.chapters] == ["Good"]
+
     def test_result_cached_and_reused_without_refetch(self, tmp_path):
         from pipeline_youtube.services.cache import Cache
 
