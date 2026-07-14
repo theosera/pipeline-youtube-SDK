@@ -40,9 +40,19 @@
 - **必ず確認を求める**: 破壊的・外向き・不可逆な操作。例) `rm -rf` / `chmod` / `sudo` /
   force-push / ブランチ削除 / 外部サービスへの送信・公開 / 本番反映。
 - 1 つの文脈での承認は別の文脈へは引き継がれない。都度判断する。
+- **PR は通常 PR を既定にする**: Draft を既定にせず、最初からレビュー可能な通常 PR として
+  作成し、`Ready for review` への切り替え工程を作らない。Draft はユーザーが明示した場合、
+  または merge 対象にしない umbrella PR の場合だけ使う。
+- **PR 作成と merge 承認を分離する**: PR 作成の承認だけで merge しない。レビュー後に
+  ユーザーが明示承認した場合だけ auto-merge または指定された方式で merge する。
 - **PR を作成する前に、変更内容を性質別に分類する**: 異なる実行経路・異なる
   レビュー観点・live 実注入と seam-only は別 PR にする。束ね PR を作る場合は
   draft / umbrella と明記し、merge 対象にしない。
+- **依存更新 PR (Dependabot 等) を「その場マージ」しない**: 更新 PR は必ず
+  (a) peer dependency 範囲の適合を確認 → (b) major / 破壊的更新は保留し opt-in の手動
+  イベントとして扱う → (c) lint / typecheck / build / test と最低限の E2E を green 確認、の
+  順で通す。詳細な判定木は各リポの `docs/dependency-policy.md` に置く (無ければ作る)。
+  CI 赤や peer 未対応のまま強制通過 (バージョン警告の無効化・peer の強制無視) はしない。
 
 ## 3. セキュリティ境界 (Permission Boundaries)
 
