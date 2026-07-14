@@ -223,6 +223,15 @@ CLI オプションは元リポジトリと同一です。詳細は [docs/cli.md
 5. **Stage 04 Learning**: 上記を「時系列→キャプチャ→要点」3点セットでテーマ単位に再構成
 6. **Stage 05 Synthesis**: Agent Teams (α→β→Leader) で全動画を横断統合
 
+## セキュリティ層
+
+元リポジトリと同じ多層防御を踏襲しています (パストラバーサル防御 / `sanitize.py` の
+`wrap_untrusted` によるプロンプトインジェクション緩和 / Stage 03 の Docker 隔離
+(オプション、既定は host 実行で `capture_backend: "docker"` により opt-in)。
+詳細は元リポジトリの [README セキュリティ層](https://github.com/theosera/pipeline-youtube#%E3%82%BB%E3%82%AD%E3%83%A5%E3%83%AA%E3%83%86%E3%82%A3%E5%B1%A4) を参照)。
+
+- **security-guidance プラグイン (in-session コードレビュー)** — `.claude/settings.json` の `enabledPlugins` で有効化した公式プラグイン。Claude Code が書くコードを編集時パターンマッチ / ターン終了時 diff レビュー / commit 時 agentic レビューの 3 層で自動チェックし、`.claude/claude-security-guidance.md` が本リポの脅威モデル (`wrap_untrusted` 境界 / Stage 03 Docker 隔離 (opt-in) / `providers/registry.py` 経由のキー払い出し / CODEOWNERS 保護パス) をレビュー観点に注入する。助言のみでブロックはしないため、egress hook や gitleaks 等の機械的 deny 層の代替ではない (正典: obsidian-ai-pipeline の `docs/security/security-guidance-plugin.md`)
+
 ## 権利・利用上の注意
 
 元リポジトリと同様、動画由来の生成物は **利用者自身のローカル環境における個人学習目的** でのみ扱うことを想定しています。詳細は元リポジトリの [README](https://github.com/theosera/pipeline-youtube#%E6%A8%A9%E5%88%A9%E5%88%A9%E7%94%A8%E4%B8%8A%E3%81%AE%E6%B3%A8%E6%84%8F) を参照してください。
