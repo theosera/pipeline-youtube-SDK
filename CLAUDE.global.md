@@ -44,15 +44,19 @@
   作成し、`Ready for review` への切り替え工程を作らない。Draft はユーザーが明示した場合、
   または merge 対象にしない umbrella PR の場合だけ使う。
 - **PR 作成と merge 承認を分離する**: PR 作成の承認だけで merge しない。レビュー後に
-  ユーザーが明示承認した場合だけ auto-merge または指定された方式で merge する。
+  ユーザーが明示承認した場合だけ auto-merge または指定された方式で merge する。ただし
+  各リポの pr-workflow skill / branch-protection が auto-merge を明示的に規定している場合は、
+  そのリポ規約 (保護ブランチ＋必須チェック green を条件とした squash auto-merge 等) に従う。
 - **PR を作成する前に、変更内容を性質別に分類する**: 異なる実行経路・異なる
   レビュー観点・live 実注入と seam-only は別 PR にする。束ね PR を作る場合は
   draft / umbrella と明記し、merge 対象にしない。
 - **依存更新 PR (Dependabot 等) を「その場マージ」しない**: 更新 PR は必ず
-  (a) peer dependency 範囲の適合を確認 → (b) major / 破壊的更新は保留し opt-in の手動
-  イベントとして扱う → (c) lint / typecheck / build / test と最低限の E2E を green 確認、の
-  順で通す。詳細な判定木は各リポの `docs/dependency-policy.md` に置く (無ければ作る)。
-  CI 赤や peer 未対応のまま強制通過 (バージョン警告の無効化・peer の強制無視) はしない。
+  (a) peer dependency / 互換性の適合を確認 → (b) major / 破壊的更新は保留し opt-in の
+  手動イベントとして扱う → (c) opt-in 後は各リポの検証ゲート (そのリポにある lint /
+  typecheck / build / test / E2E 等) を green 確認、の順で通す。具体的な検証項目と判定木は
+  各リポの `docs/dependency-policy.md` に定義し、あれば必ず従う (無い場合の新規作成を依存
+  更新時の必須条件にはしない)。CI 赤や peer 未対応のまま強制通過 (バージョン警告の無効化・
+  peer の強制無視) はしない。
 
 ## 3. セキュリティ境界 (Permission Boundaries)
 
