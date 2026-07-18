@@ -7,6 +7,11 @@
 # reply reliably (1) keeps non-command prose in Japanese and (2) closes by
 # running the JST clock command and showing its output as the completion time.
 #
+# The injected clock command derives JST from UTC+9 arithmetic (JST has no DST),
+# so it stays correct even in minimal containers that ship no Asia/Tokyo zoneinfo
+# (where `TZ=Asia/Tokyo date` would silently print UTC mislabeled as JST); it
+# falls back to TZ-based formatting only if `date -d` is unavailable (e.g. BSD).
+#
 # Committed to the repo's .claude/ so it applies in both local and Claude Code
 # on the web without a per-chat instruction. Best-effort and non-blocking: any
 # failure exits 0, so a hook hiccup never interrupts the turn.
@@ -16,6 +21,6 @@ cat <<'EOF'
 回答ルール（このセッションで厳守）:
 1. コマンド類（シェルコマンド・コードブロック内の実行コマンド等）を除き、説明・回答文はすべて日本語で書く。
 2. 回答の最後に必ず次のコマンドを実行し、その出力（JST の完了時刻）を 1 行で表示する:
-   TZ=Asia/Tokyo date "+%Y-%m-%d %H:%M:%S JST"
+   date -u -d '+9 hours' '+%Y-%m-%d %H:%M:%S JST' 2>/dev/null || TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M:%S JST'
 EOF
 exit 0
