@@ -178,7 +178,12 @@ def build_frontmatter(
         f'URL: "{_escape_yaml(url)}"',
     ]
     for key, val in extra.items():
-        lines.append(f'{key}: "{_escape_yaml(str(val))}"')
+        # `extra` values (notably `playlist` = the raw playlist title) are also
+        # attacker-controlled external text, so strip concealment chars before
+        # serializing — otherwise they ride into the YAML via this loop even
+        # though the `title` field above is cleaned.
+        safe_val = strip_invisibles(str(val))[0]
+        lines.append(f'{key}: "{_escape_yaml(safe_val)}"')
     if tags:
         lines.append(f"tags: [{', '.join(tags)}]")
     lines.append("---")

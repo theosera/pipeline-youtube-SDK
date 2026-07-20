@@ -225,6 +225,15 @@ class TestBuildFrontmatter:
         fm = build_frontmatter(dt, f"{cyr_a}pple")
         assert f'title: "{cyr_a}pple"' in fm
 
+    def test_invisible_chars_stripped_from_extra_values(self):
+        # `extra` values (e.g. the raw playlist title) are attacker-controlled
+        # too and must be cleaned, not just the `title` field.
+        dt = datetime(2026, 4, 14, 21, 41)
+        zwsp, rlo = chr(0x200B), chr(0x202E)
+        fm = build_frontmatter(dt, "T", extra={"playlist": f"My{zwsp}{rlo}List", "video_id": "v1"})
+        assert 'playlist: "MyList"' in fm
+        assert zwsp not in fm and rlo not in fm
+
 
 class TestFilenameConcealment:
     """Invisible/bidi/zero-width chars must never reach an on-disk filename;

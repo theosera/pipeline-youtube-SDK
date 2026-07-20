@@ -50,11 +50,16 @@ class TestStripInvisibles:
         nel, shy = chr(0x85), chr(0x00AD)
         assert strip_invisibles(f"a{nel}b{shy}c") == ("abc", 2)
 
-    def test_whitespace_controls_preserved(self):
-        # tab / newline / CR / VT / FF stay — the caller collapses them to a
-        # single space, so removing them here would drop the word boundary.
-        raw = "a\tb\nc\rd\x0be\x0cf"
-        assert strip_invisibles(raw) == (raw, 0)
+    def test_tab_lf_cr_kept_vt_ff_stripped(self):
+        # tab / newline / CR stay (word boundary the caller collapses); VT / FF
+        # are stripped — YAML-invalid and no legitimate title use.
+        assert strip_invisibles("a\tb\nc\rd") == ("a\tb\nc\rd", 0)
+        assert strip_invisibles("a\x0bb\x0cc") == ("abc", 2)
+
+    def test_supplemental_blank_code_points_removed(self):
+        # visually-blank chars outside Cc/Cf/Zl/Zp (Mn/Lo/So) are still stripped.
+        cgj, hangul_filler, braille_blank = chr(0x034F), chr(0x3164), chr(0x2800)
+        assert strip_invisibles(f"a{cgj}b{hangul_filler}c{braille_blank}d") == ("abcd", 3)
 
     def test_plain_text_untouched(self):
         assert strip_invisibles("The AI System") == ("The AI System", 0)

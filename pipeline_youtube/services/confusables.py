@@ -27,10 +27,9 @@ those would corrupt visible content and break existing naming behavior.
 Whether such typography should count as a "concealment" signal is a
 scanner-side allowlist concern, not a filename-safety one.
 
-The five whitespace controls (tab, newline, VT, FF, CR) are intentionally
-kept: the filename chokepoint collapses them to a single space downstream and
-the frontmatter path escapes them, so stripping them here would drop the word
-boundary they represent.
+TAB / newline / CR are intentionally kept (the filename chokepoint collapses
+them to a space; frontmatter escapes them). VT / FF are NOT kept -- they are
+forbidden in YAML and have no legitimate title use.
 
 The confusable-script character classes use ``\\uXXXX`` escapes (never literal
 glyphs) on purpose -- a module that defends against invisible and confusable
@@ -43,12 +42,24 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-# Whitespace controls the caller still needs (collapsed to a space downstream).
-# Everything else whose Unicode category is Cc (control), Cf (format /
-# zero-width / bidi), Zl (line separator) or Zp (paragraph separator) is
-# invisible or control in a filename context and gets stripped.
-_KEEP_WHITESPACE = frozenset("\t\n\x0b\x0c\r")
+# Whitespace controls the caller still needs (tab / newline / CR). VT (U+000B)
+# and FF (U+000C) are deliberately NOT kept: only TAB/LF/CR are legal C0 chars
+# in a YAML stream, so keeping VT/FF would let build_frontmatter emit
+# unparseable frontmatter. They are category Cc, so they get stripped below.
+_KEEP_WHITESPACE = frozenset("\t\n\r")
+# A char is stripped if its Unicode category is Cc / Cf / Zl / Zp ...
 _STRIP_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
+# ... OR it is one of these visually-blank code points that live OUTSIDE those
+# categories (Mn / Lo / So) yet are classic concealment fillers a category-only
+# check would miss.
+_EXTRA_INVISIBLE = frozenset(
+    "\u034f"  # COMBINING GRAPHEME JOINER (Mn)
+    "\u115f\u1160"  # HANGUL CHOSEONG / JUNGSEONG FILLER (Lo)
+    "\u17b4\u17b5"  # KHMER VOWEL INHERENT AQ / AA (Mn)
+    "\u2800"  # BRAILLE PATTERN BLANK (So)
+    "\u3164"  # HANGUL FILLER (Lo)
+    "\uffa0"  # HALFWIDTH HANGUL FILLER (Lo)
+)
 
 # Confusable-prone alphabets. The homoglyph signal is intra-word mixing of
 # Latin with Cyrillic or Greek; CJK / Japanese are their own scripts and are
@@ -86,19 +97,26 @@ class ConcealmentReport:
 def _is_concealment_char(ch: str) -> bool:
     """True if ``ch`` is an invisible / control / separator char to strip.
 
-    Category-driven (Cc/Cf/Zl/Zp) so the defense covers every control and
-    format/zero-width/bidi code point, while the whitespace controls the caller
-    relies on are explicitly kept.
+    Category-driven (Cc/Cf/Zl/Zp) plus an explicit set of visually-blank code
+    points outside those categories (``_EXTRA_INVISIBLE``). TAB/LF/CR are kept.
+    ZWJ/ZWNJ (U+200D/U+200C) ARE stripped: the observed vault attack uses a
+    zero-width joiner between words, so preserving them for the rare emoji-ZWJ /
+    Persian case would reopen the exact hole (a broken emoji in a filename is
+    cosmetic; a concealed filename is not).
     """
-    return ch not in _KEEP_WHITESPACE and unicodedata.category(ch) in _STRIP_CATEGORIES
+    if ch in _KEEP_WHITESPACE:
+        return False
+    if ch in _EXTRA_INVISIBLE:
+        return True
+    return unicodedata.category(ch) in _STRIP_CATEGORIES
 
 
 def strip_invisibles(raw: str) -> tuple[str, int]:
     r"""Remove zero-width / bidi / control / separator chars.
 
     Returns ``(cleaned, removed_count)``. Idempotent: re-running on the result
-    removes nothing. Whitespace controls (``\t \n \x0b \x0c \r``) are preserved
-    so the caller can collapse them to a word boundary.
+    removes nothing. Whitespace controls (``\t \n \r``) are preserved so the
+    caller can collapse them to a word boundary.
     """
     cleaned = "".join(ch for ch in raw if not _is_concealment_char(ch))
     return cleaned, len(raw) - len(cleaned)
