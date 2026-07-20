@@ -17,15 +17,28 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from .confusables import strip_invisibles
+
 _FILENAME_UNSAFE_RE = re.compile(r'[\\/:*?"<>|]')
 _WHITESPACE_RE = re.compile(r"\s+")
 
 
 def sanitize_title_for_filename(raw: str | None) -> str:
-    """Replace OS-unsafe chars with space, collapse whitespace, strip."""
+    """Strip invisibles, replace OS-unsafe chars with space, collapse, strip.
+
+    Invisible / bidi / zero-width control chars (RLO override, zero-width
+    joiners, BOM) are removed first via ``strip_invisibles`` so a crafted
+    YouTube title can never plant a spoofed or bidi-reversed on-disk filename.
+    Whitespace controls survive that pass and are collapsed to a single space
+    below (preserving the ``\\t`` -> space behavior). Homoglyph *detection*
+    (mixed-script) is intentionally not done here — it happens once at the
+    fetch boundary (``playlist.fetch_metadata``) so this pure, widely-reused
+    chokepoint never emits duplicate alerts on read/dedup scans.
+    """
     if not raw:
         return ""
-    cleaned = _FILENAME_UNSAFE_RE.sub(" ", raw)
+    cleaned, _ = strip_invisibles(raw)
+    cleaned = _FILENAME_UNSAFE_RE.sub(" ", cleaned)
     cleaned = _WHITESPACE_RE.sub(" ", cleaned)
     return cleaned.strip()
 
@@ -153,10 +166,15 @@ def build_frontmatter(
         )
     date_str = dt.strftime("%Y-%m-%d %H:%M")
 
+    # Strip invisibles from the visible title too: a zero-width / bidi char in
+    # the YAML `title:` value is pure concealment (no display purpose) and would
+    # otherwise ride along into the note's metadata. Legitimate visible
+    # typography (dashes, curly quotes, CJK) is preserved.
+    safe_title = strip_invisibles(title)[0] if title else title
     lines = [
         "---",
         f"date: {date_str}",
-        f'title: "{_escape_yaml(title)}"',
+        f'title: "{_escape_yaml(safe_title)}"',
         f'URL: "{_escape_yaml(url)}"',
     ]
     for key, val in extra.items():

@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 import yt_dlp  # type: ignore[import-untyped]
 
 from .domain.video import VideoMeta as VideoMeta
+from .services.confusables import analyze_filename_text
+from .services.sanitize import record_alert
 
 _ALLOWED_HOSTS = frozenset(
     {
@@ -89,6 +91,26 @@ _BASE_OPTS: dict[str, Any] = {
 }
 
 
+def _alert_concealment(context: str, text: str | None) -> None:
+    """Surface filename-concealment signals in fetched metadata, once.
+
+    ``fetch_metadata`` is the single boundary where attacker-controllable
+    YouTube titles enter the pipeline, so invisible/bidi chars and mixed-script
+    homoglyph tokens are detected and logged to the shared sanitize alert trail
+    here. The downstream filename/frontmatter chokepoints stay pure and never
+    re-alert on the many read/dedup scans that also sanitize the same title.
+    """
+    report = analyze_filename_text(text)
+    if not report.has_signal:
+        return
+    record_alert(
+        context,
+        f"filename concealment: {report.invisible_removed} invisible char(s), "
+        f"{len(report.mixed_script_tokens)} mixed-script token(s)",
+        sample=text or "",
+    )
+
+
 def fetch_metadata(url: str) -> list[VideoMeta]:
     """Fetch metadata for a playlist URL or a single-video URL.
 
@@ -107,6 +129,7 @@ def fetch_metadata(url: str) -> list[VideoMeta]:
     playlist_title: str | None = None
     if info.get("_type") == "playlist":
         playlist_title = info.get("title")
+    _alert_concealment("playlist.fetch.playlist_title", playlist_title)
 
     entries = info.get("entries")
     if entries is None:
@@ -119,10 +142,12 @@ def fetch_metadata(url: str) -> list[VideoMeta]:
         video_id = entry.get("id") or ""
         if not video_id:
             continue
+        title = entry.get("title") or ""
+        _alert_concealment(f"playlist.fetch.title:{video_id}", title)
         videos.append(
             VideoMeta(
                 video_id=video_id,
-                title=entry.get("title") or "",
+                title=title,
                 url=entry.get("url") or f"https://www.youtube.com/watch?v={video_id}",
                 duration=entry.get("duration"),
                 channel=entry.get("channel") or entry.get("uploader"),

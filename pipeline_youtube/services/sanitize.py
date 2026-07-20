@@ -157,3 +157,32 @@ def _emit_alert(context: str, before_len: int, after_len: int, sample: str) -> N
         # Best-effort sink: a missing/unwritable alert path must never break the
         # pipeline, so a logging failure here is intentionally swallowed.
         pass
+
+
+def record_alert(context: str, message: str, *, sample: str = "") -> None:
+    """Emit a non-length sanitization alert to stderr and the JSONL sink.
+
+    Shared trail for signals not measured in "chars removed" — currently the
+    filename concealment filter (invisible chars, homoglyph tokens). `sample`
+    is reduced to a redacted SHA-256 fingerprint before it is written, so
+    title/transcript plaintext never lands in a shared log (same rule as
+    `_emit_alert`). Best-effort: a missing/unwritable sink never raises.
+    """
+    print(
+        f"⚠️  sanitize: {message} in {context!r} {_redact(sample)}",
+        file=sys.stderr,
+    )
+    if _alert_sink is None:
+        return
+    try:
+        _alert_sink.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "context": context,
+            "message": message,
+            "sample": _redact(sample),
+        }
+        with _alert_sink.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
