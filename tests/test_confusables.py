@@ -44,6 +44,12 @@ class TestStripInvisibles:
     def test_control_and_del_removed(self):
         assert strip_invisibles("a\x00b\x01c\x7fd") == ("abcd", 3)
 
+    def test_c1_control_and_soft_hyphen_removed(self):
+        # Category-based stripping (Cc/Cf) also covers C1 controls and the soft
+        # hyphen that a hand-enumerated BMP range could miss.
+        nel, shy = chr(0x85), chr(0x00AD)
+        assert strip_invisibles(f"a{nel}b{shy}c") == ("abc", 2)
+
     def test_whitespace_controls_preserved(self):
         # tab / newline / CR / VT / FF stay — the caller collapses them to a
         # single space, so removing them here would drop the word boundary.

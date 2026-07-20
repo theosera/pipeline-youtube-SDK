@@ -185,4 +185,6 @@ def record_alert(context: str, message: str, *, sample: str = "") -> None:
         with _alert_sink.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError:
+        # Best-effort sink: a missing/unwritable alert path must never break the
+        # pipeline, so a logging failure here is intentionally swallowed.
         pass

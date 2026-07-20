@@ -5,12 +5,14 @@ flows verbatim into on-disk note filenames, folder names, and YAML
 frontmatter (see ``services/obsidian.py``). Two concealment classes matter
 for a filename:
 
-  1. **Invisible / bidi controls** -- zero-width joiners, the RIGHT-TO-LEFT
-     OVERRIDE (U+202E), directional isolates, BOM, interlinear anchors.
-     These have no legitimate use in a filename and can visually reverse or
-     hide part of a name (a U+202E before ``gpj.exe`` renders as ``exe.jpg``).
-     They are **stripped unconditionally** -- zero false positives on real
-     titles because a genuine title never needs them.
+  1. **Invisible / bidi / control chars** -- zero-width joiners, the
+     RIGHT-TO-LEFT OVERRIDE (U+202E), directional isolates, BOM, C0/C1
+     controls, line/paragraph separators. These have no legitimate use in a
+     filename and can visually reverse or hide part of a name (a U+202E before
+     ``gpj.exe`` renders as ``exe.jpg``). They are **stripped unconditionally**
+     via Unicode general category (Cc / Cf / Zl / Zp), so the defense covers
+     every such code point -- not just a hand-picked list -- with zero false
+     positives on real titles.
   2. **Mixed-script confusables** -- a single word carrying both a Latin
      letter and a Cyrillic/Greek look-alike (e.g. a word whose leading ``A``
      is Cyrillic U+0410, not Latin U+0041). This is the classic homoglyph
@@ -25,35 +27,28 @@ those would corrupt visible content and break existing naming behavior.
 Whether such typography should count as a "concealment" signal is a
 scanner-side allowlist concern, not a filename-safety one.
 
-Whitespace control chars (tab, newline, CR, VT, FF) are intentionally left in
-place: the filename chokepoint collapses them to a single space downstream,
-and the frontmatter path escapes them, so stripping them here would drop the
-word boundary they represent.
+The five whitespace controls (tab, newline, VT, FF, CR) are intentionally
+kept: the filename chokepoint collapses them to a single space downstream and
+the frontmatter path escapes them, so stripping them here would drop the word
+boundary they represent.
 
-Every character class below is written with ``\\uXXXX`` / ``\\xXX`` escapes
-(never literal glyphs) on purpose -- a module that defends against invisible
-and confusable characters must not itself embed any in its own source.
+The confusable-script character classes use ``\\uXXXX`` escapes (never literal
+glyphs) on purpose -- a module that defends against invisible and confusable
+characters must not itself embed any in its own source.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
-# Invisible / bidi / zero-width chars plus non-whitespace C0 controls and DEL.
-# Excludes tab/LF/VT/FF/CR (\x09-\x0d) so the caller's whitespace handling
-# still sees the word boundary. Members (written as escapes, never literal glyphs):
-#   \x00-\x08, \x0e-\x1f, \x7f : C0 controls minus whitespace, plus DEL
-#   \u200b-\u200f             : ZWSP, ZWNJ, ZWJ, LRM, RLM
-#   \u2028, \u2029            : line / paragraph separators
-#   \u202a-\u202e             : LRE, RLE, PDF, LRO, RLO (bidi embed/override)
-#   \u2060-\u206f             : word joiner, invisible operators, bidi
-#                                isolates (LRI/RLI/FSI/PDI), deprecated formats
-#   \ufeff                    : BOM / zero-width no-break space
-#   \ufff9-\ufffb            : interlinear annotation anchor/terminator/sep
-_INVISIBLE_RE = re.compile(
-    "[\x00-\x08\x0e-\x1f\x7f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]"
-)
+# Whitespace controls the caller still needs (collapsed to a space downstream).
+# Everything else whose Unicode category is Cc (control), Cf (format /
+# zero-width / bidi), Zl (line separator) or Zp (paragraph separator) is
+# invisible or control in a filename context and gets stripped.
+_KEEP_WHITESPACE = frozenset("\t\n\x0b\x0c\r")
+_STRIP_CATEGORIES = frozenset({"Cc", "Cf", "Zl", "Zp"})
 
 # Confusable-prone alphabets. The homoglyph signal is intra-word mixing of
 # Latin with Cyrillic or Greek; CJK / Japanese are their own scripts and are
@@ -88,14 +83,24 @@ class ConcealmentReport:
         return self.invisible_removed > 0 or bool(self.mixed_script_tokens)
 
 
+def _is_concealment_char(ch: str) -> bool:
+    """True if ``ch`` is an invisible / control / separator char to strip.
+
+    Category-driven (Cc/Cf/Zl/Zp) so the defense covers every control and
+    format/zero-width/bidi code point, while the whitespace controls the caller
+    relies on are explicitly kept.
+    """
+    return ch not in _KEEP_WHITESPACE and unicodedata.category(ch) in _STRIP_CATEGORIES
+
+
 def strip_invisibles(raw: str) -> tuple[str, int]:
-    r"""Remove zero-width / bidi-control / non-whitespace-control chars.
+    r"""Remove zero-width / bidi / control / separator chars.
 
     Returns ``(cleaned, removed_count)``. Idempotent: re-running on the result
-    removes nothing. Whitespace controls (``\t \n \r \v \f``) are preserved so
-    the caller can collapse them to a word boundary.
+    removes nothing. Whitespace controls (``\t \n \x0b \x0c \r``) are preserved
+    so the caller can collapse them to a word boundary.
     """
-    cleaned = _INVISIBLE_RE.sub("", raw)
+    cleaned = "".join(ch for ch in raw if not _is_concealment_char(ch))
     return cleaned, len(raw) - len(cleaned)
 
 
