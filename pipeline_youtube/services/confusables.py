@@ -78,7 +78,16 @@ _EXTRA_INVISIBLE = frozenset(
 _LATIN_RE = re.compile("[A-Za-z\u00c0-\u024f]")
 _CYRILLIC_RE = re.compile("[\u0400-\u052f]")
 _GREEK_RE = re.compile("[\u0370-\u03ff\u1f00-\u1fff]")
+# Whitespace-delimited token: used by the report-only detector at the filename
+# boundary, where over-flagging is a harmless alert.
 _TOKEN_RE = re.compile(r"\S+")
+# A "word" = a maximal run of letters only (no digits / underscore / punctuation
+# / whitespace). The *fold* uses this finer boundary instead of _TOKEN_RE so a
+# URL or Markdown construct that glues Latin to legitimately-Cyrillic text
+# (`[\u043f\u0440\u0438\u0432\u0435\u0442](https://example.com)`, `|English|\u0420\u0443\u0441\u0441\u043a\u0438\u0439|`, a Unicode URL path) is
+# split into separate pure-script words -- the Latin part cannot drag an
+# adjacent legitimate Cyrillic/Greek run into a "mixed" verdict and corrupt it.
+_WORD_RE = re.compile(r"[^\W\d_]+")
 
 # Cyrillic / Greek code points that are visual look-alikes of an ASCII Latin
 # letter, mapped to that letter. This is the Unicode TR39 "confusables" subset
@@ -145,7 +154,18 @@ _CONFUSABLE_TO_LATIN: dict[str, str] = {
     "\u03bd": "v",  # GREEK SMALL LETTER NU
     "\u03f2": "c",  # GREEK LUNATE SIGMA SYMBOL
     "\u03b1": "a",  # GREEK SMALL LETTER ALPHA
+    "\u03b9": "i",  # GREEK SMALL LETTER IOTA
+    "\u03ba": "k",  # GREEK SMALL LETTER KAPPA
+    "\u03c5": "u",  # GREEK SMALL LETTER UPSILON
+    "\u03c7": "x",  # GREEK SMALL LETTER CHI
 }
+# This table is a *curated* TR39-confusables subset, not an exhaustive mirror:
+# only code points with a plain ASCII-Latin look-alike are listed, so kana /
+# kanji / emoji and non-ASCII look-alikes stay out by construction. An entry is
+# absent only when it has no clean ASCII target (e.g. Cyrillic lowercase \u0432/\u043d,
+# which read as small-capital B/H rather than b/h) -- absence is deliberate, not
+# an oversight. A miss just leaves that one glyph in place; the token is still
+# reported by ``find_mixed_script_tokens`` and re-folding stays idempotent.
 
 
 @dataclass(frozen=True)
@@ -196,6 +216,19 @@ def strip_invisibles(raw: str) -> tuple[str, int]:
     return cleaned, len(raw) - len(cleaned)
 
 
+def _is_mixed_script_token(token: str) -> bool:
+    """True if ``token`` mixes at least one Latin letter with a Cyrillic/Greek one.
+
+    The single shared predicate behind both the report-only detector and the
+    fold, so the two can never drift apart if the script regexes change. It
+    classifies a *token*; detect and fold differ only in how they slice text
+    into tokens (whitespace vs. letter-run), never in this verdict.
+    """
+    has_latin = bool(_LATIN_RE.search(token))
+    has_confusable = bool(_CYRILLIC_RE.search(token) or _GREEK_RE.search(token))
+    return has_latin and has_confusable
+
+
 def find_mixed_script_tokens(text: str) -> tuple[str, ...]:
     """Return whitespace-delimited tokens that mix Latin with Cyrillic/Greek.
 
@@ -205,14 +238,11 @@ def find_mixed_script_tokens(text: str) -> tuple[str, ...]:
     are never flagged, keeping false positives near zero for this pipeline's
     Japanese/English titles.
     """
-    flagged: list[str] = []
-    for match in _TOKEN_RE.finditer(text):
-        token = match.group(0)
-        has_latin = bool(_LATIN_RE.search(token))
-        has_confusable = bool(_CYRILLIC_RE.search(token) or _GREEK_RE.search(token))
-        if has_latin and has_confusable:
-            flagged.append(token)
-    return tuple(flagged)
+    return tuple(
+        match.group(0)
+        for match in _TOKEN_RE.finditer(text)
+        if _is_mixed_script_token(match.group(0))
+    )
 
 
 def fold_mixed_script_confusables(text: str) -> str:
@@ -229,29 +259,32 @@ def fold_mixed_script_confusables(text: str) -> str:
     fold is a distinct, additional layer -- it does not replace the existing
     invisible-char defense.
 
-    Per whitespace-delimited token: only when the token mixes at least one
-    Latin letter with at least one Cyrillic/Greek letter, each character that
-    has an ASCII-Latin look-alike in ``_CONFUSABLE_TO_LATIN`` is swapped for it.
-    Every other token -- pure-Latin, pure-Cyrillic (legitimate Russian),
-    pure-Greek, Latin+CJK/kana (Japanese) -- is returned unchanged, so
-    legitimate non-Latin content is never corrupted.
+    Folding is applied per *letter-run word* (``_WORD_RE``), NOT per
+    whitespace-delimited token: only when a word mixes at least one Latin letter
+    with at least one Cyrillic/Greek letter, each character that has an
+    ASCII-Latin look-alike in ``_CONFUSABLE_TO_LATIN`` is swapped for it. The
+    finer boundary is what keeps a URL or Markdown construct that abuts Latin
+    and legitimate Cyrillic without whitespace -- a Markdown link whose label is
+    a Cyrillic word, a Unicode URL path, or a table row like ``|English|<RU>|``
+    -- from corrupting its non-Latin part: each script lands in its own
+    pure-script word. Every other word -- pure-Latin,
+    pure-Cyrillic (legitimate Russian), pure-Greek, and any run touching
+    CJK/kana (Japanese) -- is returned unchanged.
 
-    Deterministic (fixed table, no model) and idempotent: a folded token
-    becomes pure-Latin and no longer qualifies as mixed-script, so a second
-    pass is a no-op.
+    Deterministic (fixed table, no model) and idempotent: a folded word becomes
+    pure-Latin and no longer qualifies as mixed-script, so a second pass is a
+    no-op.
     """
     if not text:
         return text
 
-    def _fold_token(match: re.Match[str]) -> str:
-        token = match.group(0)
-        has_latin = bool(_LATIN_RE.search(token))
-        has_confusable = bool(_CYRILLIC_RE.search(token) or _GREEK_RE.search(token))
-        if not (has_latin and has_confusable):
-            return token
-        return "".join(_CONFUSABLE_TO_LATIN.get(ch, ch) for ch in token)
+    def _fold_word(match: re.Match[str]) -> str:
+        word = match.group(0)
+        if not _is_mixed_script_token(word):
+            return word
+        return "".join(_CONFUSABLE_TO_LATIN.get(ch, ch) for ch in word)
 
-    return _TOKEN_RE.sub(_fold_token, text)
+    return _WORD_RE.sub(_fold_word, text)
 
 
 def analyze_filename_text(raw: str | None) -> ConcealmentReport:

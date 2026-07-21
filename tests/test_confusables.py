@@ -31,9 +31,13 @@ CYR_A = chr(0x430)  # CYRILLIC SMALL LETTER A (looks like Latin 'a')
 CYR_CAP_A = chr(0x410)  # CYRILLIC CAPITAL LETTER A
 CYR_E = chr(0x435)  # CYRILLIC SMALL LETTER IE (looks like Latin 'e')
 GRK_O = chr(0x3BF)  # GREEK SMALL LETTER OMICRON (looks like Latin 'o')
-# привет — a legitimately Russian word, built via chr() so this test source
-# embeds no literal confusable glyph (mirrors the module's own rule).
-CYR_PRIVET = "".join(chr(c) for c in (0x43F, 0x440, 0x438, 0x432, 0x435, 0x442))
+GRK_CHI = chr(0x3C7)  # GREEK SMALL LETTER CHI (looks like Latin 'x')
+GRK_IOTA = chr(0x3B9)  # GREEK SMALL LETTER IOTA (looks like Latin 'i')
+# Legitimately Russian words, built via chr() so this test source embeds no
+# literal confusable glyph (mirrors the module's own rule).
+CYR_PRIVET = "".join(chr(c) for c in (0x43F, 0x440, 0x438, 0x432, 0x435, 0x442))  # привет
+CYR_RUSSKIY = "".join(chr(c) for c in (0x420, 0x443, 0x441, 0x441, 0x43A, 0x438, 0x439))  # Русский
+CYR_ROSSIYA = "".join(chr(c) for c in (0x420, 0x43E, 0x441, 0x441, 0x438, 0x44F))  # Россия
 
 
 class TestStripInvisibles:
@@ -169,8 +173,32 @@ class TestFoldMixedScriptConfusables:
             "plain ascii summary body"
         )
 
+    def test_greek_chi_folded(self):
+        # eχit with Greek small chi -> exit (chi is an ASCII 'x' look-alike).
+        assert fold_mixed_script_confusables(f"e{GRK_CHI}it") == "exit"
+
+    def test_greek_iota_folded(self):
+        assert fold_mixed_script_confusables(f"f{GRK_IOTA}le") == "file"
+
+    def test_markdown_link_cyrillic_label_untouched(self):
+        # Regression: whitespace tokenization used to glue the Latin URL to the
+        # Cyrillic label into one token and corrupt the label. Letter-run
+        # folding keeps the pure-Cyrillic label intact.
+        raw = f"[{CYR_PRIVET}](https://example.com)"
+        assert fold_mixed_script_confusables(raw) == raw
+
+    def test_table_row_pure_scripts_untouched(self):
+        # `|English|Русский|` has no whitespace between the Latin and Cyrillic
+        # cells; each is its own pure-script word and must survive unchanged.
+        raw = f"|English|{CYR_RUSSKIY}|"
+        assert fold_mixed_script_confusables(raw) == raw
+
+    def test_unicode_url_path_untouched(self):
+        raw = f"https://ru.wikipedia.org/wiki/{CYR_ROSSIYA}"
+        assert fold_mixed_script_confusables(raw) == raw
+
     def test_idempotent(self):
-        once = fold_mixed_script_confusables(f"Vib{CYR_E} c{GRK_O}de")
+        once = fold_mixed_script_confusables(f"Vib{CYR_E} c{GRK_O}de e{GRK_CHI}it")
         assert fold_mixed_script_confusables(once) == once
 
     def test_empty(self):
