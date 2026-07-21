@@ -209,3 +209,58 @@ class TestBuildFrontmatter:
         dt = datetime(2026, 4, 14, 21, 41)
         fm = build_frontmatter(dt, None)
         assert 'title: ""' in fm
+
+    def test_invisible_chars_stripped_from_title(self):
+        dt = datetime(2026, 4, 14, 21, 41)
+        rlo, zwsp = chr(0x202E), chr(0x200B)
+        fm = build_frontmatter(dt, f"clean{zwsp}{rlo}title")
+        assert 'title: "cleantitle"' in fm
+        assert rlo not in fm and zwsp not in fm
+
+    def test_mixed_script_title_preserved_in_frontmatter(self):
+        # Homoglyph tokens are reported at the fetch boundary, never rewritten
+        # here — the title stays byte-for-byte in the note metadata.
+        dt = datetime(2026, 4, 14, 21, 41)
+        cyr_a = chr(0x430)
+        fm = build_frontmatter(dt, f"{cyr_a}pple")
+        assert f'title: "{cyr_a}pple"' in fm
+
+    def test_invisible_chars_stripped_from_extra_values(self):
+        # `extra` values (e.g. the raw playlist title) are attacker-controlled
+        # too and must be cleaned, not just the `title` field.
+        dt = datetime(2026, 4, 14, 21, 41)
+        zwsp, rlo = chr(0x200B), chr(0x202E)
+        fm = build_frontmatter(dt, "T", extra={"playlist": f"My{zwsp}{rlo}List", "video_id": "v1"})
+        assert 'playlist: "MyList"' in fm
+        assert zwsp not in fm and rlo not in fm
+
+
+class TestFilenameConcealment:
+    """Invisible/bidi/zero-width chars must never reach an on-disk filename;
+    mixed-script homoglyph letters are preserved (detection is upstream)."""
+
+    def test_rlo_override_stripped(self):
+        rlo = chr(0x202E)
+        assert rlo not in sanitize_title_for_filename(f"report{rlo}gpj.exe")
+        assert sanitize_title_for_filename(f"report{rlo}gpj.exe") == "reportgpj.exe"
+
+    def test_zero_width_family_stripped(self):
+        zwsp, zwnj, bom = chr(0x200B), chr(0x200C), chr(0xFEFF)
+        assert sanitize_title_for_filename(f"a{zwsp}b{zwnj}c{bom}d") == "abcd"
+
+    def test_tab_still_collapses_to_space(self):
+        # regression: stripping invisibles must not disturb \t -> space.
+        assert sanitize_title_for_filename("a   b\tc") == "a b c"
+
+    def test_japanese_and_fullwidth_solidus_preserved(self):
+        raw = "Agent Teams／ハーネス設計"
+        assert sanitize_title_for_filename(raw) == raw
+
+    def test_mixed_script_letters_preserved(self):
+        cyr_a = chr(0x430)
+        assert sanitize_title_for_filename(f"{cyr_a}pple") == f"{cyr_a}pple"
+
+    def test_format_video_note_base_strips_invisibles(self):
+        rlo = chr(0x202E)
+        dt = datetime(2026, 4, 14, 21, 41)
+        assert format_video_note_base(dt, f"Ti{rlo}tle") == "2026-04-14-2141 Title"

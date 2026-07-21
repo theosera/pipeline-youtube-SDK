@@ -54,3 +54,29 @@ class TestAlertSink:
         finally:
             bad.chmod(0o600)
         assert sanitize_mod._alert_sink is bad
+
+    def test_record_alert_writes_message_and_redacts_sample(self, tmp_path: Path):
+        from pipeline_youtube.services.sanitize import record_alert
+
+        sink = tmp_path / "alerts.jsonl"
+        configure_alert_sink(sink)
+        record_alert(
+            "playlist.fetch.title:vid123",
+            "filename concealment: 2 invisible char(s), 1 mixed-script token(s)",
+            sample="SECRETtitleplaintext",
+        )
+        text = sink.read_text(encoding="utf-8")
+        record = json.loads(text.splitlines()[0])
+        assert record["context"] == "playlist.fetch.title:vid123"
+        assert "concealment" in record["message"]
+        # sample is a redacted SHA-256 fingerprint, never plaintext.
+        assert "SECRET" not in text
+        assert record["sample"].startswith("[") and record["sample"].endswith("]")
+
+    def test_record_alert_no_sink_is_noop(self, tmp_path: Path):
+        from pipeline_youtube.services.sanitize import record_alert
+
+        configure_alert_sink(None)
+        # Must not raise and must not create any file.
+        record_alert("ctx", "msg", sample="x")
+        assert not (tmp_path / "alerts.jsonl").exists()
