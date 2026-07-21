@@ -74,3 +74,23 @@ class TestValidatorStripsUnsafe:
         out = _validate_summary_output(body)
         assert "#flashcards" in out
         assert "Q: what?" in out
+
+
+class TestValidatorFoldsHomoglyphs:
+    def test_folds_body_homoglyph(self):
+        # A Cyrillic IE (U+0435) inside a Latin word is folded to ASCII.
+        body = VALID + f"\nVib{chr(0x435)} coding\n"
+        out = _validate_summary_output(body)
+        assert "Vibe coding" in out
+        assert chr(0x435) not in out
+
+    def test_obfuscated_script_tag_is_stripped_not_reintroduced(self):
+        # Regression: fold must run BEFORE the active-markup strip. A
+        # Cyrillic-obfuscated `<sсript>` (U+0441) would slip past the strip and
+        # only then fold into a live `<script>`; folding first means the strip
+        # sees the canonical tag and removes it.
+        cyr_es = chr(0x441)
+        body = VALID + f"\n<s{cyr_es}ript>alert(1)</s{cyr_es}ript>\n"
+        out = _validate_summary_output(body)
+        assert "<script>" not in out
+        assert cyr_es not in out
