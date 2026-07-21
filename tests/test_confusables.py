@@ -11,6 +11,7 @@ from pipeline_youtube.services.confusables import (
     ConcealmentReport,
     analyze_filename_text,
     find_mixed_script_tokens,
+    fold_mixed_script_confusables,
     strip_invisibles,
 )
 
@@ -28,7 +29,11 @@ LS = chr(0x2028)  # LINE SEPARATOR
 # --- confusable letters ---
 CYR_A = chr(0x430)  # CYRILLIC SMALL LETTER A (looks like Latin 'a')
 CYR_CAP_A = chr(0x410)  # CYRILLIC CAPITAL LETTER A
+CYR_E = chr(0x435)  # CYRILLIC SMALL LETTER IE (looks like Latin 'e')
 GRK_O = chr(0x3BF)  # GREEK SMALL LETTER OMICRON (looks like Latin 'o')
+# привет — a legitimately Russian word, built via chr() so this test source
+# embeds no literal confusable glyph (mirrors the module's own rule).
+CYR_PRIVET = "".join(chr(c) for c in (0x43F, 0x440, 0x438, 0x432, 0x435, 0x442))
 
 
 class TestStripInvisibles:
@@ -130,3 +135,43 @@ class TestAnalyzeFilenameText:
         assert r.invisible_removed == 0
         assert r.mixed_script_tokens == (f"{CYR_A}pple",)
         assert r.has_signal is True
+
+
+class TestFoldMixedScriptConfusables:
+    def test_cyrillic_in_latin_word_becomes_pure_latin(self):
+        # "Vibе" with a Cyrillic IE hidden in a Latin word -> pure ASCII "Vibe".
+        folded = fold_mixed_script_confusables(f"Vib{CYR_E}")
+        assert folded == "Vibe"
+        assert folded.isascii()
+
+    def test_cyrillic_a_folded(self):
+        assert fold_mixed_script_confusables(f"buy {CYR_A}pple") == "buy apple"
+
+    def test_greek_omicron_folded(self):
+        assert fold_mixed_script_confusables(f"c{GRK_O}de") == "code"
+
+    def test_multiple_mixed_tokens_folded(self):
+        got = fold_mixed_script_confusables(f"{CYR_A}pple and c{GRK_O}de")
+        assert got == "apple and code"
+
+    def test_pure_cyrillic_untouched(self):
+        # THE most important regression: a legitimately Russian word has no
+        # Latin letter, so it is not a homoglyph and must never be folded.
+        assert fold_mixed_script_confusables(CYR_PRIVET) == CYR_PRIVET
+
+    def test_japanese_and_latin_untouched(self):
+        # Latin + kana/kanji is not a homoglyph signal; content stays intact.
+        raw = "Anthropicが公開したハーネス設計"
+        assert fold_mixed_script_confusables(raw) == raw
+
+    def test_pure_latin_untouched(self):
+        assert fold_mixed_script_confusables("plain ascii summary body") == (
+            "plain ascii summary body"
+        )
+
+    def test_idempotent(self):
+        once = fold_mixed_script_confusables(f"Vib{CYR_E} c{GRK_O}de")
+        assert fold_mixed_script_confusables(once) == once
+
+    def test_empty(self):
+        assert fold_mixed_script_confusables("") == ""
