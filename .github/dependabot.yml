@@ -16,6 +16,19 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    # Group minor/patch action bumps into a single PR so multi-step actions stay
+    # version-consistent — e.g. codeql-action/init and codeql-action/analyze must
+    # be the same release or the CodeQL job fails with a configuration error
+    # (see the split #100/#101 that each failed alone). Major bumps are left
+    # ungrouped so they remain individual, opt-in, reviewable PRs.
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Track the digest-pinned base image in docker/Dockerfile.capture so a newer
   # python:3.13-slim digest (security/patch updates) still reaches us despite the
