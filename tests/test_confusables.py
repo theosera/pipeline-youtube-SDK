@@ -11,6 +11,7 @@ from pipeline_youtube.services.confusables import (
     ConcealmentReport,
     analyze_filename_text,
     find_mixed_script_tokens,
+    fold_markdown_mixed_script_confusables,
     fold_mixed_script_confusables,
     strip_invisibles,
 )
@@ -168,6 +169,12 @@ class TestFoldMixedScriptConfusables:
         raw = "Anthropicが公開したハーネス設計"
         assert fold_mixed_script_confusables(raw) == raw
 
+    def test_japanese_particle_separates_latin_from_legitimate_cyrillic(self):
+        # Python's generic Unicode "word" class glues all three scripts into
+        # one run. Kana must be an explicit boundary or the Russian is folded.
+        raw = f"APIと{CYR_PRIVET}"
+        assert fold_mixed_script_confusables(raw) == raw
+
     def test_pure_latin_untouched(self):
         assert fold_mixed_script_confusables("plain ascii summary body") == (
             "plain ascii summary body"
@@ -203,3 +210,31 @@ class TestFoldMixedScriptConfusables:
 
     def test_empty(self):
         assert fold_mixed_script_confusables("") == ""
+
+
+class TestFoldMarkdownMixedScriptConfusables:
+    def test_preserves_external_wikilink_target_but_folds_prose(self):
+        raw = f"Vib{CYR_E} [[Vib{CYR_E} Coding#^00-30]]"
+        assert fold_markdown_mixed_script_confusables(raw) == f"Vibe [[Vib{CYR_E} Coding#^00-30]]"
+
+    def test_preserves_embed_target(self):
+        raw = f"![[2026 Vib{CYR_E}/pyt_video_00.webp]]"
+        assert fold_markdown_mixed_script_confusables(raw) == raw
+
+    def test_preserves_target_with_single_closing_bracket(self):
+        # `sanitize_title_for_filename` keeps `[`/`]`, so a bracketed YouTube
+        # title survives into the note filename. The target must be matched
+        # through its first `]]` terminator, not dropped to prose folding.
+        raw = f"[[Vib{CYR_E}] Coding#^00-30]]"
+        assert fold_markdown_mixed_script_confusables(raw) == raw
+
+    def test_folds_opted_in_generated_target_and_alias(self):
+        target = f"01_C{GRK_O}re"
+        raw = f"[[{target}|Vib{CYR_E}]]"
+        assert (
+            fold_markdown_mixed_script_confusables(
+                raw,
+                fold_wikilink_targets={target},
+            )
+            == "[[01_Core|Vibe]]"
+        )
