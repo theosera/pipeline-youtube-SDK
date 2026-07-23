@@ -8,6 +8,7 @@ from pathlib import Path
 from ..obsidian import build_frontmatter, sanitize_title_for_filename
 from ..path_safety import ensure_safe_path
 from ..sanitize import sanitize_untrusted_text
+from ..services.confusables import fold_mixed_script_confusables
 from .body_validator import validate_chapter_body
 from .scoring import SynthesisChapterBody
 
@@ -55,13 +56,25 @@ def write_chapter(
     through `validate_chapter_body` to strip disallowed embeds, active
     HTML, and Templater tokens. Pass `allowed_assets` (image filenames
     present in source 04 md) to permit their embeds.
+
+    Homoglyphs are folded on both Leader-generated fields (label and body)
+    UP FRONT — before the filename, frontmatter, and body sanitization are
+    built from them. This keeps concealment out of the note's most visible
+    identifiers (filename + `title`) and, critically, folds the body BEFORE
+    ``validate_chapter_body`` strips active markup, so a Cyrillic-obfuscated
+    ``<sсript>`` folds to ``<script>`` and is then stripped rather than
+    written. ``playlist_title`` is external (YouTube) content and is left to
+    the frontmatter's own invisible-char defense, not folded.
     """
-    filename = chapter_filename(chapter.chapter_index, chapter.label)
+    label = fold_mixed_script_confusables(chapter.label)
+    body = fold_mixed_script_confusables(chapter.body_markdown)
+
+    filename = chapter_filename(chapter.chapter_index, label)
     target = playlist_dir / filename
 
     fm = build_frontmatter(
         dt=run_time,
-        title=chapter.label,
+        title=label,
         url="",
         tags=["memo", "youtube", "synthesis"],
         extra={
@@ -72,7 +85,7 @@ def write_chapter(
         },
     )
 
-    validated_body = validate_chapter_body(chapter.body_markdown, allowed_assets)
+    validated_body = validate_chapter_body(body, allowed_assets)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(fm + "\n" + validated_body.strip() + "\n", encoding="utf-8")
     return target
