@@ -221,6 +221,13 @@ class TestFoldMarkdownMixedScriptConfusables:
         raw = f"![[2026 Vib{CYR_E}/pyt_video_00.webp]]"
         assert fold_markdown_mixed_script_confusables(raw) == raw
 
+    def test_preserves_target_with_single_closing_bracket(self):
+        # `sanitize_title_for_filename` keeps `[`/`]`, so a bracketed YouTube
+        # title survives into the note filename. The target must be matched
+        # through its first `]]` terminator, not dropped to prose folding.
+        raw = f"[[Vib{CYR_E}] Coding#^00-30]]"
+        assert fold_markdown_mixed_script_confusables(raw) == raw
+
     def test_folds_opted_in_generated_target_and_alias(self):
         target = f"01_C{GRK_O}re"
         raw = f"[[{target}|Vib{CYR_E}]]"

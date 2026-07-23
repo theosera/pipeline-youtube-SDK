@@ -95,7 +95,11 @@ _WORD_RE = re.compile("[A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u052f\u1f00-\u1f
 # must normally stay byte-for-byte aligned with existing filenames. Callers can
 # explicitly opt selected generated targets into folding (for example Stage 05
 # chapter links, whose filenames are folded by the same write operation).
-_WIKILINK_RE = re.compile(r"(!?\[\[)([^\]\n]+)(\]\])")
+# The inner class consumes a single ``]`` that is not part of the ``]]``
+# terminator (``sanitize_title_for_filename`` keeps ``[`` / ``]``, so a
+# bracketed title like ``[[Foo] Bar]]`` is a real target that must be matched
+# through its first ``]]`` rather than dropped to prose folding).
+_WIKILINK_RE = re.compile(r"(!?\[\[)((?:[^\]\n]|\](?!\]))+)(\]\])")
 
 # Cyrillic / Greek code points that are visual look-alikes of an ASCII Latin
 # letter, mapped to that letter. This is the Unicode TR39 "confusables" subset
