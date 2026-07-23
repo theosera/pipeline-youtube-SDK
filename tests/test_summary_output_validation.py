@@ -84,6 +84,14 @@ class TestValidatorFoldsHomoglyphs:
         assert "Vibe coding" in out
         assert chr(0x435) not in out
 
+    def test_preserves_wikilink_target_while_folding_prose(self):
+        cyr_ie = chr(0x435)
+        target = f"Vib{cyr_ie} Coding#^00-30"
+        body = VALID + f"\nVib{cyr_ie} prose [[{target}]]\n"
+        out = _validate_summary_output(body)
+        assert "Vibe prose" in out
+        assert f"[[{target}]]" in out
+
     def test_obfuscated_script_tag_is_stripped_not_reintroduced(self):
         # Regression: fold must run BEFORE the active-markup strip. A
         # Cyrillic-obfuscated `<sсript>` (U+0441) would slip past the strip and

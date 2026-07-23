@@ -480,6 +480,9 @@ def run_stage_synthesis(
     playlist_dir.mkdir(parents=True, exist_ok=True)
 
     allowed_assets = extract_allowed_embeds(learning_md_bodies)
+    generated_chapter_link_targets = {
+        f"{chapter.chapter_index:02d}_{chapter.label}" for chapter in leader_output.chapters
+    }
 
     moc_path = playlist_dir / "00_MOC.md"
     write_moc(
@@ -488,6 +491,7 @@ def run_stage_synthesis(
         run_time=run_time,
         playlist_title=playlist_title,
         allowed_assets=allowed_assets,
+        generated_chapter_link_targets=generated_chapter_link_targets,
     )
 
     chapter_paths: list[Path] = []

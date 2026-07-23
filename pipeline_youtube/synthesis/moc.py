@@ -6,7 +6,10 @@ from datetime import datetime
 from pathlib import Path
 
 from ..obsidian import build_frontmatter
-from ..services.confusables import fold_mixed_script_confusables
+from ..services.confusables import (
+    fold_markdown_mixed_script_confusables,
+    fold_mixed_script_confusables,
+)
 from .body_validator import validate_chapter_body
 from .scoring import SynthesisMoc
 
@@ -18,6 +21,7 @@ def write_moc(
     run_time: datetime,
     playlist_title: str,
     allowed_assets: frozenset[str] | set[str] = frozenset(),
+    generated_chapter_link_targets: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     """Write `00_MOC.md` with frontmatter + leader-produced body.
 
@@ -30,11 +34,16 @@ def write_moc(
     stays out of the `title` and, critically, the body is folded BEFORE
     ``validate_chapter_body`` strips active markup (a Cyrillic-obfuscated
     ``<sсript>`` folds to ``<script>`` and is then stripped, not written).
-    ``playlist_title`` is external (YouTube) content and is left to the
-    frontmatter's own invisible-char defense, not folded.
+    Existing external wikilink/embed targets stay unchanged; generated chapter
+    targets passed via ``generated_chapter_link_targets`` are folded with their
+    filenames. ``playlist_title`` is external (YouTube) content and is left to
+    the frontmatter's own invisible-char defense, not folded.
     """
     title = fold_mixed_script_confusables(moc.title) if moc.title else moc.title
-    body = fold_mixed_script_confusables(moc.body_markdown)
+    body = fold_markdown_mixed_script_confusables(
+        moc.body_markdown,
+        fold_wikilink_targets=generated_chapter_link_targets,
+    )
 
     fm = build_frontmatter(
         dt=run_time,

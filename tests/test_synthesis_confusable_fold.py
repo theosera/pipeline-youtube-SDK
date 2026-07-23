@@ -72,6 +72,54 @@ def test_write_moc_folds_title(tmp_path: Path) -> None:
     assert CYR_E not in written
 
 
+def test_write_chapter_preserves_external_links_and_embeds(tmp_path: Path) -> None:
+    citation = f"Vib{CYR_E} Coding#^00-30"
+    embed = f"2026 Vib{CYR_E}/pyt_vid1_00.webp"
+    chapter = SynthesisChapterBody(
+        chapter_index=4,
+        label="Sources",
+        category="core",
+        source_video_ids=["vid1"],
+        body_markdown=f"Vib{CYR_E} prose [[{citation}]] ![[{embed}]]",
+    )
+
+    target = write_chapter(
+        chapter,
+        tmp_path,
+        run_time=RUN_TIME,
+        playlist_title="pl",
+        allowed_assets={embed},
+    )
+    written = target.read_text(encoding="utf-8")
+
+    assert "Vibe prose" in written
+    assert f"[[{citation}]]" in written
+    assert f"![[{embed}]]" in written
+    assert "dropped embed" not in written
+
+
+def test_write_moc_only_folds_generated_chapter_link_targets(tmp_path: Path) -> None:
+    chapter_target = f"01_C{GRK_O}re"
+    source_target = f"Vib{CYR_E} Coding"
+    moc = SynthesisMoc(
+        title="Map",
+        body_markdown=f"[[{chapter_target}]] [[{source_target}]]",
+    )
+    target = tmp_path / "00_MOC.md"
+
+    write_moc(
+        moc,
+        target,
+        run_time=RUN_TIME,
+        playlist_title="pl",
+        generated_chapter_link_targets={chapter_target},
+    )
+    written = target.read_text(encoding="utf-8")
+
+    assert "[[01_Core]]" in written
+    assert f"[[{source_target}]]" in written
+
+
 def test_write_chapter_folds_before_html_strip(tmp_path: Path) -> None:
     # Security regression: a Cyrillic-obfuscated `<sсript>` must be folded to
     # `<script>` and then stripped by validate_chapter_body, NOT written as an
