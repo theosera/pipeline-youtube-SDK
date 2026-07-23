@@ -90,9 +90,7 @@ def test_write_chapter_folds_before_html_strip(tmp_path: Path) -> None:
 
 
 def test_write_moc_folds_before_html_strip(tmp_path: Path) -> None:
-    moc = SynthesisMoc(
-        title="Sec", body_markdown=f"<s{CYR_ES}ript>alert(1)</s{CYR_ES}ript>"
-    )
+    moc = SynthesisMoc(title="Sec", body_markdown=f"<s{CYR_ES}ript>alert(1)</s{CYR_ES}ript>")
     target = tmp_path / "00_MOC.md"
     write_moc(moc, target, run_time=RUN_TIME, playlist_title="pl")
     written = target.read_text(encoding="utf-8")
