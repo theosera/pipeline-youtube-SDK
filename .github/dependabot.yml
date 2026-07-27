@@ -9,7 +9,16 @@ updates:
       - "dependencies"
 
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # `/` only reaches .github/workflows/*.yml for this ecosystem — it does NOT
+    # descend into composite actions. `.github/actions/setup-python-uv` needs
+    # its own entry so Dependabot picks up that folder's action.yml; without it
+    # the composite action silently drifts (it sat on setup-uv v8.2.0 while
+    # release.yml had already moved to v8.3.2). Listed under the plural
+    # `directories` key so both paths stay inside the same group below and a
+    # shared action is bumped in one PR instead of two.
+    directories:
+      - "/"
+      - "/.github/actions/setup-python-uv"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
