@@ -136,7 +136,8 @@ def generate_step_body(
             )
         except LLMError as exc:
             last_error = f"llm_call_failed: {str(exc)[:200]}"
-            break
+            break  # provider is down; retrying the same call would not help
+
         responses.append(response)
         try:
             label, body = parse_step_body(response.text)
@@ -148,7 +149,7 @@ def generate_step_body(
             return step_body, responses
         last_error = "body_markdown に `## 手順` 見出しがありません"
 
-    degraded = _degraded_step_body(video, step, snippets)
+    degraded = _degraded_step_body(video, step, snippets, reason=last_error)
     return StepBody(index=step.index, label=step.label, body_markdown=degraded), responses
 
 
@@ -184,6 +185,8 @@ def generate_moc_summary(
         if output.moc_markdown.strip():
             return output, responses
     except (LLMError, HandsonParseError):
+        # Advisory call: a provider outage or unparseable response must not lose
+        # the run's output, so both collapse to the deterministic fallback below.
         pass
     return _fallback_moc(video, plan, insights, step_links), responses
 
@@ -237,8 +240,18 @@ def _build_step_prompt(
     return "\n\n".join(lines)
 
 
-def _degraded_step_body(video: VideoMeta, step: StepPlan, snippets: list[TranscriptSnippet]) -> str:
+def _degraded_step_body(
+    video: VideoMeta,
+    step: StepPlan,
+    snippets: list[TranscriptSnippet],
+    *,
+    reason: str = "",
+) -> str:
     """Deterministic minimal body when the step writer fails entirely.
+
+    ``reason`` (the last LLM/parse failure) is surfaced in the warning
+    callout so a degraded note says *why* it degraded instead of leaving the
+    diagnosis only in the console log.
 
     Assigned-insight callouts are intentionally absent here: the writer's
     lossless pass appends them (it appends every assigned insight whose
@@ -265,7 +278,12 @@ def _degraded_step_body(video: VideoMeta, step: StepPlan, snippets: list[Transcr
         f"1. [{fmt_hms(step.start_sec)}〜{fmt_hms(step.end_sec)}]({watch}) を視聴し、"
         "講演内容を手元で再現する。",
         "",
-        "> [!warning] 自動生成に失敗したため、簡易版の本文です。",
+        "> [!warning] 自動生成に失敗したため、簡易版の本文です。"
+        + (
+            f" (原因: {sanitize_untrusted_text(reason, 200, context='handson.step.reason')})"
+            if reason
+            else ""
+        ),
     ]
     if excerpt:
         lines += ["", "冒頭の文字起こし抜粋:", "", f"> {excerpt}"]
