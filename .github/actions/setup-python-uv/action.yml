@@ -18,9 +18,17 @@ runs:
     # Dependabot will open such PRs (see .github/dependabot.yml).
     # uv binary version is pinned via [tool.uv] required-version in pyproject.toml.
     - name: Install uv
-      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
       with:
         enable-cache: true
+        # v9.0.0 flipped the `prune-cache` default from true to false to ease
+        # load on PyPI. Set it back explicitly: without pruning, the cache we
+        # upload keeps every downloaded wheel/sdist for the full dependency
+        # tree (torch + the CUDA stack via the `whisper` extra), which blows
+        # through the repo's 10 GB Actions cache budget and evicts entries the
+        # other jobs rely on. Drop this line only alongside a deliberate
+        # measurement of cache size.
+        prune-cache: true
 
     - name: Set up Python ${{ inputs.python-version }}
       shell: bash
