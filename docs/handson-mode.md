@@ -72,7 +72,7 @@ config.json と完全に同一で、モデル role キーだけ handson 用が�
 
 `Permanent Note/09_YouTube学習_Session_only` 配下 (08 と同一のユニット構造):
 
-```
+```text
 Permanent Note/09_YouTube学習_Session_only/
 ├── 01_Scripts_Processing_Unit/{YYYY-MM-DD-HHmm 動画タイトル}/
 │   └── {YYYY-MM-DD-HHmm 動画タイトル}.md      ← Stage 01 転写ノート

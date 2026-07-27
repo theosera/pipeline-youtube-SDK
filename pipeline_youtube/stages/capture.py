@@ -584,6 +584,10 @@ def capture_step_clips(
             )
             downloaded = True
         except Exception as e:
+            # This early return is outside the extraction try/finally below, so
+            # clean up here: yt-dlp may have left a partial (large) file behind.
+            with contextlib.suppress(OSError):
+                tmp_video_path.unlink(missing_ok=True)
             return CaptureResult(
                 ranges=ranges,
                 capture_format=ext,

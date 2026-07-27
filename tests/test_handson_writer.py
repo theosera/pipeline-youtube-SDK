@@ -130,6 +130,15 @@ class TestWriteStepNote:
         )
         assert path.read_text(encoding="utf-8").count("[1:00:00]") == 1
 
+    def test_similar_timestamp_elsewhere_still_appends_callout(self, handson_dir: Path):
+        # Regression: a bare-substring check let "1:00:00" match inside
+        # "11:00:00", so the lossless pass skipped a genuinely missing insight.
+        body = StepBody(1, "実装", "## ゴール\n\n11:00:00 に開始\n\n## 手順\n\n1. y")
+        path = write_step_note(
+            body, _step(), [_qa_insight()], None, handson_dir, run_time=_RUN_TIME, video=_video()
+        )
+        assert "> [!question] Q&Aより [1:00:00]: 失敗談の共有" in path.read_text(encoding="utf-8")
+
     def test_hostile_label_cannot_escape_the_folder(self, handson_dir: Path):
         body = StepBody(1, "../../etc/passwd‮", "## ゴール\n\nx\n\n## 手順\n\n1. y")
         path = write_step_note(
@@ -163,6 +172,38 @@ class TestWriteMocAndSummary:
         text = target.read_text(encoding="utf-8")
         assert "[[99_QA_Tipsまとめ]]" in text
         assert 'category: "handson-moc"' in text
+
+    def test_moc_appends_step_links_the_model_omitted(self, handson_dir: Path):
+        # Regression: a step the model forgot to list left its written note
+        # orphaned in the graph (the MOC is the only hub).
+        moc = HandsonMocOutput(title="T", moc_markdown="# T\n- [[01_実装]]", summary_markdown="")
+        target = handson_dir / "00_MOC.md"
+        write_handson_moc(
+            moc,
+            target,
+            run_time=_RUN_TIME,
+            video=_video(),
+            step_link_targets={"01_実装", "02_検証"},
+            has_insights=False,
+        )
+        text = target.read_text(encoding="utf-8")
+        assert "## 未掲載のステップ (自動追記)" in text
+        assert "[[02_検証]]" in text
+
+    def test_moc_listing_every_step_needs_no_appendix(self, handson_dir: Path):
+        moc = HandsonMocOutput(
+            title="T", moc_markdown="# T\n- [[01_実装]]\n- [[02_検証]]", summary_markdown=""
+        )
+        target = handson_dir / "00_MOC.md"
+        write_handson_moc(
+            moc,
+            target,
+            run_time=_RUN_TIME,
+            video=_video(),
+            step_link_targets={"01_実装", "02_検証"},
+            has_insights=False,
+        )
+        assert "未掲載のステップ" not in target.read_text(encoding="utf-8")
 
     def test_moc_without_insights_does_not_force_link(self, handson_dir: Path):
         moc = HandsonMocOutput(title="T", moc_markdown="# T", summary_markdown="")

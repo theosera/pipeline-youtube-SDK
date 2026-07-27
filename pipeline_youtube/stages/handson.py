@@ -114,7 +114,12 @@ class HandsonStageResult:
 
     @property
     def total_cost_usd(self) -> float:
-        return sum(r.total_cost_usd or 0.0 for r in self.responses)
+        # Stage 01b correction is billed separately from the handson LLM
+        # responses; the example config enables it, so leaving it out would
+        # under-report the real spend of a default run.
+        return sum(r.total_cost_usd or 0.0 for r in self.responses) + (
+            self.correction_cost_usd or 0.0
+        )
 
     @property
     def total_duration_ms(self) -> int:
@@ -230,7 +235,11 @@ def _run(
     if not transcript.snippets:
         return HandsonStageResult(scripts_path=scripts_path, error="no_transcript_snippets")
 
-    duration = video.duration or int(transcript.snippets[-1].end)
+    # Trust whichever source reaches further. yt-dlp metadata is missing on
+    # flat-playlist extracts and can undercount; a duration shorter than the
+    # transcript would cap segmentation/planning/clipping early and silently
+    # drop the tail of the talk (often where the closing Q&A sits).
+    duration = max(video.duration or 0, int(transcript.snippets[-1].end))
     responses: list[LLMResponse] = []
 
     # --- H1: segment classification --------------------------------------

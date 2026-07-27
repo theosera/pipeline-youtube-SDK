@@ -79,7 +79,7 @@ def write_step_note(
     missing_callouts = [
         _insight_callout(insight)
         for insight in assigned_insights
-        if fmt_hms(insight.start_sec) not in body
+        if _stamp(insight.start_sec) not in body
     ]
     if missing_callouts:
         body = body.rstrip() + "\n\n" + "\n\n".join(missing_callouts)
@@ -121,12 +121,24 @@ def write_handson_moc(
     step_link_targets: frozenset[str] | set[str],
     has_insights: bool,
 ) -> None:
-    """Write ``00_MOC.md``. Ensures the final-summary link when insights exist."""
+    """Write ``00_MOC.md``, guaranteeing every generated note stays reachable.
+
+    The MOC is the hub: a step the model forgot to list would leave a written
+    note orphaned in the graph. Any missing step link — and the final-summary
+    link when insights exist — is therefore appended deterministically.
+    """
     title = fold_mixed_script_confusables(moc.title) if moc.title else f"{video.title} ハンズオン"
     link_targets = frozenset(step_link_targets) | {QA_TIPS_NOTE_BASENAME}
     body = fold_markdown_mixed_script_confusables(
         moc.moc_markdown, fold_wikilink_targets=link_targets
     )
+    orphaned = [t for t in sorted(step_link_targets) if f"[[{t}]]" not in body]
+    if orphaned:
+        body = (
+            body.rstrip()
+            + "\n\n## 未掲載のステップ (自動追記)\n\n"
+            + "\n".join(f"- [[{target}]]" for target in orphaned)
+        )
     if has_insights and f"[[{QA_TIPS_NOTE_BASENAME}]]" not in body:
         body = body.rstrip() + f"\n\n- 巻末まとめ: [[{QA_TIPS_NOTE_BASENAME}]]"
 
@@ -164,9 +176,9 @@ def write_qa_tips_summary(
 
     appendix: list[str] = []
     for insight in insights:
-        stamp = fmt_hms(insight.start_sec)
-        if stamp in body:
+        if _stamp(insight.start_sec) in body:
             continue
+        stamp = fmt_hms(insight.start_sec)
         kind = "Q&A" if insight.label is SegmentLabel.QA else "Tips"
         summary = _fold_one_line(insight.summary or insight.quote or "(内容未取得)")
         line = f"- [{stamp}]({video.watch_url}&t={insight.start_sec}) [{kind}] {summary}"
@@ -198,6 +210,18 @@ def write_handson_meta(meta: dict[str, Any], meta_dir: Path) -> Path:
         encoding="utf-8",
     )
     return target
+
+
+def _stamp(start_sec: int) -> str:
+    """Bracketed timestamp — the exact form the prompts require.
+
+    Matching on the bracketed token (``[1:05:00]``) instead of the bare
+    ``fmt_hms`` output avoids substring false positives: ``1:00:00`` occurs
+    inside ``11:00:00`` and ``05:00`` inside ``1:05:00``, either of which
+    would make the lossless pass believe an insight was already woven in and
+    silently skip it.
+    """
+    return f"[{fmt_hms(start_sec)}]"
 
 
 def _insight_callout(insight: Insight) -> str:

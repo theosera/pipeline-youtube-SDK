@@ -214,6 +214,32 @@ class TestValidatePlan:
         assert plan.unassigned_insight_ids == ("p001",)
         assert missing == set()
 
+    def test_duplicate_id_across_steps_keeps_only_the_first(self):
+        # Regression: a repeated id used to satisfy the set-based coverage
+        # check while producing the same callout in several notes and an
+        # ambiguous step link in the final summary.
+        raw = HandsonPlan(
+            steps=(
+                StepPlan(index=1, label="A", start_sec=0, end_sec=100, insight_ids=("q001",)),
+                StepPlan(index=2, label="B", start_sec=100, end_sec=200, insight_ids=("q001",)),
+            )
+        )
+        plan, missing = _validate_plan(raw, {"q001"}, duration=200)
+        assert plan.steps[0].insight_ids == ("q001",)
+        assert plan.steps[1].insight_ids == ()
+        assert missing == set()
+
+    def test_duplicate_id_within_one_step_is_collapsed(self):
+        raw = HandsonPlan(
+            steps=(
+                StepPlan(
+                    index=1, label="A", start_sec=0, end_sec=100, insight_ids=("q001", "q001")
+                ),
+            )
+        )
+        plan, _ = _validate_plan(raw, {"q001"}, duration=100)
+        assert plan.steps[0].insight_ids == ("q001",)
+
     def test_assigned_wins_over_unassigned_duplicate(self):
         raw = HandsonPlan(
             steps=(StepPlan(index=1, label="A", start_sec=0, end_sec=100, insight_ids=("q001",)),),

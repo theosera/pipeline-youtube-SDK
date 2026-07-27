@@ -75,7 +75,7 @@ Options:
 - **`--synthesis-only`**: 今日の日付のプレイリストフォルダ配下にある既存 `04_Learning_Material/*.md` を読み込み、Stage 05 のみ再実行。α/β/leader の章立てを作り直したいときに使う。当日の 04 フォルダが無いと `click.UsageError` で exit。
 - **`--stop-after-capture`**: Phase 1 実行。Stage 01〜03 を動画単位で完了させて停止する。続けてユーザーが Obsidian 上で 02_Summary.md を校閲し `reviewed: true` に書き換える運用向け。
 - **`--resume-reviewed`**: Phase 3 実行。Stage 01〜03 をスキップし、02_Summary.md の frontmatter `reviewed: true` が付いた動画だけを対象に Stage 04〜05 を走らせる。`--synthesis-only` とは異なり Stage 04 を含めて再実行する。
-- **`--handson`**: 単一長編動画 (スライド提示の講演) からハンズオン教材を生成する専用モード。通常の 01〜05 を置き換え、転写 → LECTURE/QA/TIPS 区間分類 → ステップ計画 (Q&A/Tips 知見の無損失割当) → ステップ毎の窓クリップ → ステップノート + MOC + 巻末 Q&A/Tips まとめを `Permanent Note/09_YouTube学習_Session_only` 配下 (08 と同一ユニット構造) へ書く。既定 config は `config.handson.json` (`--config` で上書き可)。単一動画 URL 必須 (playlist は UsageError)。`--sub-agents`/`--synthesis-only`/`--resume-reviewed`/`--stop-after-capture`/`--skip-synthesis`/`--local-media` とは排他。詳細は `docs/handson-mode.md`。
+- **`--handson`**: 単一長編動画 (スライド提示の講演) からハンズオン教材を生成する専用モード。通常の 01〜05 を置き換え、転写 → LECTURE/QA/TIPS 区間分類 → ステップ計画 (Q&A/Tips 知見の無損失割当) → ステップ毎の窓クリップ → ステップノート + MOC + 巻末 Q&A/Tips まとめを `Permanent Note/09_YouTube学習_Session_only` 配下 (08 と同一ユニット構造) へ書く。既定 config は `config.handson.json` (`--config` で上書き可)。単一動画 URL 必須 (playlist は UsageError)。`--sub-agents`/`--video-range`/`--synthesis-only`/`--resume-reviewed`/`--stop-after-capture`/`--skip-synthesis`/`--local-media` とは排他。詳細は `docs/handson-mode.md`。
 
 ### 並列処理
 

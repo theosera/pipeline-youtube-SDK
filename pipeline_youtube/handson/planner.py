@@ -146,13 +146,26 @@ def _validate_plan(
     1..N, capped at ``_MAX_STEPS``; empty labels get a placeholder; ids
     not issued by the segmenter are dropped. ``missing`` is the set of
     known ids present in neither the steps nor the unassigned list.
+
+    Insight ids are also deduplicated **globally**: the first step that
+    claims an id keeps it. Without this, an id repeated across steps would
+    still satisfy the set-based coverage check below while producing the
+    same callout in several notes and an ambiguous step link in the final
+    summary — breaking the "each insight belongs to exactly one step"
+    contract the prompt states.
     """
     cleaned: list[StepPlan] = []
+    claimed: set[str] = set()
     for step in raw.steps:
         start = max(0, min(step.start_sec, duration))
         end = max(0, min(step.end_sec, duration))
         if end <= start:
             continue
+        step_ids: list[str] = []
+        for iid in step.insight_ids:
+            if iid in known_ids and iid not in claimed:
+                claimed.add(iid)
+                step_ids.append(iid)
         cleaned.append(
             StepPlan(
                 index=step.index,
@@ -160,7 +173,7 @@ def _validate_plan(
                 start_sec=start,
                 end_sec=end,
                 goal=step.goal,
-                insight_ids=tuple(i for i in step.insight_ids if i in known_ids),
+                insight_ids=tuple(step_ids),
             )
         )
     cleaned.sort(key=lambda s: (s.start_sec, s.end_sec))
@@ -198,7 +211,15 @@ def _fallback_plan(
     spans = [(s.start_sec, s.end_sec, s.summary) for s in lecture_segments]
     if not spans:
         spans = [(0, max(duration, 1), "")]
-    spans = spans[:_MAX_STEPS]
+    if len(spans) > _MAX_STEPS:
+        # Coalesce adjacent spans into _MAX_STEPS buckets rather than dropping
+        # everything past span 30 — on a long talk (the case this mode exists
+        # for) truncation would leave the whole tail uncovered.
+        size = -(-len(spans) // _MAX_STEPS)
+        spans = [
+            (group[0][0], group[-1][1], " / ".join(s for *_, s in group if s))
+            for group in (spans[i : i + size] for i in range(0, len(spans), size))
+        ]
     steps = tuple(
         StepPlan(
             index=i,

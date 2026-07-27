@@ -354,11 +354,14 @@ def _fallback_moc(
     for i in insights:
         target = assigned_to.get(i.insight_id)
         entry = f"- [{fmt_hms(i.start_sec)}] {i.summary}"
-        if target is not None and target in step_links:
-            entry += f" (→ [[{step_links[target]}]])"
-            (qa_lines if i.label is SegmentLabel.QA else tips_lines).append(entry)
-        else:
+        if target is None:
             unassigned_lines.append(entry)
+            continue
+        # The section is decided by the insight's own label; only the link
+        # suffix depends on the step actually having a generated note.
+        if target in step_links:
+            entry += f" (→ [[{step_links[target]}]])"
+        (qa_lines if i.label is SegmentLabel.QA else tips_lines).append(entry)
     summary_lines = ["## Q&A から", ""]
     summary_lines += qa_lines or ["- 該当なし"]
     summary_lines += ["", "## Tips", ""]

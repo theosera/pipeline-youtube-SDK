@@ -84,29 +84,80 @@ class TestNormalizeSegments:
         out = normalize_segments(
             [_seg(0, 646), _seg(646, 1200, SegmentLabel.QA)],
             duration=1200,
-            chunk_starts=[0, 1200],
+            # 600 is 46s away — just past the threshold, so this binds.
+            chunk_starts=[0, 600, 1200],
         )
         assert out[0].end_sec == 646
 
-    def test_tiny_fragment_merges_into_previous(self):
+    def test_tiny_lecture_fragment_merges_into_previous(self):
         out = normalize_segments(
-            [_seg(0, 600), _seg(600, 610, SegmentLabel.TIPS), _seg(610, 900)],
+            [_seg(0, 600, SegmentLabel.QA), _seg(600, 610), _seg(610, 900)],
             duration=900,
             chunk_starts=[],
         )
-        # 10s TIPS fragment absorbed by the previous LECTURE span.
+        # 10s LECTURE fragment absorbed by the previous span.
         assert [(s.start_sec, s.end_sec, s.label) for s in out] == [
-            (0, 610, SegmentLabel.LECTURE),
+            (0, 610, SegmentLabel.QA),
             (610, 900, SegmentLabel.LECTURE),
         ]
 
-    def test_tiny_first_fragment_merges_into_next(self):
+    def test_tiny_first_lecture_fragment_merges_into_next(self):
         out = normalize_segments(
-            [_seg(0, 10, SegmentLabel.TIPS), _seg(10, 900)], duration=900, chunk_starts=[]
+            [_seg(0, 10), _seg(10, 900, SegmentLabel.QA)], duration=900, chunk_starts=[]
         )
         assert len(out) == 1
         assert (out[0].start_sec, out[0].end_sec) == (0, 900)
-        assert out[0].label is SegmentLabel.LECTURE
+        assert out[0].label is SegmentLabel.QA
+
+    def test_short_qa_and_tips_survive_the_merge(self):
+        # Regression: absorbing a short segment discards its label, which used
+        # to silently delete brief Q&A / Tips asides — the content this mode
+        # exists to surface.
+        out = normalize_segments(
+            [
+                _seg(0, 600),
+                _seg(600, 610, SegmentLabel.QA, "短い質疑"),
+                _seg(610, 620, SegmentLabel.TIPS, "短い小ネタ"),
+                _seg(620, 900),
+            ],
+            duration=900,
+            chunk_starts=[],
+        )
+        assert [(s.start_sec, s.end_sec, s.label) for s in out] == [
+            (0, 600, SegmentLabel.LECTURE),
+            (600, 610, SegmentLabel.QA),
+            (610, 620, SegmentLabel.TIPS),
+            (620, 900, SegmentLabel.LECTURE),
+        ]
+
+    def test_nested_qa_splits_the_container_instead_of_vanishing(self):
+        # Regression: a QA span fully inside an earlier LECTURE used to be
+        # trimmed to zero length and dropped from the partition entirely.
+        out = normalize_segments(
+            [_seg(0, 900), _seg(300, 400, SegmentLabel.QA, "中に入れ子の質疑")],
+            duration=900,
+            chunk_starts=[],
+        )
+        assert [(s.start_sec, s.end_sec, s.label) for s in out] == [
+            (0, 300, SegmentLabel.LECTURE),
+            (300, 400, SegmentLabel.QA),
+            (400, 900, SegmentLabel.LECTURE),
+        ]
+
+    def test_nested_lecture_is_still_discarded(self):
+        out = normalize_segments(
+            [_seg(0, 900, SegmentLabel.QA), _seg(300, 400)], duration=900, chunk_starts=[]
+        )
+        assert [(s.start_sec, s.end_sec, s.label) for s in out] == [(0, 900, SegmentLabel.QA)]
+
+    def test_nested_qa_at_container_start_drops_the_empty_head(self):
+        out = normalize_segments(
+            [_seg(0, 900), _seg(0, 300, SegmentLabel.QA)], duration=900, chunk_starts=[]
+        )
+        assert [(s.start_sec, s.end_sec, s.label) for s in out] == [
+            (0, 300, SegmentLabel.QA),
+            (300, 900, SegmentLabel.LECTURE),
+        ]
 
     def test_long_video_boundaries_past_9959_survive(self):
         # 2h30m video with a QA session starting at 2h — beyond the legacy

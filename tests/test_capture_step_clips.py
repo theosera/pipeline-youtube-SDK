@@ -13,6 +13,7 @@ import pytest
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.capture import (
+    DEFAULT_WINDOW_SECONDS,
     CaptureResult,
     SummaryRange,
     capture_step_clips,
@@ -136,7 +137,7 @@ class TestCaptureStepClips:
         # Extraction was centered: the 3rd range center is (7500+9000)/2.
         third_call = backend.ffmpeg_calls[2]
         assert third_call[0] == "-ss"
-        assert float(third_call[1]) == pytest.approx(8250 - 3.5 / 2.0, abs=0.1)
+        assert float(third_call[1]) == pytest.approx(8250 - DEFAULT_WINDOW_SECONDS / 2.0, abs=0.1)
 
     def test_single_range_failure_is_isolated(self, vault: Path):
         backend = _FakeBackend(fail_call_indices={1})

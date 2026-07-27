@@ -196,10 +196,27 @@ def normalize_segments(
         prev = fixed[-1]
         if cur.start > prev.end:
             prev.end = cur.start  # close the gap (previous topic continues)
-        elif cur.start < prev.end:
-            cur.start = prev.end  # cut the overlap (earlier claim wins)
+            fixed.append(cur)
+            continue
+        if cur.end <= prev.end:
+            # `cur` is nested inside `prev` (the sort guarantees
+            # cur.start >= prev.start). Trimming it to nothing would silently
+            # drop a Q&A/Tips span — the content this mode exists to surface —
+            # so split `prev` around it. A nested LECTURE adds nothing over its
+            # container, so that one is still discarded.
+            if cur.label is SegmentLabel.LECTURE:
+                continue
+            tail_end, tail_label, tail_summary = prev.end, prev.label, prev.summary
+            prev.end = cur.start
+            if prev.end <= prev.start:
+                fixed.pop()  # `prev` collapsed to zero length
+            fixed.append(cur)
+            if tail_end > cur.end:
+                fixed.append(_MutSeg(cur.end, tail_end, tail_label, tail_summary))
+            continue
+        cur.start = prev.end  # partial overlap: earlier claim wins
         if cur.end <= cur.start:
-            continue  # fully swallowed by the previous segment
+            continue
         fixed.append(cur)
     fixed[-1].end = duration
     while fixed and fixed[-1].end <= fixed[-1].start:
@@ -209,13 +226,24 @@ def normalize_segments(
     if not fixed:
         return []
 
+    # Only LECTURE fragments are merged away. Absorbing a short segment into a
+    # neighbor discards its label, and a brief Q&A exchange or Tips aside is
+    # precisely what this mode must keep — so those survive at any length.
     merged: list[_MutSeg] = []
     for cur in fixed:
-        if merged and (cur.end - cur.start) < _MIN_SEGMENT_SEC:
+        if (
+            merged
+            and cur.label is SegmentLabel.LECTURE
+            and (cur.end - cur.start) < _MIN_SEGMENT_SEC
+        ):
             merged[-1].end = cur.end
         else:
             merged.append(cur)
-    if len(merged) > 1 and (merged[0].end - merged[0].start) < _MIN_SEGMENT_SEC:
+    if (
+        len(merged) > 1
+        and merged[0].label is SegmentLabel.LECTURE
+        and (merged[0].end - merged[0].start) < _MIN_SEGMENT_SEC
+    ):
         merged[1].start = merged[0].start
         merged.pop(0)
 
