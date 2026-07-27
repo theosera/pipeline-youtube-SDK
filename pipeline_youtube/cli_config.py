@@ -24,6 +24,10 @@ from .glossary import (
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+# Hands-on mode reads its own config file by default so quality-focused
+# settings (e.g. opus for step/MOC generation) stay independent of the
+# normal playlist pipeline's config.json. Same schema, same loader.
+DEFAULT_HANDSON_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.handson.json"
 
 _MODEL_KEYS = frozenset(
     {
@@ -37,6 +41,10 @@ _MODEL_KEYS = frozenset(
         "reviewer",
         "eval_coverage",
         "eval_pedagogy",
+        "handson_segment",
+        "handson_plan",
+        "handson_step",
+        "handson_moc",
     }
 )
 # "gamma" accepted silently for backward-compat with existing config.json,
@@ -101,6 +109,18 @@ class CliConfig:
     use_innertube: bool = True
 
 
+def resolve_config_path(config_path: Path | None, *, handson: bool = False) -> Path:
+    """Pick the config file: explicit ``--config`` > handson default > default.
+
+    Hands-on mode defaults to ``config.handson.json`` (quality-focused
+    settings kept separate from the playlist pipeline's config.json); an
+    explicit ``--config`` always wins in either mode.
+    """
+    if config_path is not None:
+        return config_path
+    return DEFAULT_HANDSON_CONFIG_PATH if handson else DEFAULT_CONFIG_PATH
+
+
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     """Load config.json. Unknown keys are ignored; `models` is optional.
 
@@ -108,9 +128,11 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     Unrecognized model keys raise UsageError so typos are caught early.
     """
     if not config_path.exists():
+        # Derive the example name from the actual file so the hint stays
+        # correct for config.handson.json as well as config.json.
         raise click.UsageError(
-            f"config.json not found at {config_path}. "
-            "Copy config.example.json to config.json and set vault_root."
+            f"{config_path.name} not found at {config_path}. "
+            f"Copy {config_path.stem}.example.json to {config_path.name} and set vault_root."
         )
     data = json.loads(config_path.read_text(encoding="utf-8"))
     vault_root = data.get("vault_root")

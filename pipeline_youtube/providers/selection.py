@@ -31,7 +31,9 @@ from typing import Any
 
 # Stages whose output quality is most sensitive to model strength (long
 # coherent generation / strict format). Mirrors the design rationale.
-HEAVY_STAGES = ("stage_04", "leader")
+# handson_step / handson_moc are the hands-on mode's long-generation roles
+# (quality-focused by requirement), so --hybrid keeps them on Anthropic too.
+HEAVY_STAGES = ("stage_04", "leader", "handson_step", "handson_moc")
 
 OPEN_PROVIDERS = frozenset({"ollama", "lmstudio"})
 
