@@ -23,6 +23,12 @@ class TestExtractAllowedEmbeds:
     def test_strips_whitespace(self):
         assert extract_allowed_embeds(["![[  spaced.webp  ]]"]) == frozenset({"spaced.webp"})
 
+    def test_path_qualified_embed_under_bracketed_playlist_folder(self):
+        # Stage 03 writes `![[{playlist_folder}/name.webp]]` and the folder keeps
+        # brackets, so the target legitimately contains a lone `]`.
+        target = "2026-06-14-1100 [LLM] Agent Teams/pyt_x_00.webp"
+        assert extract_allowed_embeds([f"intro\n![[{target}]]\noutro"]) == frozenset({target})
+
 
 class TestValidateChapterBody:
     def test_allowed_embed_preserved(self):
@@ -70,3 +76,15 @@ class TestValidateChapterBody:
         assert "<script>" not in out
         assert "<%" not in out
         assert "plain text" in out
+
+    def test_bracketed_playlist_embed_preserved_when_allowed(self):
+        target = "2026-06-14-1100 [LLM] Agent Teams/pyt_x_00.webp"
+        assert f"![[{target}]]" in validate_chapter_body(f"![[{target}]]", {target})
+
+    def test_bracketed_playlist_embed_dropped_when_not_allowed(self):
+        # Security regression: stopping the target at the first `]` left this
+        # embed unmatched, so the filter failed open and wrote it verbatim.
+        target = "2026-06-14-1100 [LLM] Agent Teams/evil.webp"
+        out = validate_chapter_body(f"![[{target}]]", frozenset())
+        assert f"![[{target}]]" not in out
+        assert "dropped embed" in out

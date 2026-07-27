@@ -79,6 +79,25 @@ class TestParseCaptureMapping:
         assert len(mappings) == 1
         assert "日本語タイトル" in mappings[0].filename
 
+    def test_path_qualified_embed_under_bracketed_playlist_folder(self):
+        # Stage 03 nests captures under the playlist folder and the folder keeps
+        # brackets, so the target legitimately contains a lone `]`. Stopping at
+        # the first `]` dropped every mapping for such playlists and left
+        # Stage 04 with an empty table.
+        body = (
+            "[00:00 ~ 01:03]\n"
+            "![[2026-06-14-1100 [LLM] Agent Teams/pyt_x_00.webp]]\n"
+            "\n"
+            "[01:03 ~ 02:00]\n"
+            "![[2026-06-14-1100 [LLM] Agent Teams/pyt_x_01.webp]]\n"
+        )
+        mappings = parse_capture_mapping(body)
+        assert [m.filename for m in mappings] == [
+            "2026-06-14-1100 [LLM] Agent Teams/pyt_x_00.webp",
+            "2026-06-14-1100 [LLM] Agent Teams/pyt_x_01.webp",
+        ]
+        assert mappings[0].range_str == "[00:00 ~ 01:03]"
+
 
 class TestFormatMappingTable:
     def test_formats_as_markdown_table(self):

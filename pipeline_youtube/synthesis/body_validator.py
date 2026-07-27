@@ -17,7 +17,15 @@ from __future__ import annotations
 
 import re
 
-_EMBED_RE = re.compile(r"!\[\[([^\]]+?)\]\]")
+# The target must admit a literal ``]`` that is not the ``]]`` terminator.
+# Stage 03 writes path-qualified embeds (``![[{playlist_folder}/name.webp]]``)
+# and ``sanitize_title_for_filename`` keeps ``[`` / ``]``, so a playlist folder
+# like ``2026-06-14-1100 [LLM] Agent Teams`` is a real target. Stopping at the
+# first ``]`` broke this filter in both directions: legitimate embeds never
+# reached the allow-list, and — worse — a *disallowed* embed under a bracketed
+# folder was not matched at all and passed through unfiltered (fail-open).
+# Same rule as ``services.confusables._WIKILINK_RE``.
+_EMBED_RE = re.compile(r"!\[\[((?:[^\]\n]|\](?!\]))+)\]\]")
 _HTML_TAG_RE = re.compile(r"<(script|iframe|object|embed|style)[^>]*>", re.IGNORECASE)
 _TEMPLATER_RE = re.compile(r"<%[^%]*%>")
 

@@ -121,8 +121,17 @@ class CaptureMapping:
 # Example:
 #     [00:00 ~ 01:03]
 #     ![[2026-04-15-2123 foo.webp]]
+#
+# The embed target must admit a literal ``]`` that is not the ``]]``
+# terminator: Stage 03 path-qualifies captures as
+# ``![[{playlist_folder}/pyt_<id>_NN.webp]]`` and
+# ``sanitize_title_for_filename`` keeps ``[`` / ``]``, so folders like
+# ``2026-06-14-1100 [LLM] Agent Teams`` are real targets. Stopping at the
+# first ``]`` dropped every mapping for those playlists, leaving Stage 04 with
+# an empty table. Same rule as ``services.confusables._WIKILINK_RE``.
 _CAPTURE_PAIR_RE = re.compile(
-    r"\[(\d{1,2}:\d{2})\s*[~〜～]\s*(\d{1,2}:\d{2})\][^\S\n]*\n[^\S\n]*!\[\[([^\]]+?)\]\]",
+    r"\[(\d{1,2}:\d{2})\s*[~〜～]\s*(\d{1,2}:\d{2})\][^\S\n]*\n"
+    r"[^\S\n]*!\[\[((?:[^\]\n]|\](?!\]))+)\]\]",
     re.MULTILINE,
 )
 
