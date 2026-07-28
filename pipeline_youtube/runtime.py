@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from .capture_runtime import resolve_capture_backend
-from .cli_config import DEFAULT_CONFIG_PATH, _load_config
+from .cli_config import _load_config, resolve_config_path
 from .cli_types import CliRequest, Runtime
 from .config import VaultRootError, set_dry_run, validate_vault_root
 from .provider_runtime import configure_provider_models
@@ -24,7 +24,7 @@ from .transcript.whisper_fallback import configure_whisper, describe_whisper
 
 def build_runtime(request: CliRequest) -> Runtime:
     """Load config and initialize providers / cache / whisper / capture / logger."""
-    cfg_path = request.config_path or DEFAULT_CONFIG_PATH
+    cfg_path = resolve_config_path(request.config_path, handson=request.handson)
     cfg = _load_config(cfg_path, fallback_model=request.model)
     # Canonical (symlink-resolved) vault root with strict safety checks.
     # Injected as runtime.vault_root so DI consumers validate (ensure_safe_path)

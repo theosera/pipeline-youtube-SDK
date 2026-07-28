@@ -54,8 +54,15 @@ _provider_lock = threading.Lock()
 # fixed input deterministically, so caching them makes re-runs / --synthesis-only
 # near-instant. Stage 05 synthesis is creative/cross-video — users iterate on it,
 # so fresh output is the sane default. ``--no-cache`` disables everything.
-_LLM_CACHE_STAGE_ROLES = frozenset({"router", "stage_01_correct", "stage_02", "stage_04"})
-_LLM_CACHE_SYNTHESIS_ROLES = frozenset({"alpha", "beta", "leader", "reviewer"})
+# Hands-on roles follow the same split: segment/plan are deterministic
+# transforms of a fixed transcript (stage policy), step/moc are the
+# creative output users iterate on (synthesis policy, opt-in cache).
+_LLM_CACHE_STAGE_ROLES = frozenset(
+    {"router", "stage_01_correct", "stage_02", "stage_04", "handson_segment", "handson_plan"}
+)
+_LLM_CACHE_SYNTHESIS_ROLES = frozenset(
+    {"alpha", "beta", "leader", "reviewer", "handson_step", "handson_moc"}
+)
 _llm_cache_stages_enabled = True
 _llm_cache_synthesis_enabled = False
 
