@@ -45,6 +45,19 @@ def chapter_filename(index: int, label: str) -> str:
     return f"{prefix}{truncated_label}{_EXT}"
 
 
+def chapter_note_stem(index: int, label: str) -> str:
+    """Return the on-disk note stem for a chapter (no ``.md``).
+
+    Matches ``write_chapter``: fold mixed-script confusables on the label,
+    then apply the same filename defenses as ``chapter_filename``. Callers that
+    emit ``[[NN_<label>]]`` links (MOC 章構成) must rewrite targets to this stem
+    or Obsidian links break when the label contains OS-unsafe chars, needs
+    truncation, or carries homoglyphs.
+    """
+    folded = fold_mixed_script_confusables(label)
+    return chapter_filename(index, folded).removesuffix(_EXT)
+
+
 def write_chapter(
     chapter: SynthesisChapterBody,
     playlist_dir: Path,

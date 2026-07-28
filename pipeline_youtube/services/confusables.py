@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 
 # Whitespace controls the caller still needs (tab / newline / CR). VT (U+000B)
@@ -299,6 +300,66 @@ def fold_mixed_script_confusables(text: str) -> str:
     return _WORD_RE.sub(_fold_word, text)
 
 
+def _split_wikilink_inner(inner: str) -> tuple[str, str, str, str]:
+    """Split a wikilink inner into ``(target_base, fragment, separator, alias)``.
+
+    ``fragment`` includes the leading ``#`` when present. ``separator`` is ``|``
+    when an alias is present, otherwise empty.
+    """
+    target, separator, alias = inner.partition("|")
+    if "#" in target:
+        target_base, frag = target.split("#", 1)
+        fragment = f"#{frag}"
+    else:
+        target_base, fragment = target, ""
+    return target_base, fragment, separator, alias
+
+
+def map_wikilink_targets(
+    text: str,
+    map_base: Callable[[str], str | None],
+) -> str:
+    """Rewrite wikilink/embed target bases via ``map_base``.
+
+    ``map_base`` receives the target without ``#fragment`` / ``|alias``. Returning
+    a string replaces that base (fragment and alias are preserved); returning
+    ``None`` leaves the link unchanged. Matching uses ``_WIKILINK_RE`` so a lone
+    ``]`` inside a target (kept by filename sanitization) is handled correctly.
+
+    The whole inner is offered to ``map_base`` first, before it is split on
+    ``|``. A generated target may itself contain a pipe — a chapter labelled
+    ``CI|CD`` produces ``[[01_CI|CD]]`` — which alias-first parsing would hand
+    over as base ``01_CI``, so the link would never match its own stem and would
+    stay broken (``sanitize_title_for_filename`` turns the pipe into a space, so
+    the file on disk is ``01_CI CD.md``). Ordinary links are unaffected: their
+    full inner does not map, and parsing falls through to the base.
+    """
+    if not text:
+        return text
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _WIKILINK_RE.finditer(text):
+        parts.append(text[cursor : match.start()])
+        inner = match.group(2)
+        whole = map_base(inner.strip())
+        if whole is not None:
+            parts.append(f"{match.group(1)}{whole}{match.group(3)}")
+            cursor = match.end()
+            continue
+        target_base, fragment, separator, alias = _split_wikilink_inner(inner)
+        mapped = map_base(target_base.strip())
+        if mapped is None:
+            parts.append(match.group(0))
+        else:
+            # Preserve original target whitespace only when the base is unchanged;
+            # replacements are exact stems from chapter_filename.
+            parts.append(f"{match.group(1)}{mapped}{fragment}{separator}{alias}{match.group(3)}")
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
 def fold_markdown_mixed_script_confusables(
     text: str,
     *,
@@ -327,10 +388,9 @@ def fold_markdown_mixed_script_confusables(
     for match in _WIKILINK_RE.finditer(text):
         parts.append(fold_mixed_script_confusables(text[cursor : match.start()]))
 
-        inner = match.group(2)
-        target, separator, alias = inner.partition("|")
-        target_base = target.split("#", 1)[0].strip()
-        if target_base in targets:
+        target_base, fragment, separator, alias = _split_wikilink_inner(match.group(2))
+        target = f"{target_base}{fragment}"
+        if target_base.strip() in targets:
             target = fold_mixed_script_confusables(target)
         if separator:
             alias = fold_mixed_script_confusables(alias)
