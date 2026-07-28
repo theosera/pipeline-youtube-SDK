@@ -73,7 +73,11 @@ def build_plan(request: CliRequest, runtime: Runtime, resolved: ResolvedInput) -
         run_synthesis=not request.skip_synthesis,
         stop_after_capture=request.stop_after_capture,
         filter_reviewed_only=request.resume_reviewed,
-        allow_checkpoint=not request.dry_run,
+        # Phase 3 must re-run Stage 04 from reviewed 02/03 notes (docs/cli.md).
+        # Checkpoint would skip any same-day 04 — including leftovers from an
+        # earlier full run — and feed Stage 05 those bodies without ever
+        # checking `reviewed: true`.
+        allow_checkpoint=not request.dry_run and not request.resume_reviewed,
         allow_proper_noun_sheet=runtime.cfg.transcript_correction and not request.dry_run,
         allow_transcript_warmup=not request.resume_reviewed and request.local_media is None,
         dry_run=request.dry_run,
