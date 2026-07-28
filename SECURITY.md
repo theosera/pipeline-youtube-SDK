@@ -53,6 +53,8 @@ following areas are especially welcome.
 - Costs incurred by API usage.
 - Secret-scanning hits on values that are public by construction. The
   InnerTube API key in `pipeline_youtube/transcript/innertube.py` ships
-  inside YouTube's own iOS app and belongs to Google, not to the
-  operator — there is nothing to rotate. Such paths are listed in
-  `.github/secret_scanning.yml`.
+  inside YouTube's own iOS app and belongs to Google, not to the operator —
+  there is nothing to rotate, and the request needs it to look like the iOS
+  client. Those alerts are dismissed individually rather than excluded by
+  path, so the module keeps being scanned for anything that *is* a real
+  credential.
