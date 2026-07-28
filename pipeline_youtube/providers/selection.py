@@ -31,7 +31,9 @@ from typing import Any
 
 # Stages whose output quality is most sensitive to model strength (long
 # coherent generation / strict format). Mirrors the design rationale.
-HEAVY_STAGES = ("stage_04", "leader")
+# handson_step / handson_moc are the hands-on mode's long-generation roles
+# (quality-focused by requirement), so --hybrid keeps them on Anthropic too.
+HEAVY_STAGES = ("stage_04", "leader", "handson_step", "handson_moc")
 
 OPEN_PROVIDERS = frozenset({"ollama", "lmstudio"})
 
@@ -98,11 +100,12 @@ def apply_selection(
 
     warnings: list[str] = []
     if provider in OPEN_PROVIDERS and not hybrid:
+        heavy = ", ".join(HEAVY_STAGES)
         warnings.append(
             f"⚠ オープン/ローカル backend ({provider}) で重い工程 "
-            f"({', '.join(HEAVY_STAGES)}) を実行します。Stage 04 / 05(Leader) は"
+            f"({heavy}) を実行します。長文生成・厳密フォーマットの工程では"
             "書式崩れ・一貫性低下・repair リトライ増の可能性があります。"
-            "--hybrid を付けると leader / stage_04 だけ Anthropic に引き上げます。"
+            f"--hybrid を付けると {heavy} だけ Anthropic に引き上げます。"
         )
 
     return effective, warnings

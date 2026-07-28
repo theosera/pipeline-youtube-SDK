@@ -40,18 +40,21 @@ flowchart TD
 
     VIDEO["video_processing.py<br/>動画単位の Stage 01-04"]
     SYNTH_RUN["synthesis_runner.py<br/>Stage 05 周辺制御"]
-    REPORT["reporting.py<br/>実行レポート（summary/cost）"]
+    HANDSON_RUN["handson_runner.py<br/>--handson 周辺制御<br/>(単一長編動画 → ハンズオン)"]
+    REPORT["reporting.py<br/>実行レポート（summary/cost/handson）"]
 
-    STAGES["stages/<br/>各 Stage 本体<br/>scripts/summary/capture/learning/synthesis/evaluation"]
+    STAGES["stages/<br/>各 Stage 本体<br/>scripts/summary/capture/learning/synthesis/evaluation/handson"]
     SYNAGENTS["synthesis/agents.py<br/>Agent Teams / timeouts"]
+    HANDSONPKG["handson/<br/>segmenter(LECTURE/QA/TIPS)/planner/steps/writer<br/>整数秒 + fmt_hms (99:59 上限なし)"]
     PROVIDERS["providers/<br/>registry(invoke_llm)/selection<br/>anthropic/openai_compat(ollama,lmstudio)"]
     CACHE["cache.py<br/>content-addressed 永続キャッシュ"]
 
     MAIN --> CLI --> CMD
     CMD --> VALID & RUNTIME & INPUT & PLAN & RUNNER
-    RUNNER --> VIDEO & SYNTH_RUN & REPORT
+    RUNNER --> VIDEO & SYNTH_RUN & HANDSON_RUN & REPORT
     VIDEO --> STAGES
     SYNTH_RUN --> STAGES & SYNAGENTS
+    HANDSON_RUN --> STAGES & HANDSONPKG & REPORT
     RUNTIME --> PROVIDERS & CACHE
 
     classDef root fill:#1f6feb,color:#fff,stroke:#0b3d91,stroke-width:2px;
@@ -77,10 +80,11 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 | 検証 | 未実装(`--eval-loop`/`--folder-name`)・排他・必須フラグを弾く | `cli_validation` |
 | 道具 | config 読込・provider 選択・cache・whisper・capture・logger 初期化 | `runtime`（→ `cli_config` / `provider_runtime` / `services/cache` / `whisper_fallback` / `services/sanitize` / `capture_runtime`）。provider/モデル設定は `provider_runtime.configure_provider_models`、capture backend 解決は `capture_runtime.resolve_capture_backend` に分離（runtime は配線のみ） |
 | 材料 | URL→メタデータ or local-media 走査 → genre 分類 | `input_resolver`（→ `playlist` / `local_media` / `genres`） |
-| 計画 | RunMode と run_time/shard を確定し、**実行意図フラグ（is_sub_agent_parent/worker・run_video_stages・run_synthesis・allow_checkpoint・allow_proper_noun_sheet・allow_transcript_warmup・filter_reviewed_only・stop_after_capture）を ExecutionPlan に確定**。`pipeline_runner` は request の生フラグでなく plan の意味フラグを参照する | `execution_plan`（→ `parallel` / `resume`） |
-| 実行 | sub-agent 分散・shard 切出し・checkpoint/resume・transcript warm-up・01-04 起動・固有名詞シート更新・05 接続 | `pipeline_runner`（→ `video_processing` / `checkpoint` / `resume` / `proper_noun_sheet` / `parallel` / `stages/scripts`） |
+| 計画 | RunMode と run_time/shard を確定し、**実行意図フラグ（is_sub_agent_parent/worker・run_handson・run_video_stages・run_synthesis・allow_checkpoint・allow_proper_noun_sheet・allow_transcript_warmup・filter_reviewed_only・stop_after_capture）を ExecutionPlan に確定**（`--handson` は単一動画ガードもここ）。`pipeline_runner` は request の生フラグでなく plan の意味フラグを参照する | `execution_plan`（→ `parallel` / `resume`） |
+| 実行 | sub-agent 分散・shard 切出し・checkpoint/resume・transcript warm-up・01-04 起動・固有名詞シート更新・05 接続（`run_handson` 時は冒頭で handson_runner へ委譲して終了） | `pipeline_runner`（→ `video_processing` / `checkpoint` / `resume` / `proper_noun_sheet` / `parallel` / `stages/scripts` / `handson_runner`） |
 | 統合 | Stage 05 入力準備・実行 | `synthesis_runner`（→ `stages/synthesis` / `synthesis/agents`） |
-| 出力 | 動画サマリ・05 結果・コスト内訳の表示 | `reporting`（→ `run_result._print_cost_breakdown`） |
+| ハンズオン | `--handson` の起動・材料受け渡し・結果レポート（単一長編動画 → `09_YouTube学習_Session_only` 配下へステップ+MOC） | `handson_runner`（→ `stages/handson` → `handson/`(segmenter/planner/steps/writer) / `stages/capture.capture_step_clips` / `reporting.report_handson`） |
+| 出力 | 動画サマリ・05 結果・handson 結果・コスト内訳の表示 | `reporting`（→ `run_result._print_cost_breakdown`） |
 
 ポイント：矢印はすべて **入口層 → モジュール（呼び出し / 配線）** か
 **モジュール → モジュール（HOW の内部関係）**。`main.py` / `cli.py` / `command.py` 自身に

@@ -210,9 +210,16 @@ uv run python -m pipeline_youtube.main "https://www.youtube.com/watch?v=VIDEO_ID
 # ランタイムでバックエンドを上書き (config はいじらない)
 uv run python -m pipeline_youtube.main "URL" --provider anthropic        # 全工程 Anthropic
 uv run python -m pipeline_youtube.main "URL" --provider ollama --hybrid  # 軽=ローカル / 重=Anthropic
+
+# ハンズオンモード: 単一長編動画 (スライド講演) → ステップ分割ハンズオン教材。
+# 転写を LECTURE / Q&A / Tips に区間分類し、Q&A/Tips の知見をステップへ織り込み +
+# 巻末まとめへ集約して Permanent Note/09_YouTube学習_Session_only 配下に出力。
+# 専用 config (品質重視) を既定で読む: cp config.handson.example.json config.handson.json
+uv run python -m pipeline_youtube.main "https://www.youtube.com/watch?v=VIDEO_ID" --handson
 ```
 
 CLI オプションは元リポジトリと同一です。詳細は [docs/cli.md](docs/cli.md) を参照。
+ハンズオンモードの詳細は [docs/handson-mode.md](docs/handson-mode.md) を参照。
 
 ## パイプライン概要
 
