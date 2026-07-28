@@ -28,11 +28,11 @@ def resolve_capture_backend(
     preflight runs only when capture will actually run this invocation.
     """
     backend_choice = request.capture_backend or cfg.capture_backend
-    # Capture runs in every mode except --synthesis-only (which only re-runs
-    # Stage 05 over existing 04 md). In particular --resume-reviewed still calls
-    # _process_video()/Stage 03, so it must run the docker preflight and be
-    # subject to the local-media guard below.
-    will_run_capture = not request.synthesis_only
+    # Capture runs only when stages 01-03 will execute. --synthesis-only loads
+    # existing 04 md; --resume-reviewed reuses Phase 1's 02/03 notes and runs
+    # Stage 04 only. Neither path needs docker preflight or the local-media
+    # docker incompatibility guard below.
+    will_run_capture = not request.synthesis_only and not request.resume_reviewed
 
     # --local-media files live outside the container's bind mounts (tmp/ + the
     # Vault assets folder), so the docker backend's ffmpeg can't read them.

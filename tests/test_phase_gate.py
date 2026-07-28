@@ -7,9 +7,18 @@ from pathlib import Path
 
 import pytest
 
+from pipeline_youtube import video_processing as vp_mod
 from pipeline_youtube.pipeline import LEARNING_BASE, UNIT_DIRS
 from pipeline_youtube.playlist import VideoMeta
-from pipeline_youtube.resume import _filter_to_reviewed, _find_summary_md
+from pipeline_youtube.providers.base import LLMResponse
+from pipeline_youtube.resume import (
+    _filter_to_reviewed,
+    _find_existing_04_md,
+    _find_summary_md,
+    _find_unit_md,
+    _unit_folder_candidates,
+)
+from pipeline_youtube.services.cache import Cache
 
 
 def _vid(video_id: str) -> VideoMeta:
@@ -29,6 +38,24 @@ def _write_summary(path: Path, video_id: str, reviewed: str) -> None:
     path.write_text(
         f'---\ndate: 2026-04-18 08:00\ntitle: "x"\nplaylist: "testlist"\n'
         f'video_id: "{video_id}"\nreviewed: "{reviewed}"\n---\n\nbody\n',
+        encoding="utf-8",
+    )
+
+
+def _write_capture(path: Path, video_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'---\ndate: 2026-04-18 08:00\ntitle: "x"\nplaylist: "testlist"\n'
+        f'video_id: "{video_id}"\n---\n\n[00:00 ~ 00:05]\n![[capture.webp]]\n',
+        encoding="utf-8",
+    )
+
+
+def _write_learning(path: Path, video_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'---\ndate: 2026-04-18 08:00\ntitle: "x"\nplaylist: "testlist"\n'
+        f'video_id: "{video_id}"\n---\n\nlearning body\n',
         encoding="utf-8",
     )
 
@@ -83,3 +110,145 @@ class TestFilterToReviewed:
         _write_summary(folder / "a.md", _VID_A, "TRUE")
         kept = _filter_to_reviewed([(1, _vid(_VID_A))], "testlist", dt, vault_root=tmp_path)
         assert len(kept) == 1
+
+
+def _write_capture(path: Path, video_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'---\ndate: 2026-04-18 08:00\ntitle: "x"\nplaylist: "testlist"\n'
+        f'video_id: "{video_id}"\n---\n\n[00:00 ~ 00:05]\n![[capture.webp]]\n',
+        encoding="utf-8",
+    )
+
+
+def _write_learning(path: Path, video_id: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'---\ndate: 2026-04-18 08:00\ntitle: "x"\nplaylist: "testlist"\n'
+        f'video_id: "{video_id}"\n---\n\nlearning body\n',
+        encoding="utf-8",
+    )
+
+
+class TestResumeReviewedProcessing:
+    """Phase 3 reuses the reviewed Phase 1 notes instead of regenerating them."""
+
+    def test_existing_04_lookup_keeps_checkpoint_skips_in_original_folder(self, tmp_path: Path):
+        dt = datetime(2026, 4, 18, 12, 0)
+        phase1_folder = "2026-04-18-0800 testlist"
+        learning = tmp_path / LEARNING_BASE / UNIT_DIRS["learning"] / phase1_folder / "a.md"
+        _write_learning(learning, _VID_A)
+
+        assert _find_existing_04_md(_VID_A, "testlist", dt, vault_root=tmp_path) == learning
+
+    def test_runs_only_stage_04_against_existing_reviewed_notes(self, tmp_path: Path, monkeypatch):
+        resume_time = datetime(2026, 4, 18, 12, 0)
+        phase1_folder = "2026-04-18-0800 testlist"
+        summary = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / phase1_folder / "a.md"
+        capture = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"] / phase1_folder / "a.md"
+        _write_summary(summary, _VID_A, "true")
+        _write_capture(capture, _VID_A)
+
+        def forbidden_stage(*args, **kwargs):
+            raise AssertionError("stages 01-03 must be skipped during --resume-reviewed")
+
+        monkeypatch.setattr(vp_mod, "run_stage_scripts", forbidden_stage)
+        monkeypatch.setattr(vp_mod, "run_stage_summary", forbidden_stage)
+        monkeypatch.setattr(vp_mod, "run_stage_capture", forbidden_stage)
+        monkeypatch.setattr(vp_mod, "create_placeholder_notes", forbidden_stage)
+
+        def fake_learning(video, summary_md_path, capture_md_path, learning_md_path, **kwargs):
+            assert summary_md_path == summary
+            assert capture_md_path == capture
+            assert kwargs["run_time"] == resume_time
+            learning_md_path.parent.mkdir(parents=True, exist_ok=True)
+            learning_md_path.write_text(
+                f'---\nvideo_id: "{video.video_id}"\n---\n\nlearning body\n',
+                encoding="utf-8",
+            )
+            return LLMResponse(
+                text="learning body",
+                model="sonnet",
+                input_tokens=1,
+                output_tokens=2,
+                total_cost_usd=0.01,
+            )
+
+        monkeypatch.setattr(vp_mod, "run_stage_learning", fake_learning)
+
+        result = vp_mod._process_video(
+            _vid(_VID_A),
+            resume_time,
+            dry_run=False,
+            capture_format="auto",
+            models={"stage_02": "sonnet", "stage_04": "sonnet"},
+            resume_reviewed=True,
+            playlist_title="testlist",
+            cache=Cache(None, enabled=False),
+            vault_root=tmp_path,
+        )
+
+        assert result.ok
+        assert result.learning_md_body and result.learning_md_body.strip() == "learning body"
+        assert result.learning_md_path == (
+            tmp_path / LEARNING_BASE / UNIT_DIRS["learning"] / phase1_folder / "a.md"
+        )
+        # Must not create a sibling Phase-3 folder from wall-clock run_time.
+        assert not (
+            tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-1200 testlist"
+        ).exists()
+
+    def test_missing_playlist_title_reports_the_real_cause(self, tmp_path: Path):
+        # Falling back to "" would search a folder name that cannot exist, so
+        # every video would fail with the generic "summary not found".
+        result = vp_mod._process_video(
+            _vid(_VID_A),
+            datetime(2026, 4, 18, 12, 0),
+            dry_run=False,
+            capture_format="auto",
+            models={"stage_02": "sonnet", "stage_04": "sonnet"},
+            resume_reviewed=True,
+            playlist_title=None,
+            cache=Cache(None, enabled=False),
+            vault_root=tmp_path,
+        )
+
+        assert not result.ok
+        assert result.error == "resume_reviewed_missing_playlist_title"
+
+    def test_pinned_capture_lookup_does_not_fall_back_to_another_run(self, tmp_path: Path):
+        # Two Phase 1 runs on one day. The reviewed summary lives in the 0800
+        # run, whose capture note is missing. Returning the 1000 run's capture
+        # would pair the reviewed summary with another run's images.
+        reviewed_folder = "2026-04-18-0800 testlist"
+        other_folder = "2026-04-18-1000 testlist"
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        _write_capture(capture_base / other_folder / "a.md", _VID_A)
+        (capture_base / reviewed_folder).mkdir(parents=True, exist_ok=True)
+
+        found = _find_unit_md(
+            _VID_A,
+            "testlist",
+            datetime(2026, 4, 18, 12, 0),
+            "capture",
+            vault_root=tmp_path,
+            preferred_folder_name=reviewed_folder,
+        )
+
+        assert found is None
+
+    def test_same_day_folder_candidates_are_newest_first(self, tmp_path: Path):
+        # iterdir() order is filesystem-dependent; the fallback must not depend
+        # on it when two Phase 1 runs exist for the same playlist.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in ("2026-04-18-0800 testlist", "2026-04-18-1000 testlist"):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        # First entry is the canonical HHmm folder for run_date (may not exist).
+        assert candidates[0].name == "2026-04-18-1200 testlist"
+        assert [c.name for c in candidates[1:]] == [
+            "2026-04-18-1000 testlist",
+            "2026-04-18-0800 testlist",
+        ]

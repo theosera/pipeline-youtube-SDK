@@ -293,11 +293,13 @@ class TestE2EPlaylist:
         assert result.exit_code != 0
         assert "docker capture backend" in result.output
 
-        # --resume-reviewed still runs Stage 03 capture, so it must be rejected
-        # too (regression for the will_run_capture gate that let it slip through).
+        # --resume-reviewed reuses Phase 1 capture notes and skips Stage 03, so
+        # the local-media × docker guard must not fire (same as --synthesis-only).
         result_resume = runner.invoke(main_mod.cli, [*base_args, "--resume-reviewed"])
-        assert result_resume.exit_code != 0
-        assert "docker capture backend" in result_resume.output
+        assert "docker capture backend" not in result_resume.output
+
+        result_synth = runner.invoke(main_mod.cli, [*base_args, "--synthesis-only"])
+        assert "docker capture backend" not in result_synth.output
 
     def test_stop_after_capture_skips_04_and_05(self, vault: Path, monkeypatch):
         def fake_scripts(
