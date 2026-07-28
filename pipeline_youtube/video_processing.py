@@ -21,7 +21,7 @@ from .glossary import Glossary
 from .pipeline import compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta
 from .resume import (
-    _find_summary_md,
+    _find_reviewed_summary_md,
     _find_unit_md,
     _learning_path_for_reviewed_summary,
 )
@@ -58,7 +58,11 @@ def _process_reviewed_video(
     stages 01-03: those would allocate collision suffixes (``-2``) beside the
     Phase 1 notes and Stage 04 would consume a fresh unreviewed summary.
     """
-    summary_md = _find_summary_md(video.video_id, playlist_title, run_time, vault_root=vault_root)
+    # Prefer a reviewed summary across same-day folders — not merely the newest
+    # 02 note for this video_id (a later unreviewed Phase 1 rerun can sit in front).
+    summary_md = _find_reviewed_summary_md(
+        video.video_id, playlist_title, run_time, vault_root=vault_root
+    )
     if summary_md is None:
         return VideoRunResult(video=video, error="reviewed_summary_not_found")
 

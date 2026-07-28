@@ -32,6 +32,20 @@ def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
         raise click.UsageError(f"invalid --run-timestamp: {run_timestamp!r}") from exc
 
 
+def _unit_base_dir(unit_key: str, *, vault_root: Path) -> Path | None:
+    """Resolve the vault dir holding a unit's playlist folders, or None if absent.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``); the
+    relative path still goes through ``ensure_safe_path`` so a malformed
+    ``UNIT_DIRS`` entry can never escape the vault.
+    """
+    if unit_key not in UNIT_DIRS:
+        raise ValueError(f"unknown unit key: {unit_key!r}")
+    rel = f"{LEARNING_BASE}/{UNIT_DIRS[unit_key]}"
+    base = vault_root / ensure_safe_path(rel, vault_root=vault_root)
+    return base if base.exists() else None
+
+
 def _find_unit_md(
     video_id: str,
     playlist_title: str,
@@ -52,13 +66,8 @@ def _find_unit_md(
     Stage 03), so 02/03/04 stay aligned even when several same-day folders exist.
     A pinned lookup that misses returns None rather than falling back — see below.
     """
-    if unit_key not in UNIT_DIRS:
-        raise ValueError(f"unknown unit key: {unit_key!r}")
-
-    rel = f"{LEARNING_BASE}/{UNIT_DIRS[unit_key]}"
-    safe_rel = ensure_safe_path(rel, vault_root=vault_root)
-    base = vault_root / safe_rel
-    if not base.exists():
+    base = _unit_base_dir(unit_key, vault_root=vault_root)
+    if base is None:
         return None
 
     if preferred_folder_name:
@@ -96,6 +105,34 @@ def _find_summary_md(
     ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
     return _find_unit_md(video_id, playlist_title, run_date, "summary", vault_root=vault_root)
+
+
+def _find_reviewed_summary_md(
+    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
+) -> Path | None:
+    """Locate a 02_Summary.md for ``video_id`` with frontmatter ``reviewed: true``.
+
+    Same-day Phase 1 reruns create a newer folder whose summaries still have
+    ``reviewed: false``. Looking up "newest note for video_id, then check
+    reviewed" would skip the older folder the operator actually marked.
+    Scan newest-first and return the first matching *reviewed* summary.
+    """
+    from .obsidian import read_frontmatter_field
+
+    base = _unit_base_dir("summary", vault_root=vault_root)
+    if base is None:
+        return None
+
+    for candidate_folder in _unit_folder_candidates(base, playlist_title, run_date):
+        if not candidate_folder.exists():
+            continue
+        for md in candidate_folder.glob("*.md"):
+            if read_trusted_video_id(md) != video_id:
+                continue
+            value = read_frontmatter_field(md, "reviewed")
+            if value and value.lower() == "true":
+                return md
+    return None
 
 
 def _find_existing_04_md(
@@ -160,7 +197,11 @@ def _filter_to_reviewed(
     *,
     vault_root: Path,
 ) -> list[tuple[int, VideoMeta]]:
-    """Keep only videos whose 02_Summary.md frontmatter has `reviewed: true`.
+    """Keep only videos that have a 02_Summary.md with `reviewed: true`.
+
+    Searches every same-day playlist folder (newest first), not only the
+    newest note for the video_id — a later unreviewed Phase 1 rerun must
+    not hide an older summary the operator already approved.
 
     ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
@@ -168,16 +209,22 @@ def _filter_to_reviewed(
 
     kept: list[tuple[int, VideoMeta]] = []
     for i, video in to_process:
-        summary_md = _find_summary_md(
+        summary_md = _find_reviewed_summary_md(
             video.video_id, playlist_title, run_time, vault_root=vault_root
         )
-        if summary_md is None:
-            click.echo(f"  [skip] {video.video_id}: no 02_Summary.md found")
-            continue
-        value = read_frontmatter_field(summary_md, "reviewed")
-        if value and value.lower() == "true":
+        if summary_md is not None:
             kept.append((i, video))
+            continue
+        # Nothing reviewed matched. Re-scan without the reviewed filter so the
+        # skip line names the real cause: "no summary written at all" and
+        # "summary written but never approved" need different operator action.
+        any_summary = _find_summary_md(
+            video.video_id, playlist_title, run_time, vault_root=vault_root
+        )
+        if any_summary is None:
+            click.echo(f"  [skip] {video.video_id}: no 02_Summary.md found")
         else:
+            value = read_frontmatter_field(any_summary, "reviewed")
             click.echo(f"  [skip] {video.video_id}: reviewed={value!r}")
     return kept
 

@@ -137,6 +137,17 @@ class TestHandsonMode:
         plan = build_plan(_request(), _runtime(tmp_path), _resolved(3))
         assert plan.run_handson is False
 
+    def test_resume_reviewed_disables_checkpoint(self, tmp_path: Path):
+        # Phase 3 must re-run Stage 04 from reviewed notes; a same-day leftover
+        # 04 from an earlier full run must not checkpoint-skip past the review gate.
+        plan = build_plan(_request(resume_reviewed=True), _runtime(tmp_path), _resolved(3))
+        assert plan.filter_reviewed_only is True
+        assert plan.allow_checkpoint is False
+
+    def test_normal_plan_keeps_checkpoint_enabled(self, tmp_path: Path):
+        plan = build_plan(_request(), _runtime(tmp_path), _resolved(3))
+        assert plan.allow_checkpoint is True
+
 
 class TestSingleVideoGuard:
     def test_playlist_input_is_rejected(self, tmp_path: Path):

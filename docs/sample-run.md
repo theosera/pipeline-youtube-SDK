@@ -179,7 +179,6 @@ uv run python -m pipeline_youtube.main \
 ```
 
 ```
-checkpoint: 0 videos already complete, will skip
   [skip] xyz456ABC01: reviewed='false'
 
 [1/3] _h3decBW12Q Agent Teams とは何か
