@@ -20,6 +20,11 @@ import click
 from .glossary import Glossary
 from .pipeline import compute_note_paths, create_placeholder_notes
 from .playlist import VideoMeta
+from .resume import (
+    _find_summary_md,
+    _find_unit_md,
+    _learning_path_for_reviewed_summary,
+)
 from .run_result import VideoRunResult, _strip_frontmatter
 from .sanitize import sanitize_untrusted_text
 from .stages.capture import (
@@ -36,6 +41,72 @@ if TYPE_CHECKING:
     from .services.cache import Cache
 
 
+def _process_reviewed_video(
+    video: VideoMeta,
+    run_time: datetime,
+    *,
+    playlist_title: str,
+    dry_run: bool,
+    models: dict[str, str],
+    code_bearing: bool = False,
+    cache: Cache,
+    vault_root: Path,
+) -> VideoRunResult:
+    """Phase 3 path: reuse reviewed 02/03 notes and run only Stage 04.
+
+    ``--resume-reviewed`` must not call ``create_placeholder_notes`` /
+    stages 01-03: those would allocate collision suffixes (``-2``) beside the
+    Phase 1 notes and Stage 04 would consume a fresh unreviewed summary.
+    """
+    summary_md = _find_summary_md(video.video_id, playlist_title, run_time, vault_root=vault_root)
+    if summary_md is None:
+        return VideoRunResult(video=video, error="reviewed_summary_not_found")
+
+    capture_md = _find_unit_md(
+        video.video_id,
+        playlist_title,
+        run_time,
+        "capture",
+        vault_root=vault_root,
+        preferred_folder_name=summary_md.parent.name,
+    )
+    if capture_md is None:
+        return VideoRunResult(video=video, error="reviewed_capture_not_found")
+
+    learning_md = _learning_path_for_reviewed_summary(summary_md, video, vault_root=vault_root)
+
+    click.echo(f"  [04] learning (model={models['stage_04']})...", nl=False)
+    learning_resp = run_stage_learning(
+        video,
+        summary_md,
+        capture_md,
+        learning_md,
+        run_time=run_time,
+        model=models["stage_04"],
+        dry_run=dry_run,
+        code_bearing=code_bearing,
+        cache=cache,
+    )
+    click.echo(
+        f" in={learning_resp.input_tokens or 0}"
+        f" out={learning_resp.output_tokens or 0}"
+        f" cost=${learning_resp.total_cost_usd or 0:.3f}"
+    )
+
+    if dry_run:
+        body = learning_resp.text.strip()
+    else:
+        body = _strip_frontmatter(learning_md.read_text(encoding="utf-8"))
+
+    return VideoRunResult(
+        video=video,
+        learning_md_path=learning_md,
+        learning_md_body=body,
+        learning_cost_usd=learning_resp.total_cost_usd,
+        learning_model=learning_resp.model,
+    )
+
+
 def _process_video(
     video: VideoMeta,
     run_time: datetime,
@@ -45,6 +116,8 @@ def _process_video(
     models: dict[str, str],
     filler_words: tuple[str, ...] = (),
     stop_after_capture: bool = False,
+    resume_reviewed: bool = False,
+    playlist_title: str | None = None,
     capture_backend: Any = None,
     code_bearing: bool = False,
     glossary: Glossary | None = None,
@@ -56,6 +129,23 @@ def _process_video(
     vault_root: Path,
 ) -> VideoRunResult:
     try:
+        if resume_reviewed:
+            if not playlist_title:
+                # Falling back to "" would search under a folder name that can
+                # never exist, so every video would fail with the generic
+                # "summary not found". Name the real cause instead.
+                return VideoRunResult(video=video, error="resume_reviewed_missing_playlist_title")
+            return _process_reviewed_video(
+                video,
+                run_time,
+                playlist_title=playlist_title,
+                dry_run=dry_run,
+                models=models,
+                code_bearing=code_bearing,
+                cache=cache,
+                vault_root=vault_root,
+            )
+
         paths = compute_note_paths(video, run_time, vault_root=vault_root)
         create_placeholder_notes(video, run_time, dry_run=dry_run, vault_root=vault_root)
 
@@ -250,6 +340,8 @@ async def _run_videos_concurrent(
     models: dict[str, str],
     filler_words: tuple[str, ...] = (),
     stop_after_capture: bool = False,
+    resume_reviewed: bool = False,
+    playlist_title: str | None = None,
     capture_backend: Any = None,
     code_bearing: bool = False,
     glossary: Glossary | None = None,
@@ -276,6 +368,8 @@ async def _run_videos_concurrent(
                 models=models,
                 filler_words=filler_words,
                 stop_after_capture=stop_after_capture,
+                resume_reviewed=resume_reviewed,
+                playlist_title=playlist_title,
                 capture_backend=capture_backend,
                 code_bearing=code_bearing,
                 glossary=glossary,

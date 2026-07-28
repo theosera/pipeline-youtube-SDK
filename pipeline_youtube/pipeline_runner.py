@@ -29,6 +29,7 @@ from .reporting import report_costs, report_synthesis, report_video_summary
 from .resume import (
     _collect_existing_learning_bodies,
     _filter_to_reviewed,
+    _find_existing_04_md,
     _load_existing_04_body,
 )
 from .run_result import VideoRunResult
@@ -179,6 +180,10 @@ def _select_synthesis_inputs(
     checkpoint/resume-filtered set. ``results`` is populated in place for the
     cost breakdown. Returns None to signal an early stop (nothing to synthesize).
     """
+    # Declared up front because both branches below bind it: --synthesis-only
+    # unpacks the `str` third element of _collect_existing_learning_bodies,
+    # while the resume-reviewed path leaves it None when no 04 md is known.
+    folder_override: str | None = None
     if not plan.run_video_stages:
         click.echo("\n=== --synthesis-only: loading existing 04 md files ===")
         matched_videos, matched_bodies, folder_override = _collect_existing_learning_bodies(
@@ -206,7 +211,18 @@ def _select_synthesis_inputs(
     )
     if succeeded is None:
         return None
-    return [r.video for r in succeeded], [r.learning_md_body or "" for r in succeeded], None
+    if plan.filter_reviewed_only:
+        # Keep Stage 05 in the Phase 1 playlist folder even when Phase 3's
+        # wall-clock run_time would format a different HHmm suffix.
+        folder_override = next(
+            (r.learning_md_path.parent.name for r in succeeded if r.learning_md_path),
+            None,
+        )
+    return (
+        [r.video for r in succeeded],
+        [r.learning_md_body or "" for r in succeeded],
+        folder_override,
+    )
 
 
 def _process_all_videos(
@@ -246,10 +262,19 @@ def _process_all_videos(
         if video.video_id in completed_ids and video.video_id not in force_set:
             click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {video.title}")
             click.echo("  [skip] checkpoint: stage 04 already exists")
+            learning_md = _find_existing_04_md(
+                video.video_id, playlist_title, run_time, vault_root=runtime.vault_root
+            )
             body = _load_existing_04_body(
                 video.video_id, playlist_title, run_time, vault_root=runtime.vault_root
             )
-            results.append(VideoRunResult(video=video, learning_md_body=body))
+            results.append(
+                VideoRunResult(
+                    video=video,
+                    learning_md_path=learning_md,
+                    learning_md_body=body,
+                )
+            )
         else:
             to_process.append((i, video))
 
@@ -292,6 +317,8 @@ def _process_all_videos(
                 models=runtime.models,
                 filler_words=runtime.filler_words,
                 stop_after_capture=plan.stop_after_capture,
+                resume_reviewed=plan.filter_reviewed_only,
+                playlist_title=playlist_title,
                 capture_backend=runtime.capture_backend,
                 code_bearing=resolved.code_bearing,
                 glossary=cfg.glossary,
@@ -315,6 +342,8 @@ def _process_all_videos(
                 models=runtime.models,
                 filler_words=runtime.filler_words,
                 stop_after_capture=plan.stop_after_capture,
+                resume_reviewed=plan.filter_reviewed_only,
+                playlist_title=playlist_title,
                 capture_backend=runtime.capture_backend,
                 code_bearing=resolved.code_bearing,
                 glossary=cfg.glossary,

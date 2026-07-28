@@ -32,29 +32,55 @@ def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
         raise click.UsageError(f"invalid --run-timestamp: {run_timestamp!r}") from exc
 
 
-def _load_existing_04_body(
-    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
-) -> str | None:
-    """Read the stage 04 body for a checkpoint-skipped video.
+def _find_unit_md(
+    video_id: str,
+    playlist_title: str,
+    run_date: datetime,
+    unit_key: str,
+    *,
+    vault_root: Path,
+    preferred_folder_name: str | None = None,
+) -> Path | None:
+    """Locate an existing unit md for `video_id` within a given run date.
 
-    Returns the frontmatter-stripped body, or None if the file can't be found.
-    Uses the same M3 hardened frontmatter validation as `is_video_complete`.
+    Used by Phase 3 (`--resume-reviewed`) to look up Stage 02/03 notes written
+    in a prior Phase 1 run. Falls back across date-prefix matches so users can
+    resume later the same calendar day without re-passing ``--run-timestamp``.
 
-    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    ``preferred_folder_name`` pins the search to the playlist folder already
+    resolved for a sibling unit (e.g. reuse the Stage 02 folder when locating
+    Stage 03), so 02/03/04 stay aligned even when several same-day folders exist.
+    A pinned lookup that misses returns None rather than falling back — see below.
     """
-    from .checkpoint import _find_learning_folder
+    if unit_key not in UNIT_DIRS:
+        raise ValueError(f"unknown unit key: {unit_key!r}")
 
-    folder = _find_learning_folder(playlist_title, run_date, vault_root=vault_root)
-    if folder is None:
+    rel = f"{LEARNING_BASE}/{UNIT_DIRS[unit_key]}"
+    safe_rel = ensure_safe_path(rel, vault_root=vault_root)
+    base = vault_root / safe_rel
+    if not base.exists():
         return None
-    for md in folder.glob("*.md"):
-        if read_trusted_video_id(md) != video_id:
+
+    if preferred_folder_name:
+        # Fail closed. The caller pinned this folder so 02/03/04 all come from
+        # one Phase 1 run; falling through to another same-day run would pair
+        # the reviewed summary with unrelated captures, whose embeds are
+        # path-qualified to *that* run's playlist folder. Returning None lets
+        # the caller report reviewed_capture_not_found instead of mixing runs.
+        preferred = base / preferred_folder_name
+        if not preferred.exists():
+            return None
+        for md in preferred.glob("*.md"):
+            if read_trusted_video_id(md) == video_id:
+                return md
+        return None
+
+    for candidate_folder in _unit_folder_candidates(base, playlist_title, run_date):
+        if not candidate_folder.exists():
             continue
-        try:
-            text = md.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        return _strip_frontmatter(text)
+        for md in candidate_folder.glob("*.md"):
+            if read_trusted_video_id(md) == video_id:
+                return md
     return None
 
 
@@ -69,20 +95,62 @@ def _find_summary_md(
 
     ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
-    rel = f"{LEARNING_BASE}/{UNIT_DIRS['summary']}"
-    safe_rel = ensure_safe_path(rel, vault_root=vault_root)
-    base = vault_root / safe_rel
-    if not base.exists():
-        return None
+    return _find_unit_md(video_id, playlist_title, run_date, "summary", vault_root=vault_root)
 
-    # Try today's canonical playlist folder, then any folder under base.
-    for candidate_folder in _summary_folder_candidates(base, playlist_title, run_date):
-        if not candidate_folder.exists():
-            continue
-        for md in candidate_folder.glob("*.md"):
-            if read_trusted_video_id(md) == video_id:
-                return md
+
+def _find_existing_04_md(
+    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
+) -> Path | None:
+    """Locate the stage 04 md for a checkpoint-skipped video."""
+    from .checkpoint import _find_learning_folder
+
+    folder = _find_learning_folder(playlist_title, run_date, vault_root=vault_root)
+    if folder is None:
+        return None
+    for md in folder.glob("*.md"):
+        if read_trusted_video_id(md) == video_id:
+            return md
     return None
+
+
+def _load_existing_04_body(
+    video_id: str, playlist_title: str, run_date: datetime, *, vault_root: Path
+) -> str | None:
+    """Read the stage 04 body for a checkpoint-skipped video.
+
+    Returns the frontmatter-stripped body, or None if the file can't be found.
+    Uses the same M3 hardened frontmatter validation as `is_video_complete`.
+
+    ``vault_root`` is injected by the caller (``runtime.vault_root``).
+    """
+    md = _find_existing_04_md(video_id, playlist_title, run_date, vault_root=vault_root)
+    if md is None:
+        return None
+    try:
+        text = md.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _strip_frontmatter(text)
+
+
+def _learning_path_for_reviewed_summary(
+    summary_md: Path, video: VideoMeta, *, vault_root: Path
+) -> Path:
+    """Return the Stage 04 output path that matches a reviewed Stage 02 note.
+
+    Phase 3 must write 04 into the same playlist-folder name as Phase 1's 02/03
+    notes. Using ``compute_note_paths`` with Phase 3's wall-clock ``run_time``
+    would create a sibling folder and orphan the reviewed inputs.
+    """
+    from .obsidian import resolve_unique_path
+
+    rel_folder = f"{LEARNING_BASE}/{UNIT_DIRS['learning']}/{summary_md.parent.name}"
+    safe_rel_folder = ensure_safe_path(rel_folder, vault_root=vault_root)
+    folder = vault_root / safe_rel_folder
+    candidate = folder / summary_md.name
+    if not candidate.exists() or read_trusted_video_id(candidate) == video.video_id:
+        return candidate
+    return resolve_unique_path(folder, summary_md.stem, ".md")
 
 
 def _filter_to_reviewed(
@@ -114,10 +182,8 @@ def _filter_to_reviewed(
     return kept
 
 
-def _summary_folder_candidates(
-    base: Path, playlist_title: str, run_date: datetime
-) -> Iterator[Path]:
-    """Yield likely playlist folders holding 02_Summary files.
+def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime) -> Iterator[Path]:
+    """Yield likely playlist folders holding unit files.
 
     Canonical first, then any date-prefixed folder that contains the
     sanitized title substring (mirrors `_find_learning_folder` heuristics).
@@ -133,16 +199,23 @@ def _summary_folder_candidates(
     if not title_needle:
         return
     try:
-        for child in base.iterdir():
+        matches = [
+            child
+            for child in base.iterdir()
             if (
                 child.is_dir()
                 and child.name.startswith(date_prefix)
                 and title_needle in child.name
                 and child.name != canonical_name
-            ):
-                yield child
+            )
+        ]
     except OSError:
         return
+    # iterdir() order is filesystem-dependent, so with two Phase 1 runs on one
+    # day the caller could silently get either. Folder names start with
+    # YYYY-MM-DD-HHmm, so a descending name sort puts the newest run first —
+    # the one the operator most likely just reviewed.
+    yield from sorted(matches, key=lambda child: child.name, reverse=True)
 
 
 def _videos_from_learning_folder(folder_name: str) -> list[VideoMeta]:
