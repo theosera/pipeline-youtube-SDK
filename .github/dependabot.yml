@@ -7,7 +7,7 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-
+　　　　　　　　　　　
   - package-ecosystem: "github-actions"
     # `/` only reaches .github/workflows/*.yml for this ecosystem — it does NOT
     # descend into composite actions. `.github/actions/setup-python-uv` needs
