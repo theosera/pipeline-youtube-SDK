@@ -51,3 +51,10 @@ following areas are especially welcome.
 - Attacks that assume the operator's own machine or vault is already
   compromised. The pipeline trusts the host it runs on.
 - Costs incurred by API usage.
+- Secret-scanning hits on values that are public by construction. The
+  InnerTube API key in `pipeline_youtube/transcript/innertube.py` ships
+  inside YouTube's own iOS app and belongs to Google, not to the operator —
+  there is nothing to rotate, and the request needs it to look like the iOS
+  client. Those alerts are dismissed individually rather than excluded by
+  path, so the module keeps being scanned for anything that *is* a real
+  credential.
