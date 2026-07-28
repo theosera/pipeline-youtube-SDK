@@ -226,6 +226,24 @@ def normalize_segments(
     if not fixed:
         return []
 
+    # The nested split above compares against `fixed[-1]` (the tail it just
+    # appended), so a span nested two levels deep can trim an *earlier*
+    # segment and land out of order. Re-establish the sorted / gapless /
+    # non-overlapping postcondition deterministically; when two insight spans
+    # genuinely overlap the earlier claim wins and the inner one is dropped.
+    fixed.sort(key=lambda it: (it.start, it.end))
+    monotonic: list[_MutSeg] = []
+    for cur in fixed:
+        if monotonic:
+            cur.start = max(cur.start, monotonic[-1].end)
+            if cur.end <= cur.start:
+                continue
+            monotonic[-1].end = cur.start
+        monotonic.append(cur)
+    fixed = monotonic
+    fixed[0].start = 0
+    fixed[-1].end = duration
+
     # Only LECTURE fragments are merged away. Absorbing a short segment into a
     # neighbor discards its label, and a brief Q&A exchange or Tips aside is
     # precisely what this mode must keep — so those survive at any length.

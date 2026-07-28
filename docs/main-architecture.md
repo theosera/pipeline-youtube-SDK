@@ -54,7 +54,7 @@ flowchart TD
     RUNNER --> VIDEO & SYNTH_RUN & HANDSON_RUN & REPORT
     VIDEO --> STAGES
     SYNTH_RUN --> STAGES & SYNAGENTS
-    HANDSON_RUN --> STAGES & HANDSONPKG
+    HANDSON_RUN --> STAGES & HANDSONPKG & REPORT
     RUNTIME --> PROVIDERS & CACHE
 
     classDef root fill:#1f6feb,color:#fff,stroke:#0b3d91,stroke-width:2px;
@@ -83,7 +83,7 @@ run_pipeline(request, runtime, …)    # pipeline_runner: 計画通りに実行 
 | 計画 | RunMode と run_time/shard を確定し、**実行意図フラグ（is_sub_agent_parent/worker・run_handson・run_video_stages・run_synthesis・allow_checkpoint・allow_proper_noun_sheet・allow_transcript_warmup・filter_reviewed_only・stop_after_capture）を ExecutionPlan に確定**（`--handson` は単一動画ガードもここ）。`pipeline_runner` は request の生フラグでなく plan の意味フラグを参照する | `execution_plan`（→ `parallel` / `resume`） |
 | 実行 | sub-agent 分散・shard 切出し・checkpoint/resume・transcript warm-up・01-04 起動・固有名詞シート更新・05 接続（`run_handson` 時は冒頭で handson_runner へ委譲して終了） | `pipeline_runner`（→ `video_processing` / `checkpoint` / `resume` / `proper_noun_sheet` / `parallel` / `stages/scripts` / `handson_runner`） |
 | 統合 | Stage 05 入力準備・実行 | `synthesis_runner`（→ `stages/synthesis` / `synthesis/agents`） |
-| ハンズオン | `--handson` の起動・材料受け渡しのみ（単一長編動画 → `09_YouTube学習_Session_only` 配下へステップ+MOC） | `handson_runner`（→ `stages/handson` → `handson/`(segmenter/planner/steps/writer) / `stages/capture.capture_step_clips`） |
+| ハンズオン | `--handson` の起動・材料受け渡し・結果レポート（単一長編動画 → `09_YouTube学習_Session_only` 配下へステップ+MOC） | `handson_runner`（→ `stages/handson` → `handson/`(segmenter/planner/steps/writer) / `stages/capture.capture_step_clips` / `reporting.report_handson`） |
 | 出力 | 動画サマリ・05 結果・handson 結果・コスト内訳の表示 | `reporting`（→ `run_result._print_cost_breakdown`） |
 
 ポイント：矢印はすべて **入口層 → モジュール（呼び出し / 配線）** か

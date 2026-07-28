@@ -141,7 +141,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         raise click.UsageError(f"{config_name}: vault_root is not configured.")
     path = Path(vault_root).expanduser()
     if not path.exists():
-        raise click.UsageError(f"vault_root does not exist: {path}")
+        raise click.UsageError(f"{config_name}: vault_root does not exist: {path}")
 
     models_raw = data.get("models") or {}
     if not isinstance(models_raw, dict):
@@ -188,7 +188,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         synthesis_timeout = synthesis_timeout_raw
     else:
         raise click.UsageError(
-            f'config.json: synthesis_timeout must be a positive integer or "auto", '
+            f'{config_name}: synthesis_timeout must be a positive integer or "auto", '
             f"got {synthesis_timeout_raw!r}"
         )
 

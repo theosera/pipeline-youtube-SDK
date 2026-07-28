@@ -159,6 +159,25 @@ class TestNormalizeSegments:
             (300, 900, SegmentLabel.LECTURE),
         ]
 
+    def test_doubly_nested_span_keeps_the_partition_contiguous(self):
+        # Regression: TIPS nested inside a QA that is itself nested inside a
+        # LECTURE used to trim the *earlier* container and land out of order,
+        # leaving an overlapping, non-monotonic partition.
+        out = normalize_segments(
+            [
+                _seg(0, 1000),
+                _seg(100, 200, SegmentLabel.QA, "外側の質疑"),
+                _seg(150, 180, SegmentLabel.TIPS, "さらに内側の小ネタ"),
+            ],
+            duration=1000,
+            chunk_starts=[],
+        )
+        bounds = [(s.start_sec, s.end_sec) for s in out]
+        assert bounds == sorted(bounds)
+        assert all(a[1] == b[0] for a, b in zip(bounds, bounds[1:], strict=False))
+        assert bounds[0][0] == 0
+        assert bounds[-1][1] == 1000
+
     def test_long_video_boundaries_past_9959_survive(self):
         # 2h30m video with a QA session starting at 2h — beyond the legacy
         # 99:59 MM:SS regex ceiling. Integer seconds must pass unharmed.
