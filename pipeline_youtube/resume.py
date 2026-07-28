@@ -8,6 +8,7 @@ reprocessing.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +21,10 @@ from .path_safety import ensure_safe_path
 from .pipeline import LEARNING_BASE, UNIT_DIRS
 from .playlist import VideoMeta
 from .run_result import _strip_frontmatter
+
+# Playlist folders are named "YYYY-MM-DD-HHmm <title>" (legacy runs omit HHmm).
+# The match covers the date (and time when present); the rest is the title.
+_DATED_FOLDER_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:-\d{4})?")
 
 
 def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
@@ -58,8 +63,9 @@ def _find_unit_md(
     """Locate an existing unit md for `video_id` within a given run date.
 
     Used by Phase 3 (`--resume-reviewed`) to look up Stage 02/03 notes written
-    in a prior Phase 1 run. Falls back across date-prefix matches so users can
-    resume later the same calendar day without re-passing ``--run-timestamp``.
+    in a prior Phase 1 run. Falls back across date-prefix matches — same day
+    first, then earlier days — so users can review overnight and resume without
+    re-passing ``--run-timestamp``.
 
     ``preferred_folder_name`` pins the search to the playlist folder already
     resolved for a sibling unit (e.g. reuse the Stage 02 folder when locating
@@ -112,10 +118,14 @@ def _find_reviewed_summary_md(
 ) -> Path | None:
     """Locate a 02_Summary.md for ``video_id`` with frontmatter ``reviewed: true``.
 
-    Same-day Phase 1 reruns create a newer folder whose summaries still have
+    Phase 1 reruns create a newer folder whose summaries still have
     ``reviewed: false``. Looking up "newest note for video_id, then check
     reviewed" would skip the older folder the operator actually marked.
     Scan newest-first and return the first matching *reviewed* summary.
+
+    Because candidates now extend to earlier days, this reviewed-first rule is
+    what keeps the widening safe: an old folder is only ever reached when
+    nothing newer holds an approved summary for this video.
     """
     from .obsidian import read_frontmatter_field
 
@@ -199,20 +209,28 @@ def _filter_to_reviewed(
 ) -> list[tuple[int, VideoMeta]]:
     """Keep only videos that have a 02_Summary.md with `reviewed: true`.
 
-    Searches every same-day playlist folder (newest first), not only the
+    Searches every candidate playlist folder (newest first), not only the
     newest note for the video_id — a later unreviewed Phase 1 rerun must
     not hide an older summary the operator already approved.
+
+    A match from a previous day is echoed rather than used silently: resuming
+    across midnight is the normal case, but *which* run Stage 04 is about to
+    consume is exactly the thing an operator needs to see confirmed.
 
     ``vault_root`` is injected by the caller (``runtime.vault_root``).
     """
     from .obsidian import read_frontmatter_field
 
+    today = run_time.strftime("%Y-%m-%d")
     kept: list[tuple[int, VideoMeta]] = []
     for i, video in to_process:
         summary_md = _find_reviewed_summary_md(
             video.video_id, playlist_title, run_time, vault_root=vault_root
         )
         if summary_md is not None:
+            folder_date = summary_md.parent.name[:10]
+            if folder_date != today:
+                click.echo(f"  [resume] {video.video_id}: reviewed on {folder_date}")
             kept.append((i, video))
             continue
         # Nothing reviewed matched. Re-scan without the reviewed filter so the
@@ -232,8 +250,18 @@ def _filter_to_reviewed(
 def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime) -> Iterator[Path]:
     """Yield likely playlist folders holding unit files.
 
-    Canonical first, then any date-prefixed folder that contains the
-    sanitized title substring (mirrors `_find_learning_folder` heuristics).
+    Order: canonical, then same-day folders (newest first), then folders from
+    earlier days (newest first). Matching is by sanitized title substring
+    (mirrors `_find_learning_folder` heuristics).
+
+    The earlier-day tier is what makes Phase 3 work across midnight. The
+    workflow is "Phase 1 → a human reads 02_Summary.md → Phase 3", and that
+    review routinely happens the next morning; a same-day-only search then
+    reports "no 02_Summary.md found" for work that is sitting right there.
+    Same-day is offered first, and only folders *older* than ``run_date`` are
+    considered, so a stray future-dated folder (clock skew, a hand-typed
+    ``--run-timestamp``) can never outrank today's run. Historical folders must
+    also match the title exactly — see the comment on that tier below.
     """
     from .obsidian import _strip_playlist_category_prefix, sanitize_title_for_filename
 
@@ -251,7 +279,10 @@ def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime)
             for child in base.iterdir()
             if (
                 child.is_dir()
-                and child.name.startswith(date_prefix)
+                # Require a real YYYY-MM-DD prefix rather than any directory:
+                # widening past today must not start matching unrelated folders
+                # that merely share a word with the playlist title.
+                and _DATED_FOLDER_RE.match(child.name)
                 and title_needle in child.name
                 and child.name != canonical_name
             )
@@ -262,7 +293,39 @@ def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime)
     # day the caller could silently get either. Folder names start with
     # YYYY-MM-DD-HHmm, so a descending name sort puts the newest run first —
     # the one the operator most likely just reviewed.
-    yield from sorted(matches, key=lambda child: child.name, reverse=True)
+    matches.sort(key=lambda child: child.name, reverse=True)
+    yield from (child for child in matches if child.name.startswith(date_prefix))
+    # Earlier days last, so a same-day reviewed summary always wins. The date is
+    # a fixed-width YYYY-MM-DD prefix, so a string compare orders it.
+    #
+    # Historical folders are held to an *exact* title match, unlike the same-day
+    # tier's substring rule. Substring matching is safe within one day because a
+    # run only just created those folders; across all of history it would admit
+    # a different playlist whose title merely contains this one — resuming
+    # "Python" would accept "2026-04-17-0900 Python Advanced", and if that run
+    # covered the same video its reviewed summary (and, via the pinned lookup,
+    # its captures) would be consumed instead.
+    yield from (
+        child
+        for child in matches
+        if child.name[:10] < date_prefix and _folder_title(child.name) == title_needle
+    )
+
+
+def _folder_title(folder_name: str) -> str:
+    """Return a playlist folder's sanitized title, stripped of its date prefix.
+
+    Folder names are ``YYYY-MM-DD-HHmm <title>``; runs from before the HHmm fix
+    use ``YYYY-MM-DD <title>``. Sanitizing keeps this comparable with a needle
+    built from a live playlist title even when the folder on disk predates the
+    concealment defenses.
+    """
+    match = _DATED_FOLDER_RE.match(folder_name)
+    if match is None:
+        return ""
+    from .obsidian import sanitize_title_for_filename
+
+    return sanitize_title_for_filename(folder_name[match.end() :].strip())
 
 
 def _videos_from_learning_folder(folder_name: str) -> list[VideoMeta]:
