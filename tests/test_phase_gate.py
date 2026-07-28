@@ -398,6 +398,21 @@ class TestResumeReviewedProcessing:
             "2026-04-17 testlist",
         ]
 
+    def test_legacy_folder_with_an_invisible_char_is_reachable(self, tmp_path: Path):
+        # Folders written before the concealment defenses can hold a zero-width
+        # char inside the title. `_folder_title` sanitizes for exactly this, but
+        # a raw substring pre-filter would reject the folder before it ran.
+        zwsp = chr(0x200B)
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        (base / f"2026-04-17-2100 test{zwsp}list").mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 9, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-0900 testlist",
+            f"2026-04-17-2100 test{zwsp}list",
+        ]
+
     def test_reviewed_summary_from_a_previous_day_is_found(self, tmp_path: Path):
         base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
         yesterday = base / "2026-04-17-2100 testlist"

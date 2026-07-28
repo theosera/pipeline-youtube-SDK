@@ -283,18 +283,25 @@ def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime)
                 # widening past today must not start matching unrelated folders
                 # that merely share a word with the playlist title.
                 and _DATED_FOLDER_RE.match(child.name)
-                and title_needle in child.name
                 and child.name != canonical_name
             )
         ]
     except OSError:
         return
+    # The title test belongs to each tier, not to this pre-filter: the two tiers
+    # compare differently (substring vs exact) and a shared raw-substring gate
+    # here would reject a legacy folder before the exact tier could sanitize it.
+    #
     # iterdir() order is filesystem-dependent, so with two Phase 1 runs on one
     # day the caller could silently get either. Folder names start with
     # YYYY-MM-DD-HHmm, so a descending name sort puts the newest run first —
     # the one the operator most likely just reviewed.
     matches.sort(key=lambda child: child.name, reverse=True)
-    yield from (child for child in matches if child.name.startswith(date_prefix))
+    yield from (
+        child
+        for child in matches
+        if child.name.startswith(date_prefix) and title_needle in child.name
+    )
     # Earlier days last, so a same-day reviewed summary always wins. The date is
     # a fixed-width YYYY-MM-DD prefix, so a string compare orders it.
     #
