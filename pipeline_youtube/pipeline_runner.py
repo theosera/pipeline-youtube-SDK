@@ -17,6 +17,7 @@ import click
 
 from .checkpoint import get_completed_video_ids
 from .cli_types import CliRequest, ExecutionPlan, ResolvedInput, Runtime
+from .handson_runner import run_handson
 from .parallel import orchestrate_sub_agents, strip_cli_option
 from .playlist import VideoMeta
 from .proper_noun_sheet import (
@@ -42,6 +43,12 @@ def run_pipeline(
     request: CliRequest, runtime: Runtime, resolved: ResolvedInput, plan: ExecutionPlan
 ) -> None:
     """Drive stages 01-04 → 05 according to the execution plan."""
+    # Hands-on mode replaces the whole 01-05 flow with its own single-video
+    # pipeline (see handson_runner / stages/handson).
+    if plan.run_handson:
+        run_handson(request, runtime, resolved, plan)
+        return
+
     videos = resolved.videos
 
     # Sub-agent orchestration (opt-in via --sub-agents N; default 1 keeps the

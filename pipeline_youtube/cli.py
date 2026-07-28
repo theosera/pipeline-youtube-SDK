@@ -32,6 +32,19 @@ from .stages.synthesis import MIN_PLAYLIST_SIZE
     ),
 )
 @click.option(
+    "--handson",
+    is_flag=True,
+    help=(
+        "Build a step-by-step hands-on tutorial from ONE long-form talk video "
+        "URL (slide-based presentation). Classifies the transcript into "
+        "lecture / Q&A / tips segments, weaves the Q&A/tips insights into the "
+        "step notes plus a final summary, and writes per-step notes + MOC "
+        "under 'Permanent Note/09_YouTube学習_Session_only' (same unit layout "
+        "as 08). Reads config.handson.json by default (--config overrides). "
+        "See docs/handson-mode.md."
+    ),
+)
+@click.option(
     "--concurrency",
     type=click.IntRange(1, 8),
     default=3,
@@ -255,6 +268,7 @@ from .stages.synthesis import MIN_PLAYLIST_SIZE
 def cli(
     url: str | None,
     dry_run: bool,
+    handson: bool,
     concurrency: int,
     sub_agents: int,
     video_range: str | None,
@@ -318,6 +332,7 @@ def cli(
             synthesis_profile=synthesis_profile,
             provider=provider,
             hybrid=hybrid,
+            handson=handson,
             local_media=local_media,
         )
     )

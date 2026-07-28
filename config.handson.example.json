@@ -1,0 +1,17 @@
+{
+  "vault_root": "/path/to/your/Obsidian Vault",
+  "providers": {
+    "anthropic": {
+      "api_key": "${ANTHROPIC_API_KEY}"
+    }
+  },
+  "models": {
+    "router":           {"provider": "anthropic", "model": "haiku"},
+    "stage_01_correct": {"provider": "anthropic", "model": "opus"},
+    "handson_segment":  {"provider": "anthropic", "model": "sonnet"},
+    "handson_plan":     {"provider": "anthropic", "model": "sonnet"},
+    "handson_step":     {"provider": "anthropic", "model": "opus"},
+    "handson_moc":      {"provider": "anthropic", "model": "opus"}
+  },
+  "transcript_correction": true
+}

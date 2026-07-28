@@ -63,3 +63,20 @@ def validate_request(request: CliRequest) -> None:
             "--sub-agents > 1 cannot be combined with --dry-run or the "
             "--synthesis-only / --resume-reviewed / --stop-after-capture phase flags."
         )
+
+    # Hands-on mode replaces the whole 01-05 flow for a single video, so
+    # every flag that steers that flow (phases, sharding, offline media) is
+    # meaningless with it — reject instead of silently ignoring.
+    if request.handson:
+        conflicts = {
+            "--sub-agents > 1": request.sub_agents > 1,
+            "--video-range": request.video_range is not None,
+            "--synthesis-only": request.synthesis_only,
+            "--resume-reviewed": request.resume_reviewed,
+            "--stop-after-capture": request.stop_after_capture,
+            "--skip-synthesis": request.skip_synthesis,
+            "--local-media": request.local_media is not None,
+        }
+        clashing = [flag for flag, on in conflicts.items() if on]
+        if clashing:
+            raise click.UsageError(f"--handson cannot be combined with {', '.join(clashing)}.")

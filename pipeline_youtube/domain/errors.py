@@ -22,6 +22,10 @@ class SynthesisParseError(RuntimeError):
     """Raised when an agent's JSON output cannot be parsed."""
 
 
+class HandsonParseError(RuntimeError):
+    """Raised when a hands-on mode LLM JSON output cannot be parsed."""
+
+
 class GlossaryParseError(ValueError):
     """Raised when glossary JSON is structurally malformed.
 
@@ -42,6 +46,7 @@ class GlossaryConflictError(ValueError):
 __all__ = [
     "GlossaryConflictError",
     "GlossaryParseError",
+    "HandsonParseError",
     "SynthesisParseError",
     "VaultRootError",
 ]

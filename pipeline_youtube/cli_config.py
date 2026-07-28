@@ -24,6 +24,10 @@ from .glossary import (
 )
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+# Hands-on mode reads its own config file by default so quality-focused
+# settings (e.g. opus for step/MOC generation) stay independent of the
+# normal playlist pipeline's config.json. Same schema, same loader.
+DEFAULT_HANDSON_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.handson.json"
 
 _MODEL_KEYS = frozenset(
     {
@@ -37,6 +41,10 @@ _MODEL_KEYS = frozenset(
         "reviewer",
         "eval_coverage",
         "eval_pedagogy",
+        "handson_segment",
+        "handson_plan",
+        "handson_step",
+        "handson_moc",
     }
 )
 # "gamma" accepted silently for backward-compat with existing config.json,
@@ -101,32 +109,47 @@ class CliConfig:
     use_innertube: bool = True
 
 
+def resolve_config_path(config_path: Path | None, *, handson: bool = False) -> Path:
+    """Pick the config file: explicit ``--config`` > handson default > default.
+
+    Hands-on mode defaults to ``config.handson.json`` (quality-focused
+    settings kept separate from the playlist pipeline's config.json); an
+    explicit ``--config`` always wins in either mode.
+    """
+    if config_path is not None:
+        return config_path
+    return DEFAULT_HANDSON_CONFIG_PATH if handson else DEFAULT_CONFIG_PATH
+
+
 def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     """Load config.json. Unknown keys are ignored; `models` is optional.
 
     Any missing model key falls back to `fallback_model` (CLI --model).
     Unrecognized model keys raise UsageError so typos are caught early.
     """
+    # Every diagnostic below names the file actually selected, so a
+    # --handson run never reports problems against "config.json".
+    config_name = config_path.name
     if not config_path.exists():
         raise click.UsageError(
-            f"config.json not found at {config_path}. "
-            "Copy config.example.json to config.json and set vault_root."
+            f"{config_name} not found at {config_path}. "
+            f"Copy {config_path.stem}.example.json to {config_name} and set vault_root."
         )
     data = json.loads(config_path.read_text(encoding="utf-8"))
     vault_root = data.get("vault_root")
     if not vault_root or vault_root == "/path/to/your/Obsidian Vault":
-        raise click.UsageError("config.json vault_root is not configured.")
+        raise click.UsageError(f"{config_name}: vault_root is not configured.")
     path = Path(vault_root).expanduser()
     if not path.exists():
-        raise click.UsageError(f"vault_root does not exist: {path}")
+        raise click.UsageError(f"{config_name}: vault_root does not exist: {path}")
 
     models_raw = data.get("models") or {}
     if not isinstance(models_raw, dict):
-        raise click.UsageError("config.json: 'models' must be an object")
+        raise click.UsageError(f"{config_name}: 'models' must be an object")
     unknown = set(models_raw) - _MODEL_KEYS - _DEPRECATED_MODEL_KEYS
     if unknown:
         raise click.UsageError(
-            f"config.json: unknown model keys {sorted(unknown)!r}; "
+            f"{config_name}: unknown model keys {sorted(unknown)!r}; "
             f"expected any of {sorted(_MODEL_KEYS)!r}"
         )
     # Router defaults to haiku regardless of fallback_model — it's a single
@@ -145,13 +168,13 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         filler = DEFAULT_FILLER_WORDS
     else:
         if not isinstance(filler_raw, list) or not all(isinstance(x, str) for x in filler_raw):
-            raise click.UsageError("config.json: 'filler_words' must be a list of strings")
+            raise click.UsageError(f"{config_name}: 'filler_words' must be a list of strings")
         filler = tuple(filler_raw)
 
     capture_backend = str(data.get("capture_backend") or "host").lower()
     if capture_backend not in _CAPTURE_BACKENDS:
         raise click.UsageError(
-            f"config.json: capture_backend must be one of {sorted(_CAPTURE_BACKENDS)!r}, "
+            f"{config_name}: capture_backend must be one of {sorted(_CAPTURE_BACKENDS)!r}, "
             f"got {capture_backend!r}"
         )
     capture_docker_image = str(
@@ -165,7 +188,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         synthesis_timeout = synthesis_timeout_raw
     else:
         raise click.UsageError(
-            f'config.json: synthesis_timeout must be a positive integer or "auto", '
+            f'{config_name}: synthesis_timeout must be a positive integer or "auto", '
             f"got {synthesis_timeout_raw!r}"
         )
 
@@ -179,7 +202,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
         synthesis_profile = synthesis_profile_raw
     else:
         raise click.UsageError(
-            f"config.json: synthesis_profile must be one of "
+            f"{config_name}: synthesis_profile must be one of "
             f"{list(_SYNTHESIS_PROFILE_CHOICES)!r}, got {synthesis_profile_raw!r}"
         )
 
@@ -192,7 +215,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     elif isinstance(max_video_raw, int) and max_video_raw > 0:
         cache_max_video_bytes = max_video_raw
     else:
-        raise click.UsageError("config.json: cache_max_video_bytes must be a positive integer")
+        raise click.UsageError(f"{config_name}: cache_max_video_bytes must be a positive integer")
 
     whisper_conc_raw = data.get("whisper_concurrency")
     if whisper_conc_raw is None:
@@ -200,7 +223,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     elif isinstance(whisper_conc_raw, int) and whisper_conc_raw > 0:
         whisper_concurrency = whisper_conc_raw
     else:
-        raise click.UsageError("config.json: whisper_concurrency must be a positive integer")
+        raise click.UsageError(f"{config_name}: whisper_concurrency must be a positive integer")
 
     transcript_conc_raw = data.get("transcript_concurrency")
     if transcript_conc_raw is None:
@@ -208,7 +231,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     elif isinstance(transcript_conc_raw, int) and transcript_conc_raw > 0:
         transcript_concurrency = transcript_conc_raw
     else:
-        raise click.UsageError("config.json: transcript_concurrency must be a positive integer")
+        raise click.UsageError(f"{config_name}: transcript_concurrency must be a positive integer")
 
     def _positive_int_or_none(key: str) -> int | None:
         raw = data.get(key)
@@ -216,7 +239,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
             return None
         if isinstance(raw, int) and raw > 0:
             return raw
-        raise click.UsageError(f"config.json: {key} must be a positive integer")
+        raise click.UsageError(f"{config_name}: {key} must be a positive integer")
 
     llm_concurrency = _positive_int_or_none("llm_concurrency")
     download_concurrency = _positive_int_or_none("download_concurrency")
@@ -227,7 +250,7 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     whisper_backend = str(data.get("whisper_backend") or "auto").lower()
     if whisper_backend not in {"auto", "mlx", "openai"}:
         raise click.UsageError(
-            "config.json: whisper_backend must be one of ['auto', 'mlx', 'openai'], "
+            f"{config_name}: whisper_backend must be one of ['auto', 'mlx', 'openai'], "
             f"got {whisper_backend!r}"
         )
     whisper_model_raw = data.get("whisper_model")
@@ -236,15 +259,15 @@ def _load_config(config_path: Path, fallback_model: str) -> CliConfig:
     elif isinstance(whisper_model_raw, str):
         whisper_model = whisper_model_raw
     else:
-        raise click.UsageError("config.json: whisper_model must be a string or null")
+        raise click.UsageError(f"{config_name}: whisper_model must be a string or null")
 
     transcript_correction_raw = data.get("transcript_correction", False)
     if not isinstance(transcript_correction_raw, bool):
-        raise click.UsageError("config.json: transcript_correction must be a boolean")
+        raise click.UsageError(f"{config_name}: transcript_correction must be a boolean")
 
     use_innertube_raw = data.get("use_innertube", True)
     if not isinstance(use_innertube_raw, bool):
-        raise click.UsageError("config.json: use_innertube must be a boolean")
+        raise click.UsageError(f"{config_name}: use_innertube must be a boolean")
 
     return CliConfig(
         vault_root=path,
@@ -282,22 +305,25 @@ def _load_glossary_from_config(
     ``UsageError`` (fail fast, not silently skipped). The resolved path is
     returned so user corrections can later be promoted back into the file.
     """
+    config_name = config_path.name
     raw = data.get("glossary_path")
     if raw is None:
         return None, None
     if not isinstance(raw, str) or not raw.strip():
-        raise click.UsageError("config.json: glossary_path must be a non-empty string")
+        raise click.UsageError(f"{config_name}: glossary_path must be a non-empty string")
     glossary_path = Path(raw).expanduser()
     if not glossary_path.is_absolute():
         glossary_path = (config_path.parent / glossary_path).resolve()
     try:
         glossary = load_glossary(glossary_path)
     except (GlossaryParseError, OSError) as exc:
-        raise click.UsageError(f"config.json: glossary_path could not be loaded: {exc}") from exc
+        raise click.UsageError(f"{config_name}: glossary_path could not be loaded: {exc}") from exc
     # Fail fast on variant conflicts now (build the index once at startup)
     # rather than deep inside per-video Stage 02, after transcript + LLM work.
     try:
         Normalizer(glossary)
     except GlossaryConflictError as exc:
-        raise click.UsageError(f"config.json: glossary_path has a variant conflict: {exc}") from exc
+        raise click.UsageError(
+            f"{config_name}: glossary_path has a variant conflict: {exc}"
+        ) from exc
     return glossary, glossary_path
