@@ -325,6 +325,14 @@ def map_wikilink_targets(
     a string replaces that base (fragment and alias are preserved); returning
     ``None`` leaves the link unchanged. Matching uses ``_WIKILINK_RE`` so a lone
     ``]`` inside a target (kept by filename sanitization) is handled correctly.
+
+    The whole inner is offered to ``map_base`` first, before it is split on
+    ``|``. A generated target may itself contain a pipe — a chapter labelled
+    ``CI|CD`` produces ``[[01_CI|CD]]`` — which alias-first parsing would hand
+    over as base ``01_CI``, so the link would never match its own stem and would
+    stay broken (``sanitize_title_for_filename`` turns the pipe into a space, so
+    the file on disk is ``01_CI CD.md``). Ordinary links are unaffected: their
+    full inner does not map, and parsing falls through to the base.
     """
     if not text:
         return text
@@ -333,7 +341,13 @@ def map_wikilink_targets(
     cursor = 0
     for match in _WIKILINK_RE.finditer(text):
         parts.append(text[cursor : match.start()])
-        target_base, fragment, separator, alias = _split_wikilink_inner(match.group(2))
+        inner = match.group(2)
+        whole = map_base(inner.strip())
+        if whole is not None:
+            parts.append(f"{match.group(1)}{whole}{match.group(3)}")
+            cursor = match.end()
+            continue
+        target_base, fragment, separator, alias = _split_wikilink_inner(inner)
         mapped = map_base(target_base.strip())
         if mapped is None:
             parts.append(match.group(0))

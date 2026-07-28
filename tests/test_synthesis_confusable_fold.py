@@ -216,3 +216,31 @@ def test_align_handles_three_digit_chapter_indexes(tmp_path: Path) -> None:
     out = _align_chapter_wikilink_targets("- [[100_CI/CD Foundations]]\n", [chapter])
 
     assert f"[[{path.stem}]]" in out
+
+
+def test_align_handles_a_pipe_inside_the_generated_label(tmp_path: Path) -> None:
+    # sanitize_title_for_filename turns `|` into a space, so a chapter labelled
+    # `CI|CD` is written as `01_CI CD.md`. Alias-first parsing would hand the
+    # mapper `01_CI` and leave `[[01_CI|CD]]` in place — which Obsidian reads as
+    # target `01_CI` with alias `CD`, pointing at nothing.
+    from pipeline_youtube.stages.synthesis import _align_chapter_wikilink_targets
+
+    chapter = _chapter(1, "CI|CD")
+    path = write_chapter(chapter, tmp_path, run_time=RUN_TIME, playlist_title="pl")
+    assert path.name == "01_CI CD.md"
+
+    out = _align_chapter_wikilink_targets("- [[01_CI|CD]]\n", [chapter])
+
+    assert f"[[{path.stem}]]" in out
+    assert "[[01_CI|CD]]" not in out
+
+
+def test_align_preserves_a_real_alias_on_an_unrelated_link() -> None:
+    # The whole-inner probe must not swallow ordinary `target|alias` links.
+    from pipeline_youtube.stages.synthesis import _align_chapter_wikilink_targets
+
+    out = _align_chapter_wikilink_targets(
+        "- [[2026-01-01 source note|表示名]]\n", [_chapter(1, "CI/CD Foundations")]
+    )
+
+    assert "[[2026-01-01 source note|表示名]]" in out
