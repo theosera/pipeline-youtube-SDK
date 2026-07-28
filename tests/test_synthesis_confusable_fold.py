@@ -159,3 +159,60 @@ def test_write_chapter_leaves_japanese_intact(tmp_path: Path) -> None:
     target = write_chapter(chapter, tmp_path, run_time=RUN_TIME, playlist_title="pl")
     written = target.read_text(encoding="utf-8")
     assert "Anthropicが公開したハーネス設計" in written
+
+
+def _chapter(index: int, label: str) -> SynthesisChapterBody:
+    return SynthesisChapterBody(
+        chapter_index=index,
+        label=label,
+        category="core",
+        source_video_ids=["vid1"],
+        body_markdown="body",
+    )
+
+
+def test_align_chapter_wikilink_targets_matches_written_filename(tmp_path: Path) -> None:
+    # Leader emits [[01_<章名>]] with the raw label, but write_chapter replaces
+    # OS-unsafe chars ('/' -> space). Without alignment the MOC link never
+    # resolves to the note that is actually written.
+    from pipeline_youtube.stages.synthesis import _align_chapter_wikilink_targets
+
+    chapter = _chapter(1, "CI/CD Foundations")
+    path = write_chapter(chapter, tmp_path, run_time=RUN_TIME, playlist_title="pl")
+    assert path.name == "01_CI CD Foundations.md"
+
+    aligned = _align_chapter_wikilink_targets(
+        "## 章構成\n- [[01_CI/CD Foundations]] — core\n", [chapter]
+    )
+
+    assert f"[[{path.stem}]]" in aligned
+    assert "[[01_CI/CD Foundations]]" not in aligned
+
+
+def test_align_leaves_unrelated_targets_that_share_a_numeric_prefix() -> None:
+    # A source-note link may legitimately start with the same digits as a
+    # chapter. Matching on the numeric prefix alone would redirect it into
+    # chapter 1 while keeping the fragment.
+    from pipeline_youtube.stages.synthesis import _align_chapter_wikilink_targets
+
+    body = "- [[01_external-note#section]]\n- [[01_CI/CD Foundations]]\n"
+
+    out = _align_chapter_wikilink_targets(body, [_chapter(1, "CI/CD Foundations")])
+
+    assert "[[01_external-note#section]]" in out
+    assert "[[01_CI CD Foundations]]" in out
+
+
+def test_align_handles_three_digit_chapter_indexes(tmp_path: Path) -> None:
+    # chapter_filename formats the prefix with :02d, so index 100 yields
+    # `100_…`. A fixed-position check on base[2] would reject it and leave the
+    # link pointing at a note that is never written.
+    from pipeline_youtube.stages.synthesis import _align_chapter_wikilink_targets
+
+    chapter = _chapter(100, "CI/CD Foundations")
+    path = write_chapter(chapter, tmp_path, run_time=RUN_TIME, playlist_title="pl")
+    assert path.name == "100_CI CD Foundations.md"
+
+    out = _align_chapter_wikilink_targets("- [[100_CI/CD Foundations]]\n", [chapter])
+
+    assert f"[[{path.stem}]]" in out
