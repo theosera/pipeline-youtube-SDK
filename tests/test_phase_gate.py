@@ -387,6 +387,23 @@ class TestResumeReviewedProcessing:
             "2026-04-17-2100 testlist",
         ]
 
+    def test_malformed_dated_folders_are_not_candidates(self, tmp_path: Path):
+        # The date prefix is a guard, so it has to be strict. Without the
+        # boundary lookahead `2026-04-17testlist` yields the title "testlist";
+        # without parsing the capture, `2026-00-00` / `-2599` pass the shape
+        # test and sort before today, so both reach the earlier-day tier.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in (
+            "2026-04-17testlist",
+            "2026-00-00 testlist",
+            "2026-04-17-2599 testlist",
+        ):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == ["2026-04-18-1200 testlist"]
+
     def test_legacy_folder_without_hhmm_still_matches_exactly(self, tmp_path: Path):
         base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
         (base / "2026-04-17 testlist").mkdir(parents=True, exist_ok=True)

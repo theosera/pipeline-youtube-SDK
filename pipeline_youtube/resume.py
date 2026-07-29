@@ -24,7 +24,30 @@ from .run_result import _strip_frontmatter
 
 # Playlist folders are named "YYYY-MM-DD-HHmm <title>" (legacy runs omit HHmm).
 # The match covers the date (and time when present); the rest is the title.
-_DATED_FOLDER_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:-\d{4})?")
+#
+# The trailing lookahead is what makes this a *prefix* rather than a substring:
+# without it `2026-04-18testlist` matches, and `_folder_title` then reports
+# "testlist" for a directory the pipeline never created.
+_DATED_FOLDER_RE = re.compile(r"(\d{4}-\d{2}-\d{2})(?:-(\d{4}))?(?=\s|$)")
+
+
+def _dated_folder_match(folder_name: str) -> re.Match[str] | None:
+    """Match a pipeline-created folder prefix, or None when the name is not one.
+
+    The regex only fixes the *shape*; a folder called ``2026-00-00 testlist``
+    still matches it and sorts before today, so it would reach the earlier-day
+    tier. Parsing the captured date and time is what rejects that.
+    """
+    match = _DATED_FOLDER_RE.match(folder_name)
+    if match is None:
+        return None
+    try:
+        datetime.strptime(match.group(1), "%Y-%m-%d")
+        if match.group(2) is not None:
+            datetime.strptime(match.group(2), "%H%M")
+    except ValueError:
+        return None
+    return match
 
 
 def _parse_run_timestamp(run_timestamp: str | None) -> datetime:
@@ -282,7 +305,7 @@ def _unit_folder_candidates(base: Path, playlist_title: str, run_date: datetime)
                 # Require a real YYYY-MM-DD prefix rather than any directory:
                 # widening past today must not start matching unrelated folders
                 # that merely share a word with the playlist title.
-                and _DATED_FOLDER_RE.match(child.name)
+                and _dated_folder_match(child.name)
                 and child.name != canonical_name
             )
         ]
@@ -327,7 +350,7 @@ def _folder_title(folder_name: str) -> str:
     built from a live playlist title even when the folder on disk predates the
     concealment defenses.
     """
-    match = _DATED_FOLDER_RE.match(folder_name)
+    match = _dated_folder_match(folder_name)
     if match is None:
         return ""
     from .obsidian import sanitize_title_for_filename
