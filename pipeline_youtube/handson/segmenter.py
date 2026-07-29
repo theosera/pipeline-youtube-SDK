@@ -228,17 +228,43 @@ def normalize_segments(
 
     # The nested split above compares against `fixed[-1]` (the tail it just
     # appended), so a span nested two levels deep can trim an *earlier*
-    # segment and land out of order. Re-establish the sorted / gapless /
-    # non-overlapping postcondition deterministically; when two insight spans
-    # genuinely overlap the earlier claim wins and the inner one is dropped.
+    # segment and land out of order. Re-sort, then rebuild a gapless
+    # non-overlapping partition. Fully nested non-LECTURE spans must split
+    # their container (same rule as the first pass) — dropping them here used
+    # to erase Tips buried inside a Q&A that was itself inside a Lecture.
+    # Partial overlaps still prefer the earlier claim (trim the later start).
     fixed.sort(key=lambda it: (it.start, it.end))
     monotonic: list[_MutSeg] = []
     for cur in fixed:
-        if monotonic:
-            cur.start = max(cur.start, monotonic[-1].end)
-            if cur.end <= cur.start:
+        if not monotonic:
+            monotonic.append(cur)
+            continue
+        prev = monotonic[-1]
+        if cur.start >= prev.end:
+            if cur.start > prev.end:
+                prev.end = cur.start  # close the gap
+            monotonic.append(cur)
+            continue
+        # cur.start < prev.end. The sort ordered the *input*, not the rebuilt
+        # tail: an earlier split can leave `prev` starting at or after
+        # cur.start, so `strictly nested` has to be tested against prev.start
+        # rather than assumed. Splitting on a span that opens at or before
+        # prev.start would append cur *behind* prev and break the sorted,
+        # non-overlapping postcondition this loop exists to restore.
+        if prev.start < cur.start and cur.end <= prev.end:
+            # Strictly nested: split the container (same rule as the first pass).
+            if cur.label is SegmentLabel.LECTURE:
                 continue
-            monotonic[-1].end = cur.start
+            tail_end, tail_label, tail_summary = prev.end, prev.label, prev.summary
+            prev.end = cur.start  # > prev.start, so the head always survives
+            monotonic.append(cur)
+            if tail_end > cur.end:
+                monotonic.append(_MutSeg(cur.end, tail_end, tail_label, tail_summary))
+            continue
+        # Any other overlap: the earlier claim wins; trim the later span.
+        cur.start = prev.end
+        if cur.end <= cur.start:
+            continue
         monotonic.append(cur)
     fixed = monotonic
     fixed[0].start = 0
