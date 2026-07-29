@@ -324,3 +324,134 @@ class TestResumeReviewedProcessing:
             "2026-04-18-1000 testlist",
             "2026-04-18-0800 testlist",
         ]
+
+    def test_earlier_day_folders_come_after_same_day(self, tmp_path: Path):
+        # Phase 1 → human review → Phase 3 routinely crosses midnight, so
+        # earlier days must be reachable. Today still wins when both exist.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in (
+            "2026-04-16-0900 testlist",
+            "2026-04-17-2100 testlist",
+            "2026-04-18-0800 testlist",
+        ):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-1200 testlist",  # canonical (may not exist)
+            "2026-04-18-0800 testlist",  # same day
+            "2026-04-17-2100 testlist",  # then earlier days, newest first
+            "2026-04-16-0900 testlist",
+        ]
+
+    def test_future_dated_and_undated_folders_are_ignored(self, tmp_path: Path):
+        # A future folder (clock skew / hand-typed --run-timestamp) must never
+        # outrank today's run, and widening past today must not start matching
+        # directories that merely share a word with the title.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in (
+            "2026-04-19-0900 testlist",
+            "2026-04-17-2100 testlist",
+            "archive testlist",
+        ):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-1200 testlist",
+            "2026-04-17-2100 testlist",
+        ]
+
+    def test_historical_folders_need_an_exact_title(self, tmp_path: Path):
+        # Substring matching is safe within one day (the run just made those
+        # folders) but across all history it would admit a *different* playlist
+        # whose title merely contains this one — and if that run covered the
+        # same video, Phase 3 would consume its artifacts.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in (
+            "2026-04-17-0900 testlist Advanced",
+            "2026-04-17-2100 testlist",
+            "2026-04-18-0800 testlist Advanced",
+        ):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-1200 testlist",
+            # Same day keeps the substring rule, so the Advanced folder stays.
+            "2026-04-18-0800 testlist Advanced",
+            # Earlier days require an exact title, so only the plain one is kept.
+            "2026-04-17-2100 testlist",
+        ]
+
+    def test_malformed_dated_folders_are_not_candidates(self, tmp_path: Path):
+        # The date prefix is a guard, so it has to be strict. Without the
+        # boundary lookahead `2026-04-17testlist` yields the title "testlist";
+        # without parsing the capture, `2026-00-00` / `-2599` pass the shape
+        # test and sort before today, so both reach the earlier-day tier.
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        for name in (
+            "2026-04-17testlist",
+            "2026-00-00 testlist",
+            "2026-04-17-2599 testlist",
+        ):
+            (base / name).mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == ["2026-04-18-1200 testlist"]
+
+    def test_legacy_folder_without_hhmm_still_matches_exactly(self, tmp_path: Path):
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        (base / "2026-04-17 testlist").mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 12, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-1200 testlist",
+            "2026-04-17 testlist",
+        ]
+
+    def test_legacy_folder_with_an_invisible_char_is_reachable(self, tmp_path: Path):
+        # Folders written before the concealment defenses can hold a zero-width
+        # char inside the title. `_folder_title` sanitizes for exactly this, but
+        # a raw substring pre-filter would reject the folder before it ran.
+        zwsp = chr(0x200B)
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        (base / f"2026-04-17-2100 test{zwsp}list").mkdir(parents=True, exist_ok=True)
+
+        candidates = list(_unit_folder_candidates(base, "testlist", datetime(2026, 4, 18, 9, 0)))
+
+        assert [c.name for c in candidates] == [
+            "2026-04-18-0900 testlist",
+            f"2026-04-17-2100 test{zwsp}list",
+        ]
+
+    def test_reviewed_summary_from_a_previous_day_is_found(self, tmp_path: Path):
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        yesterday = base / "2026-04-17-2100 testlist"
+        _write_summary(yesterday / "a.md", _VID_A, "true")
+        resume_time = datetime(2026, 4, 18, 9, 0)
+
+        found = _find_reviewed_summary_md(_VID_A, "testlist", resume_time, vault_root=tmp_path)
+        kept = _filter_to_reviewed(
+            [(1, _vid(_VID_A))], "testlist", resume_time, vault_root=tmp_path
+        )
+
+        assert found == yesterday / "a.md"
+        assert [v.video_id for _, v in kept] == [_VID_A]
+
+    def test_today_unreviewed_does_not_hide_yesterday_reviewed(self, tmp_path: Path):
+        base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        yesterday = base / "2026-04-17-2100 testlist"
+        today = base / "2026-04-18-0800 testlist"
+        _write_summary(yesterday / "a.md", _VID_A, "true")
+        _write_summary(today / "a.md", _VID_A, "false")
+
+        found = _find_reviewed_summary_md(
+            _VID_A, "testlist", datetime(2026, 4, 18, 9, 0), vault_root=tmp_path
+        )
+        assert found == yesterday / "a.md"
