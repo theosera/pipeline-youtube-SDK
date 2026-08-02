@@ -65,7 +65,8 @@ EXFIL_SHAPES = [
     re.compile(r"\brsync\b[^\n]*\s[^\s]+:[^\s]"),
 ]
 
-# (B') 秘密ファイル読取 + ネットワーク送信の組合せ (例: `cat .env | curl ...`)。
+# (B') 秘密ファイル名。これに当たるコマンドは既定で拒否し、`_SAFE_SECRET_OPS` に
+# 完全一致した形だけ通す。
 SECRET_FILE_RE = re.compile(
     r"(\.env(\.|\b)|x_tokens\.json|credentials[^/\s]*\.json|service-account[^/\s]*\.json"
     r"|[^/\s]*token[^/\s]*\.json|\.pem\b|\.key\b|id_(rsa|ed25519)\b|secrets\.(json|ya?ml)\b)",
@@ -73,16 +74,13 @@ SECRET_FILE_RE = re.compile(
 )
 NET_VERB_RE = re.compile(r"\b(curl|wget|nc|ncat|scp|sftp|rsync|telnet)\b|\bgh\s+gist\b", re.IGNORECASE)
 
-# 雛形ファイル。実 .env を含まない限り秘密ファイル扱いしない。
+# 雛形ファイル。秘密を持たないので、**その名前だけ**を免除の対象にする。
 # ★ S13 の permissions.deny がこの集合に揃える。片方だけ変えないこと。
 _EXAMPLE_ENV_SUFFIXES = "example|sample|template|dist"
-_EXAMPLE_ENV_RE = re.compile(rf"\.env\.({_EXAMPLE_ENV_SUFFIXES})\b", re.IGNORECASE)
-# 実 .env の参照 = 雛形サフィックスが続かない `.env` トークン。
-# 先読みを `.env` の直後へ置くのが要点。旧 `\.env(\b|\.)(?!example)` は交替の `\b` が
-# `.env.example` の `v|.` 境界で先に成立し、否定先読みが `.example` (先頭が `.`) を見て
-# 通ってしまうため、雛形まで実 .env と誤判定していた。AND 判定の下では
-# ネットワーク動詞が無く不発だったので表に出ていなかった。
-_REAL_ENV_RE = re.compile(rf"\.env(?!\.(?:{_EXAMPLE_ENV_SUFFIXES})\b)(?:\b|\.)", re.IGNORECASE)
+# サフィックスはファイル名の**末尾**でなければならない。`\b` 終端だと `.env.sample.local` /
+# `.env.template.prod` が `e|.` 境界で成立し、実ファイルを雛形と誤認する。名前が続き得る
+# 文字 (`\w` / `.` / `-`) を終端に許さないことで、完全な雛形名だけに限定する。
+_EXAMPLE_ENV_RE = re.compile(rf"\.env\.(?:{_EXAMPLE_ENV_SUFFIXES})(?![\w.-])", re.IGNORECASE)
 
 # 複合コマンドを組み立てられる文字。1 つでもあれば安全形とみなさない。
 # `ls .env; curl …$(cat .env)` を「安全形を含む」で通さないための一次関門。
@@ -114,9 +112,15 @@ _SAFE_SECRET_OPS = (
 )
 
 
-def _example_only(cmd: str) -> bool:
-    """雛形 `.env.*` だけを触り、実 `.env` を含まないなら秘密ファイル扱いしない。"""
-    return bool(_EXAMPLE_ENV_RE.search(cmd)) and not _REAL_ENV_RE.search(cmd)
+def _names_a_secret_file(cmd: str) -> bool:
+    """雛形 `.env.*` を伏せたうえで、なお秘密ファイル名が残るなら True。
+
+    免除は**雛形の名前そのものにだけ**掛ける。「雛形が 1 つでもあればコマンド全体を
+    免除」にすると、`wget --post-file=credentials.json … .env.sample` のように雛形名を
+    1 つ添えるだけで無関係な秘密ファイルまで免除できてしまう。伏せてから
+    `SECRET_FILE_RE` を当て直せば、消えるのは雛形の分だけで済む。
+    """
+    return bool(SECRET_FILE_RE.search(_EXAMPLE_ENV_RE.sub(" ", cmd)))
 
 
 def _is_safe_secret_op(cmd: str) -> bool:
@@ -168,7 +172,7 @@ def main() -> int:
             "スクショ型インジェクションによる秘密持ち出しを防ぐためブロックしました (egress guard)。"
             "正当な操作なら内容を確認のうえ手動で実行してください。"
         )
-    if not _example_only(cmd) and SECRET_FILE_RE.search(cmd) and not _is_safe_secret_op(cmd):
+    if _names_a_secret_file(cmd) and not _is_safe_secret_op(cmd):
         detail = (
             "秘密ファイルの読取とネットワーク送信が同一コマンドに含まれています。"
             if NET_VERB_RE.search(cmd)
