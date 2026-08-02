@@ -135,7 +135,9 @@ class TestNoFalsePositives:
             "cp .env.example .env",
             "ls -la .env",
             "stat .env",
+            "file .env",
             "test -f .env",
+            "[ -f .env ]",
             "git add .env.example",
             "git status .env",
             "git diff .env",
@@ -208,6 +210,32 @@ class TestExampleSuffixExclusion:
         # so even a trailing comment worked. Now only the template's own name is
         # blanked before the secret-file check re-runs.
         assert _verdict(command) is not None
+
+
+class TestCopyAllowListTakesNoOptions:
+    """The `cp` entry is allowed because its source is a template.
+
+    `cp -t DIR` / `cp --target-directory=DIR` make every trailing operand a
+    *source*, so `cp --target-directory=… <template> .env` copies the real
+    `.env` out — the rationale that admitted the form no longer holds. Options
+    are refused outright rather than interpreted one by one.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cp --target-directory=/mnt/share .env.example .env",
+            "cp -t /mnt/share .env.example .env",
+            "cp --parents .env.example .env",
+            "cp -n .env.example .env",
+        ],
+    )
+    def test_cp_with_options_is_denied(self, command: str):
+        assert _verdict(command) is not None
+
+    @pytest.mark.parametrize("suffix", ["example", "sample", "template", "dist"])
+    def test_plain_two_operand_copy_is_allowed(self, suffix: str):
+        assert _verdict(f"cp .env.{suffix} .env") is None
 
 
 class TestHookFailsOpen:

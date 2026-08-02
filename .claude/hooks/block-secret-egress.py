@@ -106,7 +106,13 @@ _SAFE_SECRET_OPS = (
     re.compile(r"git\s+check-ignore(?:\s+\S+)+"),
     re.compile(r"git\s+rm\s+--cached(?:\s+\S+)+"),
     # 雛形から実ファイルを作るだけ。読み出し元が雛形なので秘密が動かない。
-    re.compile(rf"cp(?:\s+-\S+)*\s+\S*\.env\.(?:{_EXAMPLE_ENV_SUFFIXES})\s+\S+"),
+    # ★ オプションは一切受け付けない (引数ちょうど 2 つ)。`cp -t DIR` /
+    # `cp --target-directory=DIR` は**末尾の被演算子がすべてコピー元**になるため、
+    # `cp --target-directory=/mnt/share 雛形 .env` が実 .env を任意の場所へ複製する。
+    # 「読み出し元が雛形だから秘密が動かない」という採用根拠が崩れる形なので、
+    # 根拠が成り立つ形だけに絞る。`cp -n 雛形 .env` も巻き添えで止まるが、
+    # オプションごとに被演算子の意味を解釈するより、狭く許可する方を選ぶ。
+    re.compile(rf"cp\s+\S*\.env\.(?:{_EXAMPLE_ENV_SUFFIXES})\s+\S+"),
     # 端末へ差分を出すだけで、宛先はファイルパスかコンソール。外へは出ない。
     re.compile(r"diff(?:\s+-\S+)*\s+\S+\s+\S+"),
 )
