@@ -137,6 +137,47 @@ class TestNestedReconstruction:
         body = "<%% not a token"
         assert validate_chapter_body(body, frozenset()) == body
 
+    def test_templater_token_splicing_an_html_tag_is_not_reconstructed(self):
+        # Cross-type splice: removing `<% %>` first yields `<script>`, which the
+        # next pass strips. Pins the pass ordering.
+        assert validate_chapter_body("<sc<% %>ript>", frozenset()) == ""
+
+
+class TestEmbedReconstruction:
+    """Stripping markup can assemble an embed the allow-list never saw.
+
+    The filter therefore runs on every pass. Running it only once up front let
+    these through with no allow-list check at all — a fail-open the fixed-point
+    loop itself created, since one pass leaves the embed target mangled.
+    """
+
+    def test_newline_hidden_embed_is_dropped_after_reconstruction(self):
+        # The newline keeps `_EMBED_RE` from matching, then the tag strip
+        # assembles a live `![[evil.webp]]`.
+        out = validate_chapter_body("![[evil<scr<script\n>ipt>.webp]]", frozenset())
+        assert "![[" not in out
+        assert "dropped embed" in out
+
+    def test_embed_terminator_reconstruction_is_dropped(self):
+        # The tag straddles the `]]` terminator; removing it yields
+        # `![[../../secret]]`.
+        out = validate_chapter_body("![[../../secret]<scr<script>ipt>]", frozenset())
+        assert "![[" not in out
+        assert "dropped embed" in out
+
+    def test_reconstruction_is_not_resurrected_onto_the_allow_list(self):
+        # Even with `ok.webp` allow-listed, the target is checked as it stands
+        # when the filter runs — here `ok<script>.webp`, which is not on the
+        # list. Stripping first and matching after would let mangled text be
+        # laundered into an allowed name, which is the fail-open direction.
+        out = validate_chapter_body("![[ok<scr<script\n>ipt>.webp]]", {"ok.webp"})
+        assert "![[" not in out
+        assert "dropped embed" in out
+
+    def test_plain_allow_listed_embed_still_survives(self):
+        # The re-filter is an allow-list check every pass, not a blanket drop.
+        assert "![[ok.webp]]" in validate_chapter_body("![[ok.webp]]", {"ok.webp"})
+
 
 class TestSanitizePassCap:
     """The fixed-point loop is capped, and the cap fails closed."""

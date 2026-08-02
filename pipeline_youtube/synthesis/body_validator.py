@@ -21,8 +21,10 @@ through untouched. This is a targeted strip, not HTML sanitisation.
 
 from __future__ import annotations
 
+import logging
 import re
-import sys
+
+_LOG = logging.getLogger(__name__)
 
 # The target must admit a literal ``]`` that is not the ``]]`` terminator.
 # Stage 03 writes path-qualified embeds (``![[{playlist_folder}/name.webp]]``)
@@ -38,24 +40,32 @@ _HTML_TAG_RE = re.compile(r"<(script|iframe|object|embed|style)[^>]*>", re.IGNOR
 _TEMPLATER_OPEN = "<%"
 _TEMPLATER_CLOSE = "%>"
 
-# Removing one tag can splice its neighbours into a fresh one
-# (``<ifr<iframe>ame …>`` -> ``<iframe …>``), so stripping has to run to a fixed
-# point. Each nesting level costs one extra pass and a pass scans the whole
-# body, so an *unbounded* loop is quadratic: 102 KB of nested ``<scr…ipt>``
-# measured 12,802 passes / 6.5 s. The input is LLM output steered by
-# attacker-controlled captions, so the loop is capped.
+# Removing one construct can splice its neighbours into a fresh one
+# (``<ifr<iframe>ame …>`` -> ``<iframe …>``), so sanitising has to run to a
+# fixed point. Each nesting level costs one extra pass and a pass scans the
+# whole body, so an *unbounded* loop is quadratic: 102 KB of nested
+# ``<scr…ipt>`` measured 12,802 passes / 6.5 s. The input is LLM output steered
+# by attacker-controlled captions, so the loop is capped.
 #
-# Measured passes to settle: plain body 1, single-layer attack 2, and 3/4/5 for
-# 1/2/3 levels of nesting. Four levels needs 6 and is refused.
+# Measured passes to settle: plain body 1, one disallowed embed 2, single-layer
+# markup attack 2, and 3/4/5 for 1/2/3 levels of nesting. The two embed
+# reconstructions covered in the tests settle at 3 and 4. Four levels of
+# nesting needs 6 and is refused.
 _MAX_SANITIZE_PASSES = 5
 
 
 class BodyValidationError(ValueError):
-    """Raised when active markup outlives ``_MAX_SANITIZE_PASSES`` strip passes.
+    """Raised when markup outlives ``_MAX_SANITIZE_PASSES`` sanitize passes.
 
-    Refusing beats returning the partially stripped body: a truncated run
-    yields text that *looks* sanitized to every caller downstream, which is a
-    worse failure than the reconstruction bug the cap exists to catch.
+    Refusing beats returning the partially sanitized body: a truncated run
+    yields text that *looks* clean to every caller downstream, which is a worse
+    failure than the reconstruction bug the cap exists to catch.
+
+    Propagating is deliberate. Callers (``synthesis.chapter`` /
+    ``synthesis.moc`` / ``handson.writer`` / ``stages.summary``) do **not**
+    catch it, so a body this validator cannot settle aborts the write rather
+    than reaching the vault. Per-caller recovery is out of scope for this
+    layer — the point of a last-line defense is that there is no path around it.
     """
 
 
@@ -89,9 +99,34 @@ def _strip_templater_tokens(text: str) -> str:
     return "".join(out)
 
 
-def _strip_active_markup(body: str) -> str:
-    """One removal pass: active HTML opening tags, then Templater tokens."""
-    return _strip_templater_tokens(_HTML_TAG_RE.sub("", body))
+def _filter_embed(match: re.Match[str], allowed: frozenset[str]) -> str:
+    """Keep an allow-listed embed, else replace it with a dropped-embed note."""
+    target = match.group(1).strip()
+    if target in allowed:
+        return match.group(0)
+    return f"<!-- dropped embed: {target!r} -->"
+
+
+def _sanitize_once(body: str, allowed: frozenset[str]) -> str:
+    """One pass: disallowed embeds, then active HTML, then Templater tokens.
+
+    The embed filter belongs *inside* the fixed-point loop rather than ahead of
+    it. Stripping markup can assemble an embed that did not exist when the
+    filter last ran, and that embed would then be written without ever being
+    checked against ``allowed``:
+
+    - ``![[evil<scr<script\\n>ipt>.webp]]`` — the newline keeps ``_EMBED_RE``
+      from matching, then the tag strip yields a live ``![[evil.webp]]``.
+    - ``![[../../secret]<scr<script>ipt>]`` — the tag straddles the ``]]``
+      terminator, and removing it yields ``![[../../secret]]``.
+
+    Re-running the filter every pass closes that. It still converges: an
+    allowed embed returns itself, and a disallowed one becomes a comment
+    holding no ``![[``, so neither feeds a further substitution.
+    """
+    body = _EMBED_RE.sub(lambda match: _filter_embed(match, allowed), body)
+    body = _HTML_TAG_RE.sub("", body)
+    return _strip_templater_tokens(body)
 
 
 def extract_allowed_embeds(md_bodies: list[str]) -> frozenset[str]:
@@ -114,10 +149,10 @@ def validate_chapter_body(body: str, allowed_assets: frozenset[str] | set[str]) 
     - Active HTML opening tags are stripped.
     - Templater `<% ... %>` tokens are stripped.
 
-    The two strip steps repeat until the body stops changing, because removing
-    a tag can splice the surrounding text into a new one. The embed filter
-    stays outside that loop: it substitutes rather than deletes, so it cannot
-    feed the reconstruction it would otherwise be re-run against.
+    All three repeat until the body stops changing, because removing one
+    construct can splice the surrounding text into another one — including an
+    embed, which is why the allow-list check runs on every pass instead of once
+    up front (see ``_sanitize_once``).
 
     Preserves plain markdown (headings, lists, tables, Q:/A: flashcards,
     `#flashcards` tag, wiki links `[[...]]`, etc.).
@@ -129,27 +164,20 @@ def validate_chapter_body(body: str, allowed_assets: frozenset[str] | set[str]) 
     """
     allowed = frozenset(allowed_assets)
 
-    def _filter_embed(match: re.Match[str]) -> str:
-        target = match.group(1).strip()
-        if target in allowed:
-            return match.group(0)
-        return f"<!-- dropped embed: {target!r} -->"
-
-    body = _EMBED_RE.sub(_filter_embed, body)
-
     for _ in range(_MAX_SANITIZE_PASSES):
-        stripped = _strip_active_markup(body)
-        if stripped == body:
+        cleaned = _sanitize_once(body, allowed)
+        if cleaned == body:
             return body
-        body = stripped
+        body = cleaned
 
     # Carries no body text on purpose: the body is attacker-influenced and this
-    # string reaches logs.
-    sys.stderr.write(
-        f"[body_validator] active markup still present after {_MAX_SANITIZE_PASSES} "
-        f"strip passes ({len(body)} chars); rejecting body\n"
+    # record reaches logs.
+    _LOG.warning(
+        "active markup still present after %d sanitize passes (%d chars); rejecting body",
+        _MAX_SANITIZE_PASSES,
+        len(body),
     )
     raise BodyValidationError(
-        f"active markup survived {_MAX_SANITIZE_PASSES} strip passes "
+        f"active markup survived {_MAX_SANITIZE_PASSES} sanitize passes "
         f"({len(body)} chars); refusing to emit a partially sanitized body"
     )
