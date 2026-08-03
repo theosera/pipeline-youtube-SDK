@@ -40,6 +40,8 @@ from ..playlist import VideoMeta
 from ..providers.base import LLMResponse as ClaudeResponse
 from ..providers.registry import invoke_llm as invoke_claude
 from ..sanitize import sanitize_untrusted_text, wrap_untrusted
+from ..services.confusables import fold_markdown_mixed_script_confusables
+from ..synthesis.body_validator import validate_chapter_body
 
 if TYPE_CHECKING:
     from ..services.cache import Cache
@@ -109,6 +111,17 @@ LEARNING_CODE_BEARING_ADDENDUM = """
 - どちらのセクションにも該当しないテーマは `# 実践` の末尾に置く
 - どちらかのセクションが空になる場合は、そのトップレベル見出し自体を省略してよい (片方しか書く内容がない動画もある)
 """
+
+
+class LearningOutputError(ValueError):
+    """Raised when Stage 04 output cannot be written safely.
+
+    Propagating is deliberate. The caller does **not** catch it, so a body this
+    stage cannot validate aborts the write rather than reaching the vault.
+    Truncating to the limit instead would hand every downstream reader text that
+    *looks* validated while the tail is silently missing — worse than refusing,
+    because nothing downstream can tell the difference.
+    """
 
 
 @dataclass(frozen=True)
@@ -188,6 +201,18 @@ def run_stage_learning(
 
     ``cache`` is injected by the caller and threaded into the LLM call
     (a disabled ``Cache`` no-ops the LLM-output cache).
+
+    The model output is validated before it is written — see
+    ``_validate_learning_output``. ``dry_run`` skips the write, and with it the
+    validation, because there is no body to protect.
+
+    Raises
+    ------
+    LearningOutputError
+        If the generated body exceeds ``_MAX_OUTPUT_CHARS``.
+    BodyValidationError
+        If active markup outlives the sanitize passes (from
+        ``validate_chapter_body``). Both abort the write.
     """
     if not summary_md_path.exists():
         raise FileNotFoundError(f"summary md not found: {summary_md_path}")
@@ -212,7 +237,8 @@ def run_stage_learning(
     )
 
     if not dry_run:
-        _write_md(video, run_time, learning_md_path, response.text.strip())
+        body = _validate_learning_output(response.text.strip(), _allowed_embed_targets(mappings))
+        _write_md(video, run_time, learning_md_path, body)
 
     return response
 
@@ -223,6 +249,15 @@ def run_stage_learning(
 
 
 _MAX_INPUT_CHARS = 200_000
+
+# Same value as ``stages.summary._MAX_OUTPUT_CHARS``. Measured against real 04
+# notes rather than assumed: the longest sampled note (an 89-minute webinar, 20
+# sections) is 13,715 bytes ≈ 5.0k chars, and a code-bearing note with the
+# ``# 概念``/``# 実践`` split is 7,955 bytes ≈ 2.9k chars. Stage 04 output is a
+# bullet-list distillation, so it comes out *shorter* than the Stage 02 summary
+# it is built from — the limit sits ~10x above observed output and only catches
+# a runaway generation, never a legitimate note.
+_MAX_OUTPUT_CHARS = 50_000
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -262,6 +297,46 @@ def _build_prompt(
         "## キャプチャ md (参考、構造確認用)\n"
         f"{wrap_untrusted(safe_capture)}"
     )
+
+
+def _allowed_embed_targets(mappings: list[CaptureMapping]) -> frozenset[str]:
+    """Embed targets Stage 03 actually produced.
+
+    This is **not** a list of *safe* names. Stage 03 path-qualifies captures as
+    ``{playlist_folder}/pyt_<id>_NN.webp`` and the folder name derives from the
+    playlist title, so an attacker picks part of every allowed target. Traversal
+    is still impossible — ``sanitize_title_for_filename`` drops path separators
+    — but "allowed" here means only "Stage 03 emitted this file", never "this
+    name is safe". Constraining the *shape* of the folder segment is a separate
+    concern and deliberately not done here.
+    """
+    return frozenset(m.filename for m in mappings)
+
+
+def _validate_learning_output(body: str, allowed_assets: frozenset[str]) -> str:
+    """Fold homoglyphs, cap the size, then strip active markup.
+
+    Stage 04 was the only writer reaching the vault without this: every other
+    path (``stages.summary``, ``synthesis.chapter``, ``synthesis.moc``,
+    ``handson.writer``) already routes through ``validate_chapter_body``.
+
+    The fold runs FIRST, before the strip. Folding afterwards would let a
+    Cyrillic-obfuscated ``<sсript>`` pass the strip untouched — it is not a tag
+    yet — and only then fold into a live ``<script>``. Folding up front means
+    the strip operates on canonical text. Same order and reason as
+    ``stages.summary._validate_summary_output``.
+
+    Note this also fixes the allow-list further downstream: Stage 05 derives
+    ``allowed_assets`` for the synthesis notes by running
+    ``extract_allowed_embeds`` over the 04 bodies it reads back from disk. While
+    Stage 04 wrote unvalidated output, an injected ``![[...]]`` registered
+    itself as "allowed" for the whole playlist. Validating before the write
+    removes that path without Stage 05 changing at all.
+    """
+    body = fold_markdown_mixed_script_confusables(body)
+    if len(body) > _MAX_OUTPUT_CHARS:
+        raise LearningOutputError(f"learning body exceeds {_MAX_OUTPUT_CHARS} chars: {len(body)}")
+    return validate_chapter_body(body, allowed_assets)
 
 
 def _write_md(
