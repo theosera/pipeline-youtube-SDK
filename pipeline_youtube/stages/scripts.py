@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -38,6 +39,7 @@ from ..code_fetch import (
     render_code_section,
 )
 from ..playlist import VideoMeta
+from ..synthesis.body_validator import validate_chapter_body
 from ..transcript.auto import fetch_auto
 from ..transcript.base import Fetcher, TranscriptResult, fetch_with_fallback
 from ..transcript.chunking import Chunk, chunk_by_window
@@ -48,12 +50,33 @@ from ..transcript.official import fetch_official
 if TYPE_CHECKING:
     from ..services.cache import Cache
 
+_log = logging.getLogger(__name__)
+
 DEFAULT_LANGUAGES: list[str] = ["ja", "en"]
 
 # Default fan-out for the upfront transcript warm-up. Higher than the
 # pipeline's --concurrency because caption fetches are light network I/O,
 # not CPU/GPU/LLM bound.
 DEFAULT_TRANSCRIPT_CONCURRENCY = 8
+
+# Ceiling on the body handed to the validator and written to 01_Scripts.md.
+#
+# Deliberately *not* ``summary._MAX_OUTPUT_CHARS`` (50,000): that bounds LLM
+# output, whereas this body is a full caption track plus fetched source, and
+# 50,000 would reject ordinary long talks. Two independent derivations agree
+# on ~400k:
+#
+#   - Measured: the longest real 01_Scripts.md body in the vault is 79,483
+#     chars (sample of the four longest-plausible notes; a 2h34m webinar is
+#     75,042). Five times that is 397k.
+#   - Structural: transcript + ``render_code_section``, whose output cannot
+#     exceed ``MAX_URLS_PER_VIDEO`` (5) * ``MAX_BYTES_PER_FILE`` (50,000)
+#     plus per-snippet markup — so 79,483 + ~251,000 = ~331k.
+#
+# Passing it is fail-closed (``ScriptBodyTooLargeError``). Truncating instead
+# would drop text that *looks* complete to every reader downstream, and the
+# cut would land mid-construct.
+MAX_SCRIPT_BODY_CHARS = 400_000
 
 
 def warm_transcript_cache(
@@ -293,6 +316,7 @@ def run_stage_scripts(
     full_body = body + code_section if code_section else body
 
     if not dry_run and full_body:
+        full_body = _validate_script_body(full_body)
         _append_body(scripts_md_path, full_body)
 
     return result
@@ -309,6 +333,51 @@ def _render_chunks(video: VideoMeta, chunks: list[Chunk]) -> str:
         link = f"{base_url}&t={chunk.start_int}"
         lines.append(f"[{chunk.mmss}]({link}) {chunk.text}")
     return "\n".join(lines)
+
+
+class ScriptBodyTooLargeError(ValueError):
+    """Raised when the rendered Stage 01 body exceeds ``MAX_SCRIPT_BODY_CHARS``."""
+
+
+def _validate_script_body(body: str) -> str:
+    """Bound, then sanitize, the Stage 01 body before it reaches the vault.
+
+    Stage 01 was the last writer reaching disk unvalidated. Its body is
+    ``_render_chunks`` output — caption cues authored by whoever uploaded the
+    video — concatenated with ``render_code_section`` output fetched from
+    GitHub/Gist, so `<script>`, `<% … %>` and `![[…]]` all arrive verbatim
+    from outside. ``frozenset()`` because this note legitimately embeds
+    nothing; every ``![[…]]`` is a dropped-embed comment.
+
+    Size is checked *before* validating, not after: the check exists to bound
+    what the sanitize loop is handed, so running it second would defeat it.
+
+    Two things this deliberately does not do:
+
+    - No homoglyph fold. Stage 02/04/05 fold because they write LLM-generated
+      Japanese prose; this note is a verbatim transcript, and folding
+      Cyrillic/Greek into Latin would corrupt legitimate Russian or Greek
+      captions. A Cyrillic-obfuscated ``<sсript>`` therefore survives here —
+      inert, since Obsidian does not render it as a tag, and no downstream
+      stage folds this body (Stage 02 re-chunks the ``TranscriptResult``,
+      not this markdown).
+    - No code-fence exemption. ``validate_chapter_body`` is fence-blind, so
+      ``<script>`` inside a fetched snippet is stripped like any other. Kept
+      uniform with every other writer on purpose — a per-stage fence policy
+      would put two different rules in one validator.
+    """
+    if len(body) > MAX_SCRIPT_BODY_CHARS:
+        # No body text in the message: it is attacker-influenced and this
+        # record reaches logs.
+        _log.warning(
+            "stage 01 body is %d chars, over the %d limit; refusing to write",
+            len(body),
+            MAX_SCRIPT_BODY_CHARS,
+        )
+        raise ScriptBodyTooLargeError(
+            f"stage 01 body exceeds {MAX_SCRIPT_BODY_CHARS} chars: {len(body)}"
+        )
+    return validate_chapter_body(body, frozenset())
 
 
 def _append_body(path: Path, body: str) -> None:
