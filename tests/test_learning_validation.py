@@ -83,10 +83,10 @@ def _prepare(vault: Path):
     run_time = datetime(2026, 4, 14, 21, 41)
     paths = create_placeholder_notes(video, run_time, vault_root=vault)
     paths["summary"].write_text(
-        paths["summary"].read_text() + "\n" + _SUMMARY_BODY, encoding="utf-8"
+        paths["summary"].read_text(encoding="utf-8") + "\n" + _SUMMARY_BODY, encoding="utf-8"
     )
     paths["capture"].write_text(
-        paths["capture"].read_text() + "\n" + _CAPTURE_BODY, encoding="utf-8"
+        paths["capture"].read_text(encoding="utf-8") + "\n" + _CAPTURE_BODY, encoding="utf-8"
     )
     learning_path = compute_note_paths(video, run_time, units=("learning",), vault_root=vault)[
         "learning"
