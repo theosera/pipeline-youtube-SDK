@@ -83,14 +83,28 @@ def _glossary(canonical: str) -> Glossary:
     return Glossary(entries=(GlossaryEntry(canonical=canonical, aliases=[_ALIAS]),))
 
 
-def _run(vault: Path, monkeypatch, glossary: Glossary | None) -> tuple[str, str]:
-    """Run Stage 02 and return the written note as ``(frontmatter, body)``.
+def _run_counting(
+    vault: Path,
+    monkeypatch,
+    glossary: Glossary | None,
+    model_output: str = _MODEL_OUTPUT,
+) -> tuple[str, str, int]:
+    """Run Stage 02; return ``(frontmatter, body, llm_call_count)``.
 
-    Split because the two halves have different guarantees: the body is what
-    this change routes through the validator, while the ``one_liner``
-    frontmatter field is extracted upstream of validation and never sees it
-    (pinned in ``TestOneLinerStillBypassesValidation``).
+    The note is split because the two halves have different guarantees: the
+    body is what this change routes through the validator, while the
+    ``one_liner`` frontmatter field is extracted upstream of validation and
+    never sees it (pinned in ``TestOneLinerStillBypassesValidation``).
+
+    The call count is what distinguishes "validation rejected this and the
+    repair loop ran" from "validation silently accepted it".
     """
+    calls = {"n": 0}
+
+    def _spy(**kw):
+        calls["n"] += 1
+        return _fake_response(model_output)
+
     video = _video()
     paths = create_placeholder_notes(
         video, datetime(2026, 4, 14, 21, 41), dry_run=False, vault_root=vault
@@ -101,11 +115,16 @@ def _run(vault: Path, monkeypatch, glossary: Glossary | None) -> tuple[str, str]
         language="ja",
         snippets=[TranscriptSnippet(f"{_ALIAS}の導入", 0.0, 30.0)],
     )
-    monkeypatch.setattr(summary_stage, "invoke_claude", lambda **kw: _fake_response(_MODEL_OUTPUT))
+    monkeypatch.setattr(summary_stage, "invoke_claude", _spy)
     summary_stage.run_stage_summary(
         video, paths["summary"], transcript, glossary=glossary, cache=_NO_CACHE
     )
     frontmatter, _, body = paths["summary"].read_text(encoding="utf-8").partition("\n---\n")
+    return frontmatter, body, calls["n"]
+
+
+def _run(vault: Path, monkeypatch, glossary: Glossary | None) -> tuple[str, str]:
+    frontmatter, body, _ = _run_counting(vault, monkeypatch, glossary)
     return frontmatter, body
 
 
@@ -215,6 +234,11 @@ class TestOneLinerStillBypassesValidation:
     and ``_escape_yaml`` on the way into frontmatter. That is a missing check,
     not a mis-ordered one, so it is outside this change's perspective.
 
+    It matters more than a single note: ``glossary.json`` is persistent, so a
+    canonical that lands there reaches the frontmatter of *every* later
+    summary, not just the run that introduced it. Closing the body made the
+    one-liner the remaining entrance.
+
     Measured on the parent commit and on this one with the same hostile
     canonical:
 
@@ -242,32 +266,6 @@ class TestSubstitutionCannotSteerTheFormat:
     either code path because substitution happened after validation.
     """
 
-    def _run_counting(
-        self, vault: Path, monkeypatch, glossary: Glossary | None, model_output: str
-    ) -> tuple[str, str, int]:
-        calls = {"n": 0}
-
-        def _spy(**kw):
-            calls["n"] += 1
-            return _fake_response(model_output)
-
-        video = _video()
-        paths = create_placeholder_notes(
-            video, datetime(2026, 4, 14, 21, 41), dry_run=False, vault_root=vault
-        )
-        transcript = build_result(
-            video_id="_h3decBW12Q",
-            source=TranscriptSource.OFFICIAL,
-            language="ja",
-            snippets=[TranscriptSnippet("導入", 0.0, 30.0)],
-        )
-        monkeypatch.setattr(summary_stage, "invoke_claude", _spy)
-        summary_stage.run_stage_summary(
-            video, paths["summary"], transcript, glossary=glossary, cache=_NO_CACHE
-        )
-        frontmatter, _, body = paths["summary"].read_text(encoding="utf-8").partition("\n---\n")
-        return frontmatter, body, calls["n"]
-
     # Required markers hidden where the strip will delete them.
     _HIDDEN_MARKERS = "<%\n## 全体サマリ\n## 要点タイムライン\n### [00:00 ~ 00:30] x\n%>"
     _NO_MARKERS = f"ONE_LINER: t\n\n必須見出しの無い出力です。{_ALIAS}\n"
@@ -279,7 +277,7 @@ class TestSubstitutionCannotSteerTheFormat:
         satisfied it, were then stripped, and nothing raised — the repair loop
         never ran and a summary with no required section reached disk.
         """
-        _, body, calls = self._run_counting(
+        _, body, calls = _run_counting(
             vault, monkeypatch, _glossary(self._HIDDEN_MARKERS), self._NO_MARKERS
         )
 
@@ -293,7 +291,7 @@ class TestSubstitutionCannotSteerTheFormat:
         Kept because the fix closes both entrances, and a later refactor that
         only re-guards the glossary would leave this one open.
         """
-        _, body, calls = self._run_counting(
+        _, body, calls = _run_counting(
             vault, monkeypatch, None, self._NO_MARKERS + self._HIDDEN_MARKERS
         )
 
@@ -307,7 +305,7 @@ class TestSubstitutionCannotSteerTheFormat:
         rename the marker, so extraction returned nothing and the renamed
         marker stayed in the body.
         """
-        frontmatter, body, _ = self._run_counting(
+        frontmatter, body, _ = _run_counting(
             vault,
             monkeypatch,
             Glossary(entries=(GlossaryEntry(canonical="One-liner", aliases=["ONE_LINER"]),)),
@@ -316,3 +314,20 @@ class TestSubstitutionCannotSteerTheFormat:
 
         assert f'one_liner: "{_ALIAS}入門"' in frontmatter
         assert "One-liner:" not in body
+
+    def test_unsanitizable_canonical_degrades_instead_of_aborting(self, vault, monkeypatch):
+        """A canonical the sanitizer cannot settle must degrade, not escape.
+
+        ``validate_chapter_body`` raises ``BodyValidationError`` when markup
+        outlives its pass cap. Substituting before validation put the glossary
+        on that path, and the error escaped ``run_stage_summary`` outright —
+        so one canonical with deeply nested markup aborted *every* summary
+        using it, permanently, because the glossary is persistent. Measured
+        against the parent, where the glossary never reached the sanitizer.
+        """
+        nested = "<scr<scr<scr<scr<script>ipt>ipt>ipt>ipt>"
+        _, body, calls = _run_counting(vault, monkeypatch, _glossary(nested))
+
+        assert calls == summary_stage.MAX_SUMMARY_REPAIR_RETRIES + 1
+        assert "自動生成に失敗" in body
+        assert "<script" not in body

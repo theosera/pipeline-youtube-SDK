@@ -50,7 +50,7 @@ from ..services.confusables import (
     fold_markdown_mixed_script_confusables,
     fold_mixed_script_confusables,
 )
-from ..synthesis.body_validator import validate_chapter_body
+from ..synthesis.body_validator import BodyValidationError, validate_chapter_body
 from ..transcript.base import TranscriptResult
 from ..transcript.chunking import Chunk, chunk_by_window
 
@@ -470,7 +470,16 @@ def _validate_summary_output(body: str) -> str:
     # Stage 02 output never legitimately embeds images; pass empty
     # `allowed_assets` so any `![[...]]` is replaced with a dropped-
     # embed comment. HTML tags and Templater syntax are always stripped.
-    cleaned = validate_chapter_body(body, frozenset())
+    #
+    # A body the sanitizer cannot settle raises ``BodyValidationError``, which
+    # is re-raised as this stage's own error so the repair loop sees it. Left
+    # to escape, one glossary canonical with deeply nested markup would abort
+    # every summary that uses it — and the glossary is persistent, so that is
+    # not a per-run failure but a permanent one.
+    try:
+        cleaned = validate_chapter_body(body, frozenset())
+    except BodyValidationError as e:
+        raise SummaryOutputError(f"summary body could not be sanitized: {e}") from e
 
     missing = [h for h in _REQUIRED_H2 if h not in cleaned]
     if missing:
