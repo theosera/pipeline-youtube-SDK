@@ -291,3 +291,40 @@ class TestInputLengthCeiling:
         # Content survives intact: first and last cue both present, verbatim.
         assert cues[0] in written
         assert cues[-1] in written
+
+
+class TestCurrentValidatorLimits:
+    """Pins what validation does *not* cover, without claiming it is desirable.
+
+    ``validate_chapter_body`` removes five tag names. Event-handler attributes
+    and ``javascript:`` URLs are outside that pattern by design (S01 documents
+    it), so they reach disk. Fixing that means rewriting the validator, which
+    is a different review perspective from wiring Stage 01 into it.
+
+    The first case is the sharp edge and the reason this class exists: removal
+    splices the surrounding text, so markup the browser would *not* have
+    executed can come out executable. Measured with ``html.parser``:
+
+        <im<script>g src=x onerror=alert(1)>   -> tag='im<script', attrs=[]
+        <img src=x onerror=alert(1)>           -> tag='img', onerror=alert(1)
+
+    Before this wiring Stage 01 wrote the first form (inert); it now writes
+    the second (live). Strictly narrower than what it replaces — the same cue
+    previously delivered `<script>` and `<%* … %>` untouched — but it is a new
+    exposure, not a pre-existing one, and it is pinned here so the follow-up
+    that hardens the validator has a test to flip.
+    """
+
+    def test_tag_removal_can_splice_a_live_handler(self, vault, monkeypatch):
+        written = _run(vault, monkeypatch, ["<im<script>g src=x onerror=alert(1)>"]).read_text(
+            encoding="utf-8"
+        )
+
+        assert "<img src=x onerror=alert(1)>" in written
+
+    def test_javascript_urls_are_not_stripped(self, vault, monkeypatch):
+        written = _run(vault, monkeypatch, ['<a href="javascript:alert(1)">x</a>']).read_text(
+            encoding="utf-8"
+        )
+
+        assert 'href="javascript:alert(1)"' in written

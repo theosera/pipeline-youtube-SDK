@@ -365,6 +365,12 @@ def _validate_script_body(body: str) -> str:
       ``<script>`` inside a fetched snippet is stripped like any other. Kept
       uniform with every other writer on purpose — a per-stage fence policy
       would put two different rules in one validator.
+
+    What it does not cover is pinned in ``TestCurrentValidatorLimits``: the
+    validator strips five tag names and nothing else, and because it strips
+    rather than escapes, ``<im<script>g … onerror=…>`` splices down to a live
+    ``<img … onerror=…>``. Hardening that means rewriting the validator, which
+    is a different review perspective from wiring this stage into it.
     """
     if len(body) > MAX_SCRIPT_BODY_CHARS:
         # No body text in the message: it is attacker-influenced and this
