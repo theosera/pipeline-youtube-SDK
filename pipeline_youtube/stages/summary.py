@@ -233,12 +233,13 @@ def run_stage_summary(
     Empty transcripts are handled gracefully (a placeholder body is
     written and a zero-usage synthetic ClaudeResponse returned).
 
-    When ``glossary`` is provided, the validated body and one-liner are
-    deterministically normalized (known proper-noun mis-transcriptions →
-    canonical spelling) before disk write. ``None`` (default) is a no-op,
-    so existing callers and behavior are unchanged. The model still does
-    context-only cleansing; this layer adds glossary-backed correction
-    without inventing anything not already in the glossary.
+    When ``glossary`` is provided, the model output is deterministically
+    normalized (known proper-noun mis-transcriptions → canonical spelling)
+    and then validated — in that order, so the spliced-in canonicals are
+    themselves sanitized. ``None`` (default) is a no-op, so existing callers
+    and behavior are unchanged. The model still does context-only cleansing;
+    this layer adds glossary-backed correction without inventing anything not
+    already in the glossary.
 
     ``cache`` is injected by the caller and threaded into the LLM calls
     (a disabled ``Cache`` no-ops the LLM-output cache).
@@ -266,13 +267,12 @@ def run_stage_summary(
     # exact defect (bounded by MAX_SUMMARY_REPAIR_RETRIES) and, if every
     # attempt still fails, fall back to a degraded placeholder so the video
     # still produces a note instead of being dropped entirely.
+    # Glossary substitution happens *inside* that call, ahead of validation —
+    # see ``_validate_with_repair``. Applying it here instead would splice
+    # canonical strings into an already-validated body.
     body_to_write, one_liner, response = _validate_with_repair(
-        video, chunks, transcript_result, response, model=model, cache=cache
+        video, chunks, transcript_result, response, model=model, cache=cache, glossary=glossary
     )
-    if glossary is not None:
-        body_to_write = normalize_text(body_to_write, glossary)
-        if one_liner is not None:
-            one_liner = normalize_text(one_liner, glossary)
     # The body is already homoglyph-folded inside _validate_summary_output
     # (folded BEFORE the HTML/embed/Templater strip so a Cyrillic-obfuscated
     # tag cannot re-materialize as active markup after sanitization). The
@@ -295,8 +295,9 @@ def _validate_with_repair(
     *,
     model: str,
     cache: Cache,
+    glossary: Glossary | None = None,
 ) -> tuple[str, str | None, ClaudeResponse]:
-    """Validate Stage 02 output, re-prompting the model on structural failure.
+    """Normalize, then validate Stage 02 output, re-prompting on failure.
 
     Returns ``(body_to_write, one_liner, response)``:
 
@@ -307,6 +308,19 @@ def _validate_with_repair(
     - If every attempt fails, a degraded placeholder body is returned (the
       caller writes it without re-validation) and ``one_liner`` is ``None``.
 
+    ``normalize_text`` runs **before** ``_validate_summary_output``, not after.
+    The glossary splices canonical strings into the body, and nothing between
+    the glossary and the vault inspects them, so substituting after validation
+    wrote whatever the glossary held straight to disk. Its two sources are a
+    per-run sheet and the persistent ``glossary.json``, and a value that lands
+    in the latter is spliced into *every* later summary — so the ordering, not
+    the value, is what has to hold. Same class as folding after the strip
+    (Stage 02/04): a transform sitting behind its own check.
+
+    It runs per attempt rather than once up front because each repair produces
+    a fresh body, and normalizing the whole body before ``_extract_one_liner``
+    is what keeps the one-liner covered as well.
+
     The returned ``response`` aggregates token/cost usage across every attempt
     so the caller's cost logging reflects the retries.
     """
@@ -315,6 +329,8 @@ def _validate_with_repair(
     last_error = "empty output" if not body else ""
     for attempt in range(MAX_SUMMARY_REPAIR_RETRIES + 1):
         if body:
+            if glossary is not None:
+                body = normalize_text(body, glossary)
             one_liner, body_without_marker = _extract_one_liner(body)
             try:
                 validated = _validate_summary_output(body_without_marker)
