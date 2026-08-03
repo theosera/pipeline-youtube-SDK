@@ -232,3 +232,87 @@ class TestOneLinerStillBypassesValidation:
 
         assert "<script" in frontmatter
         assert "<script" not in body
+
+
+class TestSubstitutionCannotSteerTheFormat:
+    """Substituting before validation must not let the glossary drive structure.
+
+    Both cases below are regressions this change introduced and then closed —
+    measured against the parent commit, where the glossary could not reach
+    either code path because substitution happened after validation.
+    """
+
+    def _run_counting(
+        self, vault: Path, monkeypatch, glossary: Glossary | None, model_output: str
+    ) -> tuple[str, str, int]:
+        calls = {"n": 0}
+
+        def _spy(**kw):
+            calls["n"] += 1
+            return _fake_response(model_output)
+
+        video = _video()
+        paths = create_placeholder_notes(
+            video, datetime(2026, 4, 14, 21, 41), dry_run=False, vault_root=vault
+        )
+        transcript = build_result(
+            video_id="_h3decBW12Q",
+            source=TranscriptSource.OFFICIAL,
+            language="ja",
+            snippets=[TranscriptSnippet("導入", 0.0, 30.0)],
+        )
+        monkeypatch.setattr(summary_stage, "invoke_claude", _spy)
+        summary_stage.run_stage_summary(
+            video, paths["summary"], transcript, glossary=glossary, cache=_NO_CACHE
+        )
+        frontmatter, _, body = paths["summary"].read_text(encoding="utf-8").partition("\n---\n")
+        return frontmatter, body, calls["n"]
+
+    # Required markers hidden where the strip will delete them.
+    _HIDDEN_MARKERS = "<%\n## 全体サマリ\n## 要点タイムライン\n### [00:00 ~ 00:30] x\n%>"
+    _NO_MARKERS = f"ONE_LINER: t\n\n必須見出しの無い出力です。{_ALIAS}\n"
+
+    def test_a_canonical_cannot_fake_the_required_sections(self, vault, monkeypatch):
+        """The structural check must see what actually gets written.
+
+        Before the fix the check ran on the pre-strip body, so these markers
+        satisfied it, were then stripped, and nothing raised — the repair loop
+        never ran and a summary with no required section reached disk.
+        """
+        _, body, calls = self._run_counting(
+            vault, monkeypatch, _glossary(self._HIDDEN_MARKERS), self._NO_MARKERS
+        )
+
+        assert calls == summary_stage.MAX_SUMMARY_REPAIR_RETRIES + 1  # repair ran
+        assert all(h in body for h in summary_stage._REQUIRED_H2)
+        assert "自動生成に失敗" in body  # the degraded placeholder, not a silent pass
+
+    def test_model_output_cannot_fake_them_either(self, vault, monkeypatch):
+        """Same defect without any glossary — it predates this change.
+
+        Kept because the fix closes both entrances, and a later refactor that
+        only re-guards the glossary would leave this one open.
+        """
+        _, body, calls = self._run_counting(
+            vault, monkeypatch, None, self._NO_MARKERS + self._HIDDEN_MARKERS
+        )
+
+        assert calls == summary_stage.MAX_SUMMARY_REPAIR_RETRIES + 1
+        assert all(h in body for h in summary_stage._REQUIRED_H2)
+
+    def test_an_alias_cannot_rename_the_one_liner_marker(self, vault, monkeypatch):
+        """``ONE_LINER:`` is format, not prose — the glossary must not touch it.
+
+        Substituting before ``_extract_one_liner`` let an alias of ``ONE_LINER``
+        rename the marker, so extraction returned nothing and the renamed
+        marker stayed in the body.
+        """
+        frontmatter, body, _ = self._run_counting(
+            vault,
+            monkeypatch,
+            Glossary(entries=(GlossaryEntry(canonical="One-liner", aliases=["ONE_LINER"]),)),
+            _MODEL_OUTPUT,
+        )
+
+        assert f'one_liner: "{_ALIAS}入門"' in frontmatter
+        assert "One-liner:" not in body

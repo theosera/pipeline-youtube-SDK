@@ -318,8 +318,14 @@ def _validate_with_repair(
     (Stage 02/04): a transform sitting behind its own check.
 
     It runs per attempt rather than once up front because each repair produces
-    a fresh body, and normalizing the whole body before ``_extract_one_liner``
-    is what keeps the one-liner covered as well.
+    a fresh body.
+
+    It runs *after* ``_extract_one_liner``, not before. The extractor keys off
+    the literal ``ONE_LINER:`` marker, and the glossary rewrites arbitrary
+    substrings, so an alias of ``ONE_LINER`` would rename the marker out from
+    under it — the one-liner would then be dropped and the renamed marker left
+    in the body. Parsing structure first, substituting into the parts second,
+    keeps the glossary away from the format's own tokens.
 
     The returned ``response`` aggregates token/cost usage across every attempt
     so the caller's cost logging reflects the retries.
@@ -329,9 +335,11 @@ def _validate_with_repair(
     last_error = "empty output" if not body else ""
     for attempt in range(MAX_SUMMARY_REPAIR_RETRIES + 1):
         if body:
-            if glossary is not None:
-                body = normalize_text(body, glossary)
             one_liner, body_without_marker = _extract_one_liner(body)
+            if glossary is not None:
+                body_without_marker = normalize_text(body_without_marker, glossary)
+                if one_liner is not None:
+                    one_liner = normalize_text(one_liner, glossary)
             try:
                 validated = _validate_summary_output(body_without_marker)
                 return validated, one_liner, _aggregate_responses(attempts, model)
@@ -446,24 +454,33 @@ def _validate_summary_output(body: str) -> str:
     strip and only then fold into a live ``<script>``; folding up front means
     the strip operates on the canonical text. The fold is idempotent, so the
     repair loop may re-validate a body any number of times.
+
+    The section/range checks then run on the **stripped** body, not the raw
+    one. They exist to guarantee what Stage 03 will parse, and what Stage 03
+    parses is what gets written — so checking before the strip meant checking
+    text that no longer existed. Markers hidden inside a removable construct
+    (``<%\\n## 全体サマリ\\n### [00:00 ~ 00:30] x\\n%>``) satisfied the check and
+    were then deleted, and because nothing raised, the repair loop never ran
+    and a body with no required section reached disk.
     """
     body = fold_markdown_mixed_script_confusables(body)
     if len(body) > _MAX_OUTPUT_CHARS:
         raise SummaryOutputError(f"summary body exceeds {_MAX_OUTPUT_CHARS} chars: {len(body)}")
 
-    missing = [h for h in _REQUIRED_H2 if h not in body]
-    if missing:
-        raise SummaryOutputError(f"summary missing required sections: {missing}")
-
-    if not _RANGE_HEADING_RE.search(body):
-        raise SummaryOutputError(
-            "summary has no `### [MM:SS ~ MM:SS] ...` heading; Stage 03 would have no ranges"
-        )
-
     # Stage 02 output never legitimately embeds images; pass empty
     # `allowed_assets` so any `![[...]]` is replaced with a dropped-
     # embed comment. HTML tags and Templater syntax are always stripped.
     cleaned = validate_chapter_body(body, frozenset())
+
+    missing = [h for h in _REQUIRED_H2 if h not in cleaned]
+    if missing:
+        raise SummaryOutputError(f"summary missing required sections: {missing}")
+
+    if not _RANGE_HEADING_RE.search(cleaned):
+        raise SummaryOutputError(
+            "summary has no `### [MM:SS ~ MM:SS] ...` heading; Stage 03 would have no ranges"
+        )
+
     if cleaned != body:
         _log.info("summary body passed structural validation with content stripped")
     return cleaned
