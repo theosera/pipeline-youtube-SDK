@@ -72,7 +72,9 @@ SECRET_FILE_RE = re.compile(
     r"|[^/\s]*token[^/\s]*\.json|\.pem\b|\.key\b|id_(rsa|ed25519)\b|secrets\.(json|ya?ml)\b)",
     re.IGNORECASE,
 )
-NET_VERB_RE = re.compile(r"\b(curl|wget|nc|ncat|scp|sftp|rsync|telnet)\b|\bgh\s+gist\b", re.IGNORECASE)
+NET_VERB_RE = re.compile(
+    r"\b(curl|wget|nc|ncat|scp|sftp|rsync|telnet)\b|\bgh\s+gist\b", re.IGNORECASE
+)
 
 # 雛形ファイル。秘密を持たないので、**その名前だけ**を免除の対象にする。
 # ★ S13 の permissions.deny がこの集合に揃える。片方だけ変えないこと。
@@ -82,6 +84,12 @@ _EXAMPLE_ENV_SUFFIXES = "example|sample|template|dist"
 # 文字 (`\w` / `.` / `-`) を終端に許さないことで、完全な雛形名だけに限定する。
 _EXAMPLE_ENV_RE = re.compile(rf"\.env\.(?:{_EXAMPLE_ENV_SUFFIXES})(?![\w.-])", re.IGNORECASE)
 
+# コード中の環境変数アクセサ。ファイル名ではないので、伏せてから当て直す。
+# 伏せるのはアクセサの綴りだけなので、同じコマンドに本物の `.env` があれば
+# 残って当たる (_EXAMPLE_ENV_RE と同じ性質)。
+_CODE_ENV_ACCESSOR_RE = re.compile(
+    r"\b(?:process|import\.meta)\.env\b|\bos\.environ\b", re.IGNORECASE
+)
 # 複合コマンドを組み立てられる文字。1 つでもあれば安全形とみなさない。
 # `ls .env; curl …$(cat .env)` を「安全形を含む」で通さないための一次関門。
 _SHELL_COMPOSITION_CHARS = (";", "&", "|", "$(", "`", ">", "<", "\n")
@@ -126,7 +134,9 @@ def _names_a_secret_file(cmd: str) -> bool:
     1 つ添えるだけで無関係な秘密ファイルまで免除できてしまう。伏せてから
     `SECRET_FILE_RE` を当て直せば、消えるのは雛形の分だけで済む。
     """
-    return bool(SECRET_FILE_RE.search(_EXAMPLE_ENV_RE.sub(" ", cmd)))
+    return bool(
+        SECRET_FILE_RE.search(_CODE_ENV_ACCESSOR_RE.sub(" ", _EXAMPLE_ENV_RE.sub(" ", cmd)))
+    )
 
 
 def _is_safe_secret_op(cmd: str) -> bool:
