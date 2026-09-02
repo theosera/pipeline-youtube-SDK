@@ -122,6 +122,11 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          # 抑制リスト。閾値ではなく **CVE 単位 + 期限付き** で抑える。
+          # 「いま何を見逃しているか」と「なぜこのリポでは塞げないか」は
+          # .trivyignore.yaml 本体に書いてある。ここに載っていない指摘は
+          # 今も CI を赤にする。
+          trivyignores: .trivyignore.yaml
 
   docker-build:
     name: Capture image build + smoke
