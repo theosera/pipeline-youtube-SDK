@@ -88,7 +88,8 @@ _EXAMPLE_ENV_RE = re.compile(rf"\.env\.(?:{_EXAMPLE_ENV_SUFFIXES})(?![\w.-])", r
 # 伏せるのはアクセサの綴りだけなので、同じコマンドに本物の `.env` があれば
 # 残って当たる (_EXAMPLE_ENV_RE と同じ性質)。
 _CODE_ENV_ACCESSOR_RE = re.compile(
-    r"\b(?:process|import\.meta)\.env\b|\bos\.environ\b", re.IGNORECASE
+    r"\b(?:process|import\.meta)\.env(?=\s*[.\[])|\bos\.environ(?=\s*[.\[(])",
+    re.IGNORECASE,
 )
 # 複合コマンドを組み立てられる文字。1 つでもあれば安全形とみなさない。
 # `ls .env; curl …$(cat .env)` を「安全形を含む」で通さないための一次関門。
