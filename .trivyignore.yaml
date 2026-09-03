@@ -1,0 +1,46 @@
+# Trivy 抑制リスト — 「何を見逃しているか」を記録するための場所。
+#
+# ここに書けるのは **pin 済み base image (docker/Dockerfile.capture の FROM 行) の中に
+# あって、このリポの変更では動かせない** 指摘だけ。閾値 (severity: CRITICAL,HIGH /
+# ignore-unfixed / exit-code: 1) は緩めない — 緩めれば「落ちない検査」になるだけで、
+# 直ったことの証明にはならない。抑制は **CVE 単位** かつ **期限付き** で行う。
+# ここに無い指摘は今も CI を赤にする。
+#
+# なぜ Dockerfile 側で直せないか:
+#   .github/workflows/main.yml の "Trivy scan (pinned base image)" は
+#   image-ref に FROM 行の **base image** を渡す。capture image をビルドして
+#   スキャンしているのではないので、Dockerfile に `pip install -U setuptools` を
+#   足しても、このジョブの判定は 1 ミリも変わらない。上流 python:3.14-slim が
+#   更新された digest を出すまで、このリポ単独では塞げない。
+#
+# 期限が切れると Trivy は再び当該 CVE を報告し、CI が赤に戻る。期限を延ばすときは
+# 「上流がまだ直していない」ことを再測してからにすること。惰性で延ばさない。
+
+vulnerabilities:
+  - id: CVE-2025-47273
+    statement: |
+      setuptools 70.3.0 (fixed: 78.1.1) — PackageIndex の Path Traversal。
+
+      見逃している内容: pin 済み base image の site-packages に古い setuptools が
+      同梱されている。悪用には setuptools の PackageIndex (パッケージ取得系)
+      コードパスを走らせる必要がある。capture image の実行時エントリは
+      yt-dlp / ffmpeg / gif2webp であり、実行時に pip / setuptools の
+      パッケージ取得は行わない。それでも「入っている」ことは事実なので消さずに記録する。
+
+      解消条件: 上流 python:3.14-slim が setuptools >= 78.1.1 を含む digest を
+      publish し、その digest へ pin を張り替える。
+    expired_at: 2026-12-03
+
+  - id: GHSA-6v7p-g79w-8964
+    statement: |
+      msgpack 1.1.2 (fixed: 1.2.1) — エラー後に Unpacker を再利用した際の
+      out-of-bounds read / crash。
+
+      見逃している内容: 同上で pin 済み base image 側に同梱されている。
+      悪用には攻撃者が制御する msgpack ストリームを、エラー後に再利用された
+      Unpacker へ流し込む必要がある。capture image は msgpack を使う経路を
+      実行時に持たない。
+
+      解消条件: 上流 python:3.14-slim が msgpack >= 1.2.1 を含む digest を
+      publish し、その digest へ pin を張り替える。
+    expired_at: 2026-12-03
