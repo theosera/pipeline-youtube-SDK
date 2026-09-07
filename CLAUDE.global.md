@@ -6,13 +6,22 @@
     エスカレーション / スキル発火規律) だけを集約した薄いオーケストレーター層。
     リポ固有の規約は各リポの ./CLAUDE.md、詳細な作業規約は .claude/skills/ にある。
 
-  ■ 使い方 (手動配置)
-    このファイルは「共通名で全リポに同一コピー」されている版です。最終的には
-    各自のマシンで ~/.claude/CLAUDE.md として 1 つに集約して使うことを想定:
-        ln -s "$PWD/CLAUDE.global.md" ~/.claude/CLAUDE.md   # もしくは cp
-    Claude Code が自動ロードするのは CLAUDE.md / CLAUDE.local.md のみ。本ファイルは
-    別名なので自動ロードされず、プロジェクト CLAUDE.md と二重ロードされません。
-    内容は指定の全リポで完全同一に保つこと (どれか1つを直したら他リポへ同期)。
+  ■ 使い方 (配置と、同一性の確かめ方)
+    正典は obsidian-ai-pipeline の CLAUDE.global.md。各マシンでは
+    ~/.claude/CLAUDE.md がそこへの symlink であることを想定する:
+        ln -s "$PWD/CLAUDE.global.md" ~/.claude/CLAUDE.md
+    ⚠️ cp で配置しない。コピーは正典が動いても何の signal も出さずに古くなる。
+
+    ⚠️ 他のリポにも同名の写しが置かれているが、同一である保証は無い。
+       主張ではなく確認で扱うこと。⛔ 2 つを && で繋がない — 前段が偽なら
+       後段が黙って走らず、それは「確認しなかった」であって「一致」ではない:
+        readlink ~/.claude/CLAUDE.md   # 空なら cp 配置の疑い。それ自体が所見
+        cmp CLAUDE.global.md ~/.claude/CLAUDE.md   # 差が無ければ無出力
+
+    本ファイルは別名なので、それ自体は Claude Code に自動ロードされない。
+    ⚠️ ただしリポの CLAUDE.md が @CLAUDE.global.md を持てば import され、
+       正典 (symlink 経由) と写しが同時に載る。確かめるには:
+        grep -n '@CLAUDE.global.md' CLAUDE.md
 -->
 
 # Global CLAUDE.md — 普遍ルール (ガードレール層)
@@ -47,6 +56,11 @@
 - **必ず確認を求める**: 破壊的・外向き・不可逆な操作。例) `rm -rf` / `chmod` / `sudo` /
   force-push / ブランチ削除 / 外部サービスへの送信・公開 / 本番反映。
 - 1 つの文脈での承認は別の文脈へは引き継がれない。都度判断する。
+- **git 取り込みは fast-forward を既定にする**: `main` などの追跡ブランチへの `git pull` は
+  fast-forward のみ許可し、分岐していたら黙ってマージせず**失敗させて**手動判断する
+  (`git config --global pull.ff only`)。マージバブルの誤生成を防ぎ、想定外の分岐 (ローカル
+  main への誤コミット・履歴書き換え) を大きな声で顕在化させる。上流へ追随してリベースしたい
+  時だけ `git pull --rebase` を明示する。
 - **PR は通常 PR を既定にする**: Draft を既定にせず、最初からレビュー可能な通常 PR として
   作成し、`Ready for review` への切り替え工程を作らない。Draft はユーザーが明示した場合、
   または merge 対象にしない umbrella PR の場合だけ使う。
