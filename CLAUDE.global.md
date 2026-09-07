@@ -1,18 +1,42 @@
 <!--
   CLAUDE.global.md — 全プロジェクト共通の「グローバル層」CLAUDE.md (リポ非依存)
 
+  ⚠️ このコメントブロックは Claude Code が読み込む版には含まれない (実測 2026-09-07:
+     注入された版は下の「# Global CLAUDE.md」から始まり、ここは 1 文字も入っていない)。
+     ⇒ 人間が読む設置手順であって、席に効く規則ではない。⛔ 席に守らせたい規則は
+     必ずこのコメントの外 (本文) に書く。⚠️ import 経路で剥がれるかは未測定。
+
   ■ これは何か
     どのリポジトリでも破ってはいけない普遍ルール (行動原則 / セキュリティ境界 /
     エスカレーション / スキル発火規律) だけを集約した薄いオーケストレーター層。
     リポ固有の規約は各リポの ./CLAUDE.md、詳細な作業規約は .claude/skills/ にある。
 
-  ■ 使い方 (手動配置)
-    このファイルは「共通名で全リポに同一コピー」されている版です。最終的には
-    各自のマシンで ~/.claude/CLAUDE.md として 1 つに集約して使うことを想定:
-        ln -s "$PWD/CLAUDE.global.md" ~/.claude/CLAUDE.md   # もしくは cp
-    Claude Code が自動ロードするのは CLAUDE.md / CLAUDE.local.md のみ。本ファイルは
-    別名なので自動ロードされず、プロジェクト CLAUDE.md と二重ロードされません。
-    内容は指定の全リポで完全同一に保つこと (どれか1つを直したら他リポへ同期)。
+  ■ 使い方 (配置と、同一性の確かめ方)
+    正典は obsidian-ai-pipeline の CLAUDE.global.md。各マシンでは
+    ~/.claude/CLAUDE.md がそこへの symlink であることを想定する:
+        cd "$(git rev-parse --show-toplevel)"   # 正典リポの checkout の【ルート】へ
+        test -f CLAUDE.global.md                # ⛔ 落ちたらここは正典ではない。止まる
+        ln -s "$PWD/CLAUDE.global.md" ~/.claude/CLAUDE.md
+    ⚠️ このコマンドは正典リポの checkout の中で実行すること。写しのリポで
+       実行すると ~/.claude/CLAUDE.md がその写しを指す。
+    ⛔ test -f を飛ばさない。ln -s は存在しない対象でも成功するので、サブ
+       ディレクトリで実行すると dangling な symlink が黙って作られ、グローバル層が
+       1 行も読まれなくなる (実測 2026-09-07: docs/ から実行して rc=0・対象は不在)。
+    ⚠️ cp で配置しない。コピーは正典が動いても何の signal も出さずに古くなる。
+
+    ⚠️ 他のリポにも同名の写しが置かれているが、同一である保証は無い。
+       主張ではなく確認で扱うこと。⛔ 2 つを && で繋がない — 前段が偽なら
+       後段が黙って走らず、それは「確認しなかった」であって「一致」ではない:
+        readlink ~/.claude/CLAUDE.md
+    ⛔ 出力が空でないことでは足りない。出力そのものを読み、正典リポの
+       CLAUDE.global.md を指していることを確かめる。写しを指していれば、下の
+       cmp はファイル自身との比較になり常に成功する — 壊れたまま緑を返す。
+        cmp CLAUDE.global.md ~/.claude/CLAUDE.md   # 差が無ければ無出力
+
+    本ファイルは別名なので、それ自体は Claude Code に自動ロードされない。
+    ⚠️ ただしリポの CLAUDE.md が @CLAUDE.global.md を持てば import され、
+       正典 (symlink 経由) と写しが同時に載る。確かめるには:
+        grep -n '@CLAUDE.global.md' CLAUDE.md
 -->
 
 # Global CLAUDE.md — 普遍ルール (ガードレール層)
@@ -47,6 +71,14 @@
 - **必ず確認を求める**: 破壊的・外向き・不可逆な操作。例) `rm -rf` / `chmod` / `sudo` /
   force-push / ブランチ削除 / 外部サービスへの送信・公開 / 本番反映。
 - 1 つの文脈での承認は別の文脈へは引き継がれない。都度判断する。
+- **git 取り込みは fast-forward を既定にする**: `main` などの追跡ブランチへの `git pull` は
+  fast-forward のみ許可し、分岐していたら黙ってマージせず**失敗させて**手動判断する
+  (`git config --global pull.ff only`)。マージバブルの誤生成を防ぎ、想定外の分岐 (ローカル
+  main への誤コミット・履歴書き換え) を大きな声で顕在化させる。上流へ追随してリベースしたい
+  時だけ `git pull --rebase` を明示する。
+  ⚠️ `git config --global` の行は**人間が一度だけ行う事前設定**であって、
+  エージェントへの指示ではない。global 設定の変更を禁じているリポがあるため、
+  エージェントは設定に触れず、呼び出しごとに `git pull --ff-only` を明示する。
 - **PR は通常 PR を既定にする**: Draft を既定にせず、最初からレビュー可能な通常 PR として
   作成し、`Ready for review` への切り替え工程を作らない。Draft はユーザーが明示した場合、
   または merge 対象にしない umbrella PR の場合だけ使う。
