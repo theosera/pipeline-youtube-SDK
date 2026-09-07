@@ -14,9 +14,14 @@
   ■ 使い方 (配置と、同一性の確かめ方)
     正典は obsidian-ai-pipeline の CLAUDE.global.md。各マシンでは
     ~/.claude/CLAUDE.md がそこへの symlink であることを想定する:
+        cd "$(git rev-parse --show-toplevel)"   # 正典リポの checkout の【ルート】へ
+        test -f CLAUDE.global.md                # ⛔ 落ちたらここは正典ではない。止まる
         ln -s "$PWD/CLAUDE.global.md" ~/.claude/CLAUDE.md
     ⚠️ このコマンドは正典リポの checkout の中で実行すること。写しのリポで
        実行すると ~/.claude/CLAUDE.md がその写しを指す。
+    ⛔ test -f を飛ばさない。ln -s は存在しない対象でも成功するので、サブ
+       ディレクトリで実行すると dangling な symlink が黙って作られ、グローバル層が
+       1 行も読まれなくなる (実測 2026-09-07: docs/ から実行して rc=0・対象は不在)。
     ⚠️ cp で配置しない。コピーは正典が動いても何の signal も出さずに古くなる。
 
     ⚠️ 他のリポにも同名の写しが置かれているが、同一である保証は無い。
