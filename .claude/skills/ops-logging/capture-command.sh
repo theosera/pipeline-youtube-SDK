@@ -365,6 +365,43 @@ mask() {
   # An over-reach the measurement caught was fixed rather than accepted: the
   # `-u` rule read `date -u '+%Y-%m-%dT%H:%M'` as a name and a secret, so its
   # name class excludes `%` and `+`.
+  # REPEATED -p / -a flags (#234, 2026-09-25): of `mysql -p<A> -p<B>` only the
+  # last value was masked -- the greedy word run before the flag swallowed the
+  # earlier ones. The two rules now run in a loop (`:m` ... `tm`, `:r` ...
+  # `tr`) until they match nothing, and each pass is global, so a pass masks
+  # the last reachable flag in every client's window at once and the passes
+  # are bounded by the flags in one twelve-word window, not by the line. (A
+  # pass WITHOUT `g` restarts at the start of the line once per occurrence:
+  # measured on a first spelling, 4,000 `redis-cli -a x` on one line took
+  # 195 s under BSD sed; a test pins the ratio.)
+  # Inside the loops a value is replaced by a SENTINEL, `***MASKEDP***`, not by
+  # the marker, and a value that begins with the sentinel is not a value to
+  # the looped rules -- that is what stops a pass from matching its own output:
+  # a masked occurrence is backtracked past and the next pass reaches the one
+  # before it. One rule right after the second loop turns every sentinel into
+  # `***MASKED***`, so the sentinel never leaves mask(); it is delimited with
+  # `#` so the shared redactor's lift of `s/<shape>/***MASKED***/g` rules does
+  # not read the sentinel as a secret shape. The exclusion is
+  # spelled as the complement of the sentinel's one prefix (a leading part of
+  # it, then any other character), so `***abc` and `*abc` are values. It is not
+  # keyed on the marker itself: the earlier token rules (`sk-`, `AKIA`, ...)
+  # and the in-range run rule leave `***MASKED***` at the START of a value
+  # with the rest of it after, and an exclusion on the marker left that rest
+  # in the clear where main masked it (change scan r4 on #243, reproduced).
+  # That complement needs a character after the leading part, so a value
+  # that IS a leading part (`*`, `**`), optionally followed by dashes (`*-`,
+  # `***M-`), matched nothing (Codex P1 on #243); a rule of its own inside each
+  # loop takes such a value when it ends there, and re-emits what ended it. It
+  # cannot take the sentinel, which is thirteen characters and is not followed
+  # by a dash. A run of five or more dashes also ends it (`-p*-----`,
+  # `-p***MASK-----rest`): the value class cannot cross that run, so without
+  # it such a value matched nothing and came out whole, where main masked the
+  # part before the run (Codex on the copies of #243, reproduced). The cost: a secret that begins with the literal `***MASKEDP***`
+  # is not masked by the looped rules (pinned).
+  # The word run and the value class are otherwise unchanged -- quoted values
+  # with spaces and flag-shaped words inside quoted arguments are left for
+  # #232, where a shell-aware reading of both was measured to need escapes, a
+  # fallback for unclosed quotes and bounded quoted pieces.
   sed -E \
     -e '/-----BEGIN PGP PRIVATE KEY BLOCK-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----/{x;s/.*/o/;x;}' \
     -e 's/gh[pousr]_[A-Za-z0-9]{20,}/***MASKED***/g' \
@@ -388,8 +425,15 @@ mask() {
     -e 's/AIza[0-9A-Za-z_-]{35}/***MASKED***/g' \
     -e 's/xox[baprs]-[A-Za-z0-9-]{10,}/***MASKED***/g' \
     -e "/\`\`\`|~~~/!s/((^|[[:space:]])(-u|--user)(=|[[:space:]]+)[\"']?[^[:space:]:\"'/%+]+:)([^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])+/\1***MASKED***/g" \
-    -e "/\`\`\`|~~~/!s/((mysql|mysqldump|mysqladmin|mariadb|mariadb-dump)([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+-p[\"']?)([^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])+/\1***MASKED***/g" \
-    -e "/\`\`\`|~~~/!s/(redis-cli([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+(-a|--pass)[[:space:]]+[\"']?)([^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])+/\1***MASKED***/g" \
+    -e ':m' \
+    -e "/\`\`\`|~~~/!s/((mysql|mysqldump|mysqladmin|mariadb|mariadb-dump)([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+-p[\"']?)([^[:space:]\"'*-]|\\*[^[:space:]\"'*-]|\\*-{1,4}[^[:space:]\"'-]|\\*\\*[^[:space:]\"'*-]|\\*\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*[^[:space:]\"'M-]|\\*\\*\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*M[^[:space:]\"'A-]|\\*\\*\\*M-{1,4}[^[:space:]\"'-]|\\*\\*\\*MA[^[:space:]\"'S-]|\\*\\*\\*MA-{1,4}[^[:space:]\"'-]|\\*\\*\\*MAS[^[:space:]\"'K-]|\\*\\*\\*MAS-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASK[^[:space:]\"'E-]|\\*\\*\\*MASK-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKE[^[:space:]\"'D-]|\\*\\*\\*MASKE-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKED[^[:space:]\"'P-]|\\*\\*\\*MASKED-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP[^[:space:]\"'*-]|\\*\\*\\*MASKEDP-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP\\*[^[:space:]\"'*-]|\\*\\*\\*MASKEDP\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP\\*\\*[^[:space:]\"'*-]|\\*\\*\\*MASKEDP\\*\\*-{1,4}[^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])([^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])*/\1***MASKEDP***/g" \
+    -e "/\`\`\`|~~~/!s/((mysql|mysqldump|mysqladmin|mariadb|mariadb-dump)([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+-p[\"']?)(\\*|\\*\\*|\\*\\*\\*|\\*\\*\\*M|\\*\\*\\*MA|\\*\\*\\*MAS|\\*\\*\\*MASK|\\*\\*\\*MASKE|\\*\\*\\*MASKED|\\*\\*\\*MASKEDP|\\*\\*\\*MASKEDP\\*|\\*\\*\\*MASKEDP\\*\\*)-{0,4}([[:space:]\"'|;&]|-----|$)/\1***MASKEDP***\5/g" \
+    -e 'tm' \
+    -e ':r' \
+    -e "/\`\`\`|~~~/!s/(redis-cli([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+(-a|--pass)[[:space:]]+[\"']?)([^[:space:]\"'*-]|\\*[^[:space:]\"'*-]|\\*-{1,4}[^[:space:]\"'-]|\\*\\*[^[:space:]\"'*-]|\\*\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*[^[:space:]\"'M-]|\\*\\*\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*M[^[:space:]\"'A-]|\\*\\*\\*M-{1,4}[^[:space:]\"'-]|\\*\\*\\*MA[^[:space:]\"'S-]|\\*\\*\\*MA-{1,4}[^[:space:]\"'-]|\\*\\*\\*MAS[^[:space:]\"'K-]|\\*\\*\\*MAS-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASK[^[:space:]\"'E-]|\\*\\*\\*MASK-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKE[^[:space:]\"'D-]|\\*\\*\\*MASKE-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKED[^[:space:]\"'P-]|\\*\\*\\*MASKED-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP[^[:space:]\"'*-]|\\*\\*\\*MASKEDP-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP\\*[^[:space:]\"'*-]|\\*\\*\\*MASKEDP\\*-{1,4}[^[:space:]\"'-]|\\*\\*\\*MASKEDP\\*\\*[^[:space:]\"'*-]|\\*\\*\\*MASKEDP\\*\\*-{1,4}[^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])([^[:space:]\"'-]|-{1,4}[^[:space:]\"'-])*/\1***MASKEDP***/g" \
+    -e "/\`\`\`|~~~/!s/(redis-cli([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+(-a|--pass)[[:space:]]+[\"']?)(\\*|\\*\\*|\\*\\*\\*|\\*\\*\\*M|\\*\\*\\*MA|\\*\\*\\*MAS|\\*\\*\\*MASK|\\*\\*\\*MASKE|\\*\\*\\*MASKED|\\*\\*\\*MASKEDP|\\*\\*\\*MASKEDP\\*|\\*\\*\\*MASKEDP\\*\\*)-{0,4}([[:space:]\"'|;&]|-----|$)/\1***MASKEDP***\5/g" \
+    -e 'tr' \
+    -e 's#\*\*\*MASKEDP\*\*\*#***MASKED***#g' \
     -e '/^[[:space:]]*[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/.*/***MASKED***/' \
     -e '/^[[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-)[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/^([[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-))[A-Za-z0-9+\/=]{32,}([[:space:]]*)$/\1***MASKED***\3/'
 }
