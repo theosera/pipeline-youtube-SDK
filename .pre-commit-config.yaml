@@ -23,3 +23,14 @@ repos:
     rev: v8.18.4
     hooks:
       - id: gitleaks
+      # CI variant. The hook above runs `gitleaks protect --staged`, which only
+      # sees staged changes — in CI nothing is staged, so it passes without
+      # scanning anything. This alias scans the git history instead (tracked
+      # content only, so the uv-created .venv is not picked up). Manual stage
+      # keeps it out of local commits; CI runs it with
+      # `pre-commit run gitleaks-ci --hook-stage manual` on a full-depth clone.
+      - id: gitleaks
+        alias: gitleaks-ci
+        name: Detect hardcoded secrets (git history, CI)
+        entry: gitleaks detect --redact --verbose
+        stages: [manual]

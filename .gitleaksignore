@@ -1,0 +1,6 @@
+# gitleaks findings accepted as not secret. One fingerprint per line
+# (<commit>:<file>:<rule>:<line>), so a new key elsewhere is still reported.
+#
+# Public iOS-app InnerTube API key — it ships in the YouTube iOS app and is
+# documented as such next to INNERTUBE_API_KEY in innertube.py.
+b7632b70832ce0acb6c763c8a465f3b4d567a0fa:pipeline_youtube/transcript/innertube.py:gcp-api-key:45
