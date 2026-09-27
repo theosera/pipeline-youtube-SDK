@@ -77,7 +77,7 @@ NET_VERB_RE = re.compile(
 )
 
 # 雛形ファイル。秘密を持たないので、**その名前だけ**を免除の対象にする。
-# ★ S13 の permissions.deny がこの集合に揃える。片方だけ変えないこと。
+# ★ user 層の ~/.claude/hooks/block-secret-egress.py（block-secret-file-access.py が import する写し）の同じ集合と揃える。照合は claude-user-hooks の tests/check_secret_set_parity.py。片方だけ変えないこと。
 _EXAMPLE_ENV_SUFFIXES = "example|sample|template|dist"
 # サフィックスはファイル名の**末尾**でなければならない。`\b` 終端だと `.env.sample.local` /
 # `.env.template.prod` が `e|.` 境界で成立し、実ファイルを雛形と誤認する。名前が続き得る
