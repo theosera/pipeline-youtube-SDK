@@ -322,9 +322,8 @@ mask() {
   #     unbounded word run let every start on a line of repeated client names
   #     scan to the end before failing, quadratic under glibc's regex (the
   #     change scan's F1; BSD sed stays linear either way). `passwd` and
-  #     `passphrase` (`--passphrase V`, `--passphrase=V`; a QUOTED phrase is not
-  #     handled here -- its rules were taken out of this change with #186's)
-  #     get a rule of their OWN, right after the keyword fallback, and are NOT in
+  #     `passphrase` (`--passphrase V`, `--passphrase=V`) get a rule of
+  #     their OWN, right after the keyword fallback, and are NOT in
   #     the shared alternation: there, a leftmost match starting on them took
   #     the real keyword after them as their value -- `--passphrase --key S`,
   #     or a prompt's closing quote before `PASSWORD="a b c"` -- and the secret
@@ -402,6 +401,16 @@ mask() {
   # with spaces and flag-shaped words inside quoted arguments are left for
   # #232, where a shell-aware reading of both was measured to need escapes, a
   # fallback for unclosed quotes and bounded quoted pieces.
+  # A QUOTED passwd / passphrase value (#232: `--passphrase "a b"`,
+  # `passwd: 'a b'`) is taken to its closing quote by one rule per quote,
+  # placed AFTER the argument-position loops. A quoted rule can start at the
+  # closing quote of a label (`"Enter passwd: "`) and take everything up to
+  # the next quote; placed before the `-u`, mysql and redis-cli rules, that
+  # span removed the flag or client name they key on, and the quoted
+  # credential after it -- masked on main -- was written out (change scan F1 /
+  # F2 on #232 a, reproduced). After every rule that reads a value, the span
+  # can only mask more. The cost: text between a label's closing quote and
+  # the next quote is masked too (`grep "passwd:"***MASKED***"...`).
   sed -E \
     -e '/-----BEGIN PGP PRIVATE KEY BLOCK-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----/{x;s/.*/o/;x;}' \
     -e 's/gh[pousr]_[A-Za-z0-9]{20,}/***MASKED***/g' \
@@ -434,6 +443,8 @@ mask() {
     -e "/\`\`\`|~~~/!s/(redis-cli([[:space:]]+[^[:space:]|;&]+){0,12}[[:space:]]+(-a|--pass)[[:space:]]+[\"']?)(\\*|\\*\\*|\\*\\*\\*|\\*\\*\\*M|\\*\\*\\*MA|\\*\\*\\*MAS|\\*\\*\\*MASK|\\*\\*\\*MASKE|\\*\\*\\*MASKED|\\*\\*\\*MASKEDP|\\*\\*\\*MASKEDP\\*|\\*\\*\\*MASKEDP\\*\\*)-{0,4}([[:space:]\"'|;&]|-----|$)/\1***MASKEDP***\5/g" \
     -e 'tr' \
     -e 's#\*\*\*MASKEDP\*\*\*#***MASKED***#g' \
+    -e "/\`\`\`|~~~/!s/((passwd|passphrase)['\"]?[=:[:space:]]+\")([^\"\\\\-]|\\\\.|-{1,4}([^\"\\\\-]|\\\\.))*-{0,4}\"/\1***MASKED***\"/Ig" \
+    -e "/\`\`\`|~~~/!s/((passwd|passphrase)['\"]?[=:[:space:]]+')([^'\\\\-]|\\\\.|-{1,4}([^'\\\\-]|\\\\.))*-{0,4}'/\1***MASKED***'/Ig" \
     -e '/^[[:space:]]*[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/.*/***MASKED***/' \
     -e '/^[[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-)[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/^([[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-))[A-Za-z0-9+\/=]{32,}([[:space:]]*)$/\1***MASKED***\3/'
 }
@@ -468,9 +479,13 @@ clip() {
 
 # ⭐ 予算は【行 1 本】に対して掛ける。⛔ フィールドごとに掛けると、両方が上限に
 #    達した行が上限の 2 倍になる (実測: 2,000 B を超える intent が 26 行 実在)。
-intent_masked="$(clip "$(printf '%s' "$intent" | mask | tr '\n' ' ')" "$INTENT_BYTES")"
+# ⭐ 畳むのは LF と【単独の CR】の両方 (#246)。CommonMark は CR も行末とみなすので、
+#    LF だけを畳むと、コマンドや intent の中の CR で表の行が終わり、残りが表の外の
+#    地の文として描画された。⛔ U+2028 / U+2029 / 改ページは CommonMark の行末ではない
+#    ので畳まない (畳むと、読み手が 1 行と見るものを書き手が変えることになる)。
+intent_masked="$(clip "$(printf '%s' "$intent" | mask | tr '\r\n' '  ')" "$INTENT_BYTES")"
 intent_n=$(printf '%s' "$intent_masked" | wc -c | tr -d ' ')
-cmd_masked="$(clip "$(printf '%s' "$cmd"    | mask | tr '\n' ' ')" "$(( CLIP_BYTES - intent_n ))")"
+cmd_masked="$(clip "$(printf '%s' "$cmd"    | mask | tr '\r\n' '  ')" "$(( CLIP_BYTES - intent_n ))")"
 
 # --- route to <origin_repo>/<date>.md ------------------------------------
 # Every repo logs into its OWN folder, named after the origin repo — created
