@@ -16,9 +16,12 @@ repos:
         args: [--maxkb=500]
       - id: check-merge-conflict
 
-  # Secret scanning: block commits that contain .env values, API keys, OAuth
-  # client secrets, private keys, tokens, etc. Run `pre-commit autoupdate` to
-  # pin the latest gitleaks release.
+  # Secret scanning (.env values, API keys, OAuth client secrets, private keys,
+  # tokens, etc.). Enforced in CI: the `Secret scan (gitleaks)` job runs the
+  # gitleaks-ci alias below over the git history. The local `gitleaks` hook
+  # blocks a commit only where pre-commit hooks are enabled — that is opt-in
+  # (`uv sync` does not install them). Run `pre-commit autoupdate` to pin the
+  # latest gitleaks release.
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.18.4
     hooks:
