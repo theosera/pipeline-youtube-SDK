@@ -93,6 +93,22 @@ jobs:
             *) echo "::error::pip-audit failed to run (exit $rc)"; exit "$rc" ;;
           esac
 
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the gitleaks-ci hook scans commits, not the work tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-python-uv
+
+      # gitleaks is pinned by the `rev` in .pre-commit-config.yaml — no extra
+      # third-party action. Known false positives go in .gitleaksignore.
+      - name: gitleaks (git history)
+        run: uv run pre-commit run gitleaks-ci --hook-stage manual
+
   docker-scan:
     name: Docker base image scan
     runs-on: ubuntu-latest
