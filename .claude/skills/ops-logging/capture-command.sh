@@ -293,6 +293,18 @@ mask() {
   #     continuation after a masked value (its escape alternative deleted an
   #     escaped space). Owner decision on this change took all of them out;
   #     they are tracked for a change of their own (#232, #186).
+  #     #186 is now handled (#232): one rule reads a masked value that sits
+  #     right after an opening single quote and is followed by `''` and the
+  #     rest of the scalar (`'***MASKED***''fix'`), and masks it to the closing
+  #     quote. The opening quote is required: a marker another rule left
+  #     (`curl -u user:***MASKED***'' https://x; echo 'done'`) is followed by a
+  #     shell's empty `''`, not a YAML escape, and without it the rule deleted
+  #     everything up to the next apostrophe (Codex on #250). It runs AFTER every rule that reads a value -- right
+  #     after the quoted passwd / passphrase rules -- so it can only mask more,
+  #     and it reads no backslash escapes (YAML single quotes have none). The
+  #     same rule placed before the keyword fallback, where the tried
+  #     continuation ran, turned about 1,050 of 4,000 random lines per seed
+  #     into regressions against main; placed last, none.
   #   * `PGP PRIVATE KEY BLOCK` and the RFC 4716 armor
   #     (`---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----`, four dashes and spaces)
   #     never opened the range. The first is broken by the keyword rules before
@@ -445,6 +457,7 @@ mask() {
     -e 's#\*\*\*MASKEDP\*\*\*#***MASKED***#g' \
     -e "/\`\`\`|~~~/!s/((passwd|passphrase)['\"]?[=:[:space:]]+\")([^\"\\\\-]|\\\\.|-{1,4}([^\"\\\\-]|\\\\.))*-{0,4}\"/\1***MASKED***\"/Ig" \
     -e "/\`\`\`|~~~/!s/((passwd|passphrase)['\"]?[=:[:space:]]+')([^'\\\\-]|\\\\.|-{1,4}([^'\\\\-]|\\\\.))*-{0,4}'/\1***MASKED***'/Ig" \
+    -e "/\`\`\`|~~~/!s/'\\*\\*\\*MASKED\\*\\*\\*''([^']|'')*'/'***MASKED***'/g" \
     -e '/^[[:space:]]*[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/.*/***MASKED***/' \
     -e '/^[[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-)[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/^([[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-))[A-Za-z0-9+\/=]{32,}([[:space:]]*)$/\1***MASKED***\3/'
 }
