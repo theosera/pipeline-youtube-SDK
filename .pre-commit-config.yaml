@@ -34,3 +34,6 @@ repos:
         name: Detect hardcoded secrets (git history, CI)
         entry: gitleaks detect --redact --verbose
         stages: [manual]
+        # A CI checkout has a clean index, so pre-commit finds no candidate
+        # files and would skip the hook ("(no files to check)Skipped").
+        always_run: true
