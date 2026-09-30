@@ -193,17 +193,29 @@ def build_frontmatter(
 
 _FRONTMATTER_FIELD_TEMPLATE = '{key}: "{value}"'
 
+# Bound on how much of an md we read when looking for frontmatter fields.
+# 500 was too small: a Stage 02 summary with a long CJK title + playlist + the
+# `one_liner` upsert routinely lands the closing `---` past byte 500, and the
+# reader then returned None for *every* field — including `reviewed`. Phase 3
+# (`--resume-reviewed`) gates on that field, so those notes were silently
+# skipped after the operator flipped `reviewed: true`. 8 KiB covers the
+# worst-case title (YouTube 100 chars) + playlist + one_liner (60) with ample
+# headroom while still bounding pathological files for batch scans.
+_FRONTMATTER_READ_LIMIT = 8192
+
 
 def read_frontmatter_field(md_path: Path, field_name: str) -> str | None:
     """Return the string value of `field_name` from the YAML frontmatter.
 
-    Reads the first 500 bytes only (fast enough for batch scans). Matches
-    both quoted (`key: "value"`) and bare (`key: value`) forms. Returns
-    None when the field is absent or the file is unreadable.
+    Reads up to ``_FRONTMATTER_READ_LIMIT`` bytes (enough for any frontmatter
+    this pipeline writes; see the constant). Matches both quoted
+    (`key: "value"`) and bare (`key: value`) forms. Returns None when the
+    field is absent, the closing ``---`` is beyond the limit, or the file is
+    unreadable.
     """
     try:
         with md_path.open("rb") as f:
-            head = f.read(500).decode("utf-8", errors="ignore")
+            head = f.read(_FRONTMATTER_READ_LIMIT).decode("utf-8", errors="ignore")
     except OSError:
         return None
     if not head.startswith("---"):
