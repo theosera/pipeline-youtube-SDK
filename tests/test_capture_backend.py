@@ -123,6 +123,41 @@ class TestAdoptYtdlpOutput:
         assert dest.read_bytes() == b"real-download"
         assert thumb.exists()
 
+    @pytest.mark.parametrize("ext", [".3gp", ".flv"])
+    def test_adopts_single_file_fallback_container(self, tmp_path: Path, ext: str):
+        """The last `best[height<=R]` fallback is not merged, so it keeps its own container.
+
+        yt-dlp writes `{id}.3gp` (YouTube itag 17) or `{id}.flv` complete;
+        `merge_output_format` only applies to a merge. Newer leftovers still lose.
+        """
+        dest = tmp_path / "abc123abc12.mp4"
+        complete = tmp_path / f"abc123abc12{ext}"
+        complete.write_bytes(b"real-download")
+        past = time.time() - 3600
+        os.utime(complete, (past, past))
+        leftovers = {
+            tmp_path / f"abc123abc12.f17{ext}": b"partial-dash",
+            tmp_path / f"abc123abc12{ext}.part": b"incomplete",
+            tmp_path / "abc123abc12.webp": b"thumbnail",
+        }
+        for path, data in leftovers.items():
+            path.write_bytes(data)
+        _adopt_ytdlp_output(dest)
+        assert dest.read_bytes() == b"real-download"
+        assert not complete.exists()
+        assert {p: p.read_bytes() for p in leftovers} == leftovers
+
+    @pytest.mark.parametrize("ext", [".3gp", ".flv"])
+    def test_single_file_leftovers_only_are_not_adopted(self, tmp_path: Path, ext: str):
+        dest = tmp_path / "abc123abc12.mp4"
+        leftovers = [tmp_path / f"abc123abc12.f17{ext}", tmp_path / f"abc123abc12{ext}.part"]
+        for path in leftovers:
+            path.write_bytes(b"partial")
+        with pytest.raises(FileNotFoundError, match="produced no file"):
+            _adopt_ytdlp_output(dest)
+        assert all(p.exists() for p in leftovers)
+        assert not dest.exists()
+
 
 class TestDownloadVideoSkipsLeftoverFragment:
     """Both backends adopt yt-dlp's output through `_adopt_ytdlp_output`.
@@ -188,6 +223,26 @@ class TestClearYtdlpOutputs:
         _clear_ytdlp_outputs(tmp_path / f"{stem}.mp4")
         assert [f for f in containers if f.exists()] == []
         assert all(f.exists() for f in kept)
+
+    @pytest.mark.parametrize("ext", [".3gp", ".flv"])
+    def test_removes_single_file_fallback_containers(self, tmp_path: Path, ext: str):
+        stem = "abc123abc12"
+        complete = tmp_path / f"{stem}{ext}"
+        complete.write_bytes(b"old-download")
+        kept = {
+            tmp_path / f"{stem}.f17{ext}": b"partial-dash",
+            tmp_path / f"{stem}.f137.mp4": b"partial-dash",
+            tmp_path / f"{stem}{ext}.part": b"incomplete",
+            tmp_path / f"{stem}.webp": b"thumbnail",
+            tmp_path / f"{stem}.f140.m4a": b"audio",
+            tmp_path / f"{stem}.m4a": b"audio",
+            tmp_path / f"zzz999zzz99{ext}": b"another-video",
+        }
+        for path, data in kept.items():
+            path.write_bytes(data)
+        _clear_ytdlp_outputs(tmp_path / f"{stem}.mp4")
+        assert not complete.exists()
+        assert {p: p.read_bytes() for p in kept} == kept
 
 
 def _future_mtime(path: Path) -> None:

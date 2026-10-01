@@ -81,8 +81,11 @@ class CaptureBackend(Protocol):
 # prior download of the same id leaves DASH fragments named `{stem}.f137.mp4`
 # beside them. A naive `{stem}.*` glob sorts those fragments first (`.f` <
 # `.m`/`.w`) and would rename the leftover onto dest, so ffmpeg then captures
-# from a partial file.
-_YTDLP_MEDIA_SUFFIXES = frozenset({".mp4", ".mkv", ".webm", ".m4v"})
+# from a partial file. When the format chain falls through to the last
+# `best[height<=R]`, nothing is merged, `merge_output_format` does not apply,
+# and the file keeps that format's own container (`.3gp` for YouTube itag 17;
+# `.flv` for single-file FLV formats).
+_YTDLP_MEDIA_SUFFIXES = frozenset({".mp4", ".mkv", ".webm", ".m4v", ".3gp", ".flv"})
 
 
 def _ytdlp_containers(dest: Path) -> list[Path]:
