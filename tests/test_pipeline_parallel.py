@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from pipeline_youtube.pipeline import NoteReservations
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.capture import VideoPrefetch, prefetch_video_download
@@ -248,6 +249,7 @@ class TestPrefetchSkippedOnCacheHit:
             stop_after_capture=True,  # short-circuit before Stage 04
             cache=_FakeCache(),  # only get_video is exercised (stages are stubbed)
             vault_root=tmp_path,
+            reservations=NoteReservations(),
         )
         return prefetch_calls["n"]
 

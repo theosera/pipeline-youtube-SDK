@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import threading
 import unicodedata
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -83,12 +84,21 @@ def compute_note_paths(
     return paths
 
 
-# Paths handed out by `reserve_note_paths` in this process, keyed by
-# `_reservation_key`. 04 is never written as an empty placeholder (and a
-# dry run writes nothing), so the filesystem alone cannot tell a concurrent
-# task that such a path is already taken.
-_reservation_lock = threading.Lock()
-_reserved_paths: set[str] = set()
+@dataclass(eq=False)
+class NoteReservations:
+    """Note paths handed out by `reserve_note_paths` during one pipeline run.
+
+    Keyed by `_reservation_key`. 04 is never written as an empty placeholder
+    (and a dry run writes nothing), so the filesystem alone cannot tell a
+    concurrent task of the same run that such a path is already taken.
+
+    Create one per run and share it across that run's tasks. A registry that
+    outlived the run would make a later run in the same process skip paths
+    nothing occupies: a dry run followed by a real run picked ``-2``.
+    """
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    keys: set[str] = field(default_factory=set)
 
 
 def _reservation_key(path: Path) -> str:
@@ -106,14 +116,15 @@ def reserve_note_paths(
     video: VideoMeta,
     run_time: datetime,
     *,
+    reservations: NoteReservations,
     dry_run: bool = False,
     vault_root: Path,
 ) -> dict[str, Path]:
     """Reserve one path per unit for ``video`` and create the 01-03 placeholders.
 
     The whole set shares one suffix (``""``, ``-2``, ``-3`` ...): the first
-    suffix that is free on disk and not reserved by another task in this
-    process for every unit. Under ``--concurrency`` >= 2 two same-title videos
+    suffix that is free on disk and not in ``reservations`` (this run's other
+    tasks) for every unit. Under ``--concurrency`` >= 2 two same-title videos
     otherwise pick the same stem and overwrite each other's notes (#182).
 
     ``vault_root`` is injected by the caller (``runtime.vault_root``).
@@ -125,17 +136,17 @@ def reserve_note_paths(
         rel_path = f"{LEARNING_BASE}/{unit_dir}/{playlist_folder}"
         folders[unit_key] = vault_root / ensure_safe_path(rel_path, vault_root=vault_root)
 
-    with _reservation_lock:
+    with reservations.lock:
         i = 1
         while True:
             suffix = "" if i == 1 else f"-{i}"
             candidate = {k: f / f"{note_base}{suffix}.md" for k, f in folders.items()}
             if not any(
-                p.exists() or _reservation_key(p) in _reserved_paths for p in candidate.values()
+                p.exists() or _reservation_key(p) in reservations.keys for p in candidate.values()
             ):
                 break
             i += 1
-        _reserved_paths.update(_reservation_key(p) for p in candidate.values())
+        reservations.keys.update(_reservation_key(p) for p in candidate.values())
 
         # Written before the lock is released, so a task that reserves next
         # sees these files on disk even under a spelling the registry key

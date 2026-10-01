@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from pipeline_youtube import video_processing as vp_mod
-from pipeline_youtube.pipeline import LEARNING_BASE, UNIT_DIRS
+from pipeline_youtube.pipeline import LEARNING_BASE, UNIT_DIRS, NoteReservations
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.providers.base import LLMResponse
 from pipeline_youtube.resume import (
@@ -246,6 +246,7 @@ class TestResumeReviewedProcessing:
             playlist_title="testlist",
             cache=Cache(None, enabled=False),
             vault_root=tmp_path,
+            reservations=NoteReservations(),
         )
 
         assert result.ok
@@ -299,6 +300,7 @@ class TestResumeReviewedProcessing:
             playlist_title="testlist",
             cache=Cache(None, enabled=False),
             vault_root=tmp_path,
+            reservations=NoteReservations(),
         )
 
         assert result.ok
@@ -319,6 +321,7 @@ class TestResumeReviewedProcessing:
             playlist_title=None,
             cache=Cache(None, enabled=False),
             vault_root=tmp_path,
+            reservations=NoteReservations(),
         )
 
         assert not result.ok
