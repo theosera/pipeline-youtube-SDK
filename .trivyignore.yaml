@@ -44,3 +44,65 @@ vulnerabilities:
       解消条件: 上流 python:3.14-slim が msgpack >= 1.2.1 を含む digest を
       publish し、その digest へ pin を張り替える。
     expired_at: 2026-12-03
+
+  # ── SDK Issue #156（2026-10-01）: pin 済み base image caaf356f の HIGH 5 件 ──
+  # 上流 python:3.14-slim の amd64 は 09-19 から作り直されていない（2026-10-01 に確認）。
+  # Debian と PyPI には直った版があるので、上流が作り直した digest へ張り替えたら、5 項目とも消す。
+
+  - id: CVE-2026-103111
+    statement: |
+      libpcre2-8-0 10.46-1~deb13u2 (fixed: 10.46-1~deb13u3) — 細工した正規表現での out-of-bounds write。
+
+      見逃している内容: pin 済み base image の Debian パッケージ。capture image の実行時エントリ
+      (yt-dlp / ffmpeg / gif2webp) が libpcre2 を読み込むか、外から来た正規表現を渡す経路があるかは
+      未評価。
+
+      解消条件: 上流 python:3.14-slim が libpcre2-8-0 >= 10.46-1~deb13u3 を含む digest を publish し、
+      その digest へ pin を張り替える。
+    expired_at: 2026-10-31
+
+  - id: CVE-2026-75804
+    statement: |
+      libssl3t64 / openssl / openssl-provider-legacy 3.5.7-1~deb13u2 (fixed: 3.5.7-1~deb13u3) —
+      QUIC の接続フロー制御が効かないことによる DoS。
+
+      見逃している内容: pin 済み base image の Debian パッケージ。capture image では yt-dlp が
+      TLS で外部に接続する（Python の ssl は通常この libssl を使うが、この image で確かめてはいない）。
+      QUIC を使う経路があるかは未評価。
+
+      解消条件: 上流 python:3.14-slim が openssl 系 >= 3.5.7-1~deb13u3 を含む digest を publish し、
+      その digest へ pin を張り替える。
+    expired_at: 2026-10-31
+
+  - id: CVE-2026-84782
+    statement: |
+      libssl3t64 / openssl / openssl-provider-legacy 3.5.7-1~deb13u2 (fixed: 3.5.7-1~deb13u3) —
+      DTLS のハンドシェイク再送による情報漏えい。
+
+      見逃している内容: 同上（libssl が実行時に使われるかは、この image で確かめていない）。
+      DTLS を使う経路があるかは未評価。
+
+      解消条件: CVE-2026-75804 と同じ。
+    expired_at: 2026-10-31
+
+  - id: CVE-2026-97687
+    statement: |
+      urllib3 2.7.0 (fixed: 2.8.0) — HTTPS proxy の TLS 設定の上書きによる通信の傍受。
+
+      見逃している内容: pin 済み base image の中の urllib3（Trivy の Target は "Python"）。
+      image の中のどのファイルか（pip が抱えている版か）は CI のログからは分からない。
+      このリポ自身の uv.lock は 2.8.0（SDK #154・py #191）で、必須の Dependency audit は通っている。
+      capture image の実行時にこの urllib3 が読み込まれるかは未評価。
+
+      解消条件: 上流 python:3.14-slim が urllib3 >= 2.8.0 を含む digest を publish し、
+      その digest へ pin を張り替える。
+    expired_at: 2026-10-31
+
+  - id: CVE-2026-97689
+    statement: |
+      urllib3 2.7.0 (fixed: 2.8.0) — chunk の解析で上限の無いメモリ確保による DoS。
+
+      見逃している内容: CVE-2026-97687 と同じ。
+
+      解消条件: CVE-2026-97687 と同じ。
+    expired_at: 2026-10-31
