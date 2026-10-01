@@ -135,6 +135,42 @@ class TestFilterToReviewed:
             _find_summary_md(_VID_A, "testlist", resume_time, vault_root=tmp_path) == newer / "a.md"
         )
 
+    def test_reviewed_gate_survives_cjk_title_and_one_liner(self, tmp_path: Path):
+        """``--resume-reviewed`` must not skip notes whose frontmatter exceeds 500 bytes.
+
+        Stage 02 upserts ``one_liner`` into the summary frontmatter. With a long
+        CJK title that push puts the closing ``---`` past the old 500-byte read
+        window, and ``read_frontmatter_field(..., "reviewed")`` returned None —
+        so Phase 3 treated an operator-approved note as unreviewed.
+        """
+        from pipeline_youtube.services.obsidian import build_frontmatter, upsert_frontmatter_field
+
+        dt = datetime(2026, 4, 18, 8, 0)
+        folder = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"] / "2026-04-18-0800 testlist"
+        summary = folder / "a.md"
+        summary.parent.mkdir(parents=True, exist_ok=True)
+
+        fm = build_frontmatter(
+            dt=dt,
+            title="あ" * 60,
+            url=f"https://www.youtube.com/watch?v={_VID_A}",
+            tags=["memo", "youtube"],
+            extra={
+                "playlist": "い" * 10,
+                "video_id": _VID_A,
+                "reviewed": "true",
+            },
+        )
+        fm = upsert_frontmatter_field(fm, "one_liner", "う" * 40)
+        assert len(fm.encode("utf-8")) > 500
+        summary.write_text(fm + "\nbody\n", encoding="utf-8")
+
+        found = _find_reviewed_summary_md(_VID_A, "testlist", dt, vault_root=tmp_path)
+        kept = _filter_to_reviewed([(1, _vid(_VID_A))], "testlist", dt, vault_root=tmp_path)
+
+        assert found == summary
+        assert [v.video_id for _, v in kept] == [_VID_A]
+
 
 def _write_capture(path: Path, video_id: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
