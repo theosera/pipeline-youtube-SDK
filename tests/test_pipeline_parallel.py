@@ -193,8 +193,7 @@ class TestPrefetchSkippedOnCacheHit:
 
         # Stub _process_video collaborators so only the prefetch decision matters.
         paths = {k: tmp_path / f"{k}.md" for k in ("scripts", "summary", "capture", "learning")}
-        monkeypatch.setattr(main_mod, "compute_note_paths", lambda video, run_time, **kw: paths)
-        monkeypatch.setattr(main_mod, "create_placeholder_notes", lambda *a, **kw: None)
+        monkeypatch.setattr(main_mod, "reserve_note_paths", lambda video, run_time, **kw: paths)
         monkeypatch.setattr(
             main_mod,
             "run_stage_scripts",
