@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from .glossary import Glossary
-from .pipeline import compute_note_paths, create_placeholder_notes
+from .pipeline import NoteReservations, reserve_note_paths
 from .playlist import VideoMeta
 from .resume import (
     _find_reviewed_summary_md,
@@ -54,7 +54,7 @@ def _process_reviewed_video(
 ) -> VideoRunResult:
     """Phase 3 path: reuse reviewed 02/03 notes and run only Stage 04.
 
-    ``--resume-reviewed`` must not call ``create_placeholder_notes`` /
+    ``--resume-reviewed`` must not call ``reserve_note_paths`` /
     stages 01-03: those would allocate collision suffixes (``-2``) beside the
     Phase 1 notes and Stage 04 would consume a fresh unreviewed summary.
     """
@@ -131,6 +131,7 @@ def _process_video(
     use_innertube: bool = True,
     cache: Cache,
     vault_root: Path,
+    reservations: NoteReservations,
 ) -> VideoRunResult:
     try:
         if resume_reviewed:
@@ -150,8 +151,9 @@ def _process_video(
                 vault_root=vault_root,
             )
 
-        paths = compute_note_paths(video, run_time, vault_root=vault_root)
-        create_placeholder_notes(video, run_time, dry_run=dry_run, vault_root=vault_root)
+        paths = reserve_note_paths(
+            video, run_time, reservations=reservations, dry_run=dry_run, vault_root=vault_root
+        )
 
         correct_model = models["stage_01_correct"] if correct_transcript else None
         if correct_model:
@@ -355,6 +357,7 @@ async def _run_videos_concurrent(
     use_innertube: bool = True,
     cache: Cache,
     vault_root: Path,
+    reservations: NoteReservations,
 ) -> list[VideoRunResult]:
     """Process multiple videos concurrently with bounded parallelism."""
     sem = asyncio.Semaphore(concurrency)
@@ -383,6 +386,7 @@ async def _run_videos_concurrent(
                 use_innertube=use_innertube,
                 cache=cache,
                 vault_root=vault_root,
+                reservations=reservations,
             )
 
     tasks = [_task(i, v) for i, v in enumerate(videos, 1)]

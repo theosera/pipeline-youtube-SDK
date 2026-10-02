@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
+from pipeline_youtube.pipeline import NoteReservations
 from pipeline_youtube.playlist import VideoMeta
 from pipeline_youtube.services.cache import Cache
 from pipeline_youtube.stages.capture import VideoPrefetch, prefetch_video_download
@@ -193,8 +194,7 @@ class TestPrefetchSkippedOnCacheHit:
 
         # Stub _process_video collaborators so only the prefetch decision matters.
         paths = {k: tmp_path / f"{k}.md" for k in ("scripts", "summary", "capture", "learning")}
-        monkeypatch.setattr(main_mod, "compute_note_paths", lambda video, run_time, **kw: paths)
-        monkeypatch.setattr(main_mod, "create_placeholder_notes", lambda *a, **kw: None)
+        monkeypatch.setattr(main_mod, "reserve_note_paths", lambda video, run_time, **kw: paths)
         monkeypatch.setattr(
             main_mod,
             "run_stage_scripts",
@@ -249,6 +249,7 @@ class TestPrefetchSkippedOnCacheHit:
             stop_after_capture=True,  # short-circuit before Stage 04
             cache=_FakeCache(),  # only get_video is exercised (stages are stubbed)
             vault_root=tmp_path,
+            reservations=NoteReservations(),
         )
         return prefetch_calls["n"]
 
