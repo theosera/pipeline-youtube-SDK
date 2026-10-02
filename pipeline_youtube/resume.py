@@ -82,6 +82,7 @@ def _find_unit_md(
     *,
     vault_root: Path,
     preferred_folder_name: str | None = None,
+    preferred_stem: str | None = None,
 ) -> Path | None:
     """Locate an existing unit md for `video_id` within a given run date.
 
@@ -94,6 +95,12 @@ def _find_unit_md(
     resolved for a sibling unit (e.g. reuse the Stage 02 folder when locating
     Stage 03), so 02/03/04 stay aligned even when several same-day folders exist.
     A pinned lookup that misses returns None rather than falling back — see below.
+
+    ``preferred_stem`` further pins the note basename inside that folder. A
+    same-minute Phase 1 rerun leaves ``title.md`` beside ``title-2.md`` for the
+    same ``video_id``; scanning ``*.md`` can return the stale sibling and pair a
+    reviewed summary with the wrong capture. When the stem is pinned, only that
+    exact file is accepted.
     """
     base = _unit_base_dir(unit_key, vault_root=vault_root)
     if base is None:
@@ -107,6 +114,11 @@ def _find_unit_md(
         # the caller report reviewed_capture_not_found instead of mixing runs.
         preferred = base / preferred_folder_name
         if not preferred.exists():
+            return None
+        if preferred_stem is not None:
+            candidate = preferred / f"{preferred_stem}.md"
+            if candidate.exists() and read_trusted_video_id(candidate) == video_id:
+                return candidate
             return None
         for md in preferred.glob("*.md"):
             if read_trusted_video_id(md) == video_id:
