@@ -66,6 +66,11 @@ def _process_reviewed_video(
     if summary_md is None:
         return VideoRunResult(video=video, error="reviewed_summary_not_found")
 
+    # Pin the capture basename to the reviewed summary's stem. Folder pinning
+    # alone is not enough: a same-minute Phase 1 rerun leaves title.md beside
+    # title-2.md for the same video_id, and an unordered *.md scan can return
+    # the stale sibling — Stage 04 would then synthesize from the reviewed
+    # summary plus the wrong capture/images.
     capture_md = _find_unit_md(
         video.video_id,
         playlist_title,
@@ -73,6 +78,7 @@ def _process_reviewed_video(
         "capture",
         vault_root=vault_root,
         preferred_folder_name=summary_md.parent.name,
+        preferred_stem=summary_md.stem,
     )
     if capture_md is None:
         return VideoRunResult(video=video, error="reviewed_capture_not_found")
