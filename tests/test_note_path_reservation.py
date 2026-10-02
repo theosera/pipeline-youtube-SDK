@@ -15,10 +15,12 @@ import unicodedata
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from pipeline_youtube import pipeline as pipeline_mod
+from pipeline_youtube import pipeline_runner as pr_mod
 from pipeline_youtube import video_processing as vp_mod
 from pipeline_youtube.pipeline import UNIT_DIRS, NoteReservations, reserve_note_paths
 from pipeline_youtube.playlist import VideoMeta
@@ -308,3 +310,127 @@ class TestReservationScope:
         )
         assert len(seen) == 2
         assert all(r is run for r in seen)
+
+
+def _invoke(
+    vault: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    videos: list[VideoMeta],
+    *,
+    dry_run: bool,
+    concurrency: int,
+    label: str = "",
+) -> list[dict[str, Path]]:
+    """Run ``_process_all_videos`` once and return the paths each video got.
+
+    Stages 01-04 are replaced by a worker that keeps the real reservation and,
+    on a real run, writes ``label`` into every reserved note. Checkpoint,
+    transcript warm-up, proper-noun sheet and Stage 05 are off, so only the
+    registry the runner creates decides the paths.
+    """
+    assigned: list[dict[str, Path]] = []
+
+    def fake_process_video(
+        video: VideoMeta,
+        run_time: datetime,
+        *,
+        dry_run: bool,
+        vault_root: Path,
+        reservations: NoteReservations,
+        **_kw: object,
+    ) -> VideoRunResult:
+        paths = reserve_note_paths(
+            video, run_time, reservations=reservations, dry_run=dry_run, vault_root=vault_root
+        )
+        if not dry_run:
+            for unit, path in paths.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"{label} {video.video_id} {unit}\n", encoding="utf-8")
+        assigned.append(paths)
+        return VideoRunResult(video=video, learning_md_path=paths["learning"], learning_md_body="")
+
+    monkeypatch.setattr(pr_mod, "_process_video", fake_process_video)
+    monkeypatch.setattr(vp_mod, "_process_video", fake_process_video)
+    request = SimpleNamespace(
+        force_video=(), concurrency=concurrency, capture_format="webp", min_playlist_size=1
+    )
+    runtime = SimpleNamespace(
+        cfg=SimpleNamespace(glossary=None, transcript_correction=False, use_innertube=True),
+        vault_root=vault,
+        models={},
+        filler_words=(),
+        capture_backend=None,
+        cache=Cache(None, enabled=False),
+    )
+    resolved = SimpleNamespace(playlist_title="PL", code_bearing=False, media_map={})
+    plan = SimpleNamespace(
+        allow_checkpoint=False,
+        allow_transcript_warmup=False,
+        filter_reviewed_only=False,
+        dry_run=dry_run,
+        stop_after_capture=False,
+        run_synthesis=False,
+    )
+    pr_mod._process_all_videos(request, runtime, resolved, videos, RUN_TIME, None, None, [], plan)
+    return assigned
+
+
+def _all_paths(assigned: list[dict[str, Path]]) -> set[Path]:
+    return {p for paths in assigned for p in paths.values()}
+
+
+def _notes(vault: Path) -> list[Path]:
+    return sorted(vault.rglob("*.md"))
+
+
+@pytest.mark.parametrize("concurrency", [1, 2])
+class TestRegistryPerInvocation:
+    """``_process_all_videos`` gives every invocation a new registry.
+
+    ``TestReservationScope`` builds its registries itself, so it cannot tell
+    whether the runner makes one per call. These tests call the runner several
+    times in one interpreter, as an SDK caller would. Which of two same-title
+    videos gets the bare stem is not fixed under concurrency, so they compare
+    sets of paths.
+    """
+
+    def test_dry_run_then_real_run_keeps_the_free_stem(self, vault, monkeypatch, concurrency):
+        video = _video("aaaaaaaaaaa")
+        dry = _invoke(vault, monkeypatch, [video], dry_run=True, concurrency=concurrency)
+        assert _notes(vault) == []
+        real = _invoke(vault, monkeypatch, [video], dry_run=False, concurrency=concurrency)
+        assert real == dry
+        assert not any(p.stem.endswith("-2") for p in _all_paths(real))
+
+    def test_repeated_dry_runs_hand_out_the_same_paths(self, vault, monkeypatch, concurrency):
+        # A dry run writes nothing, so only the run's own registry keeps two
+        # same-title videos apart, and only a new registry per run lets the
+        # next run start again from the bare stem.
+        videos = [_video("aaaaaaaaaaa"), _video("bbbbbbbbbbb")]
+        first = _invoke(vault, monkeypatch, videos, dry_run=True, concurrency=concurrency)
+        second = _invoke(vault, monkeypatch, videos, dry_run=True, concurrency=concurrency)
+        stem = first[0]["scripts"].stem.removesuffix("-2")
+        assert len(_all_paths(first)) == 2 * len(ALL_UNITS)
+        assert {p.stem for p in _all_paths(first)} == {stem, f"{stem}-2"}
+        assert _all_paths(second) == _all_paths(first)
+        assert _notes(vault) == []
+
+    def test_real_runs_move_on_only_for_notes_on_disk(self, vault, monkeypatch, concurrency):
+        video = _video("aaaaaaaaaaa")
+        first = _invoke(
+            vault, monkeypatch, [video], dry_run=False, concurrency=concurrency, label="first"
+        )
+        kept = {p: p.read_bytes() for p in _all_paths(first)}
+
+        second = _invoke(
+            vault, monkeypatch, [video], dry_run=False, concurrency=concurrency, label="second"
+        )
+        assert all(p.stem.endswith("-2") for p in _all_paths(second))
+        assert {p: p.read_bytes() for p in kept} == kept
+
+        # With the earlier notes gone, nothing is left to skip: a registry
+        # carried over from the first two runs would push this run to -3.
+        for note in _notes(vault):
+            note.unlink()
+        third = _invoke(vault, monkeypatch, [video], dry_run=False, concurrency=concurrency)
+        assert third == first
