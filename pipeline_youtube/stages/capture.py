@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from ..obsidian import resolve_unique_path
 from ..path_safety import ensure_safe_path
 from ..playlist import VideoMeta
 from .capture_backend import CaptureBackend, HostCaptureBackend
@@ -338,7 +339,8 @@ def run_stage_capture(
 ) -> CaptureResult:
     """Download the video, extract animated frames, update the 03 md.
 
-    Image files are named `pyt_{video_id}_{idx}.{ext}` and placed in
+    Image files are named `pyt_{video_id}_{idx}.{ext}` (`-2`, `-3` ... before
+    the extension when a same-folder rerun already holds that name) and placed in
     `Permanent Note/_assets/2026/pipeline-youtube/{playlist_folder}/` — a
     per-playlist subfolder (named to match the 01~05 unit folders) inside a
     dedicated assets dir outside Obsidian's Attachment Management
@@ -456,7 +458,11 @@ def run_stage_capture(
     try:
         for rng in ranges:
             image_name = _capture_image_name(video.video_id, success_counter, ext)
-            image_path = assets_dir / image_name
+            # A rerun in the same minute (e.g. --force-video) reuses this
+            # playlist folder, and reserve_note_paths moves its notes to
+            # Title-2.md. ffmpeg -y would still clobber the pyt_{id}_NN.* the
+            # earlier notes embed, so pick a free name here too.
+            image_path = resolve_unique_path(assets_dir, Path(image_name).stem, f".{ext}")
 
             start = max(0.0, rng.center_sec - window_seconds / 2.0)
             try:
