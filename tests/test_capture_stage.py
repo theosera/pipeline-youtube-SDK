@@ -1068,3 +1068,31 @@ def test_staged_capture_preserves_cache_and_cleans_working_video(
         if failure == "capture":
             assert result.outcomes[0].error == "CaptureCheckError: output_empty"
     assert not list(_assets_dir(paths, vault).glob(".pyt-capture-*"))
+
+
+@pytest.mark.parametrize("missing_flag", ["O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK"])
+def test_staged_capture_without_secure_os_flags_fails_closed(vault, monkeypatch, missing_flag):
+    """Windows-like missing primitives return a result and still clean the video."""
+    video, paths = _setup_case(vault, summary_md_content="### [00:10 ~ 00:20] one\n")
+    _pin(monkeypatch)
+    working = vault / "working.mp4"
+    monkeypatch.setattr(capture_stage, "_tmp_video_path", lambda _video: working)
+    monkeypatch.delattr(capture_stage.os, missing_flag)
+
+    def must_not_extract(*args, **kwargs):
+        pytest.fail("unsupported secure staging must not extract an image")
+
+    monkeypatch.setattr(capture_stage, "_dispatch_extractor", lambda _strategy: must_not_extract)
+    result = run_stage_capture(
+        video,
+        summary_md_path=paths["summary"],
+        capture_md_path=paths["capture"],
+        cache=_NO_CACHE,
+        vault_root=vault,
+    )
+
+    assert result.error == "staging_unavailable: secure_file_operations_not_supported"
+    assert result.outcomes == []
+    assert result.video_downloaded
+    assert not working.exists()
+    assert list(_assets_dir(paths, vault).iterdir()) == []

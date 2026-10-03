@@ -489,6 +489,16 @@ def run_stage_capture(
         # opened once, without following a link, and the check and the publish
         # name files relative to those descriptors; the publish then confirms
         # that it linked the file it checked.
+        # Windows lacks these secure descriptor flags. Fail the stage with a
+        # result instead of raising AttributeError or using a weaker publish
+        # fallback; the outer finally still cleans up the working video.
+        if any(not hasattr(os, flag) for flag in ("O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK")):
+            return CaptureResult(
+                ranges=ranges,
+                video_downloaded=downloaded,
+                capture_format=ext,
+                error="staging_unavailable: secure_file_operations_not_supported",
+            )
         try:
             staging_dir = Path(tempfile.mkdtemp(prefix=_STAGING_PREFIX, dir=assets_dir))
             staging_fd = os.open(staging_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
