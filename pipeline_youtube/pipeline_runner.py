@@ -34,6 +34,7 @@ from .resume import (
     _load_existing_04_body,
 )
 from .run_result import VideoRunResult
+from .sanitize import sanitize_untrusted_text
 from .stages.scripts import DEFAULT_TRANSCRIPT_CONCURRENCY, warm_transcript_cache
 from .synthesis.agents import compute_synthesis_timeouts
 from .synthesis_runner import run_synthesis
@@ -261,7 +262,8 @@ def _process_all_videos(
     to_process: list[tuple[int, VideoMeta]] = []
     for i, video in enumerate(videos, 1):
         if video.video_id in completed_ids and video.video_id not in force_set:
-            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {video.title}")
+            safe_title = sanitize_untrusted_text(video.title or "", 300, context="video.title")
+            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {safe_title}")
             click.echo("  [skip] checkpoint: stage 04 already exists")
             learning_md = _find_existing_04_md(
                 video.video_id, playlist_title, run_time, vault_root=runtime.vault_root
@@ -337,7 +339,8 @@ def _process_all_videos(
         results.extend(concurrent_results)
     else:
         for i, video in to_process:
-            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {video.title}")
+            safe_title = sanitize_untrusted_text(video.title or "", 300, context="video.title")
+            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {safe_title}")
             result = _process_video(
                 video,
                 run_time,

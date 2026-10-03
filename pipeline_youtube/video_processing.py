@@ -371,7 +371,8 @@ async def _run_videos_concurrent(
 
     async def _task(i: int, video: VideoMeta) -> VideoRunResult:
         async with sem:
-            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {video.title}")
+            safe_title = sanitize_untrusted_text(video.title or "", 300, context="video.title")
+            click.echo(f"\n[{i}/{len(videos)}] {video.video_id} {safe_title}")
             return await asyncio.to_thread(
                 _process_video,
                 video,
