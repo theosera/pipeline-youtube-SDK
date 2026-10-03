@@ -423,6 +423,16 @@ mask() {
   # F2 on #232 a, reproduced). After every rule that reads a value, the span
   # can only mask more. The cost: text between a label's closing quote and
   # the next quote is masked too (`grep "passwd:"***MASKED***"...`).
+  # #291: mask the remaining attribute region of a label start tag, including
+  # attributes after the first. Run LAST: earlier keyword rules can consume the
+  # first attribute, and consuming an armor delimiter before the counter rules
+  # would expose its body. This final substitution can only mask more.
+  # The region ends at the next angle bracket on this physical line; it neither
+  # needs nor searches for a closing element, and never joins LF lines. Bare CR
+  # can be removed; archive's refence pass re-checks changed CR segments too.
+  # This is a conservative text rule, not an XML parser (quoted angle brackets
+  # and start tags split across LF lines are outside this rule). Attribute names
+  # and values (for example lang="en" or class="hint") are masked too.
   sed -E \
     -e '/-----BEGIN PGP PRIVATE KEY BLOCK-----|---- BEGIN SSH2 ENCRYPTED PRIVATE KEY ----/{x;s/.*/o/;x;}' \
     -e 's/gh[pousr]_[A-Za-z0-9]{20,}/***MASKED***/g' \
@@ -459,7 +469,8 @@ mask() {
     -e "/\`\`\`|~~~/!s/((passwd|passphrase)['\"]?[=:[:space:]]+')([^'\\\\-]|\\\\.|-{1,4}([^'\\\\-]|\\\\.))*-{0,4}'/\1***MASKED***'/Ig" \
     -e "/\`\`\`|~~~/!s/'\\*\\*\\*MASKED\\*\\*\\*''([^']|'')*'/'***MASKED***'/g" \
     -e '/^[[:space:]]*[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/.*/***MASKED***/' \
-    -e '/^[[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-)[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/^([[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-))[A-Za-z0-9+\/=]{32,}([[:space:]]*)$/\1***MASKED***\3/'
+    -e '/^[[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-)[A-Za-z0-9+\/=]{32,}[[:space:]]*$/s/^([[:space:]]*([0-9]+[[:space:]]*[|:>]?[[:space:]]*|[>|]+[[:space:]]*|[^[:space:]:]+:[0-9]+:[[:space:]]*|-))[A-Za-z0-9+\/=]{32,}([[:space:]]*)$/\1***MASKED***\3/' \
+    -e 's/(<(token|key|secret|password|passwd|passphrase|pat|authorization|bearer)[[:space:]]+)[^<>]*>/\1***MASKED***>/Ig'
 }
 # ⭐ 1 行の byte 上限。⛔ 上限が要る理由は可読性ではなく【リポの成長】である:
 #    実測 2026-09-09 — 5,004 行のうち 2,000 B を超えるのは 357 行 (7.1%) だけだが、
