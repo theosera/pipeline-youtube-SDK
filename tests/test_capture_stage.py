@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import os
 import subprocess
@@ -1096,3 +1097,77 @@ def test_staged_capture_without_secure_os_flags_fails_closed(vault, monkeypatch,
     assert result.video_downloaded
     assert not working.exists()
     assert list(_assets_dir(paths, vault).iterdir()) == []
+
+
+# =====================================================
+# #167: ranges against the video's length
+# =====================================================
+
+
+class TestRangesNearTheEnd:
+    """The listed length comes from a flat playlist extract and can be shorter
+    than the video, so it neither refuses a range nor moves its window: a range
+    really past the end fails on ffmpeg's empty output (#166's check)."""
+
+    def _run(self, vault, monkeypatch, summary, duration, empty_from=None):
+        video, paths = _setup_case(vault, summary_md_content=summary)
+        video = dataclasses.replace(video, duration=duration)
+        _pin(monkeypatch)
+        starts: list[str] = []
+
+        def recording_ffmpeg(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args")
+            start = cmd[cmd.index("-ss") + 1]
+            starts.append(start)
+            if empty_from is not None and float(start) >= empty_from:
+                # Past the real end, ffmpeg exits 0 and writes nothing.
+                Path(cmd[-1]).write_bytes(b"")
+                return MagicMock(returncode=0, stdout=b"", stderr=b"")
+            return _fake_successful_ffmpeg(*args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", recording_ffmpeg)
+        result = run_stage_capture(
+            video,
+            summary_md_path=paths["summary"],
+            capture_md_path=paths["capture"],
+            cache=_NO_CACHE,
+            vault_root=vault,
+        )
+        return result, starts, paths
+
+    def test_a_range_past_a_short_listed_length_is_captured(self, vault, monkeypatch):
+        """Listed as 60 s, the video runs on: the range is captured, centered."""
+        result, starts, _ = self._run(vault, monkeypatch, "### [01:01 ~ 01:04] after 60 s\n", 60)
+
+        assert starts == ["60.75"]
+        assert result.success_count == 1
+
+    def test_a_window_over_the_listed_end_is_not_moved(self, vault, monkeypatch):
+        result, starts, _ = self._run(
+            vault, monkeypatch, "### [00:57 ~ 01:00] straddling 60 s\n", 60
+        )
+
+        assert starts == ["56.75"]
+        assert result.success_count == 1
+
+    def test_a_range_past_the_real_end_fails_and_the_numbering_closes_up(self, vault, monkeypatch):
+        summary = (
+            "### [00:10 ~ 00:20] inside\n"
+            "### [01:05 ~ 01:15] past the real end\n"
+            "### [00:30 ~ 00:40] inside again\n"
+        )
+        result, starts, paths = self._run(vault, monkeypatch, summary, 60, empty_from=60.0)
+
+        assert starts == ["13.25", "68.25", "33.25"]
+        assert result.outcomes[1].image_path is None
+        assert result.outcomes[1].error == "CaptureCheckError: output_empty"
+        assert [p.name for p in result.image_paths] == [
+            "pyt__h3decBW12Q_00.webp",
+            "pyt__h3decBW12Q_01.webp",
+        ]
+
+    def test_a_window_near_the_start_starts_at_zero(self, vault, monkeypatch):
+        result, starts, _ = self._run(vault, monkeypatch, "### [00:00 ~ 00:03] opening\n", 60)
+
+        assert starts == ["0.00"]
+        assert result.success_count == 1
