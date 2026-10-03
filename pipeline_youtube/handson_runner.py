@@ -12,6 +12,7 @@ import click
 
 from .cli_types import CliRequest, ExecutionPlan, ResolvedInput, Runtime
 from .reporting import report_handson
+from .sanitize import sanitize_untrusted_text
 from .stages.handson import run_stage_handson
 
 
@@ -22,7 +23,8 @@ def run_handson(
     video = resolved.videos[0]
     click.echo("\n=== Hands-on mode (single long-form video) ===")
     click.echo(f"run_time: {plan.run_time.isoformat(timespec='seconds')}")
-    click.echo(f"video: {video.video_id} {video.title}")
+    safe_title = sanitize_untrusted_text(video.title or "", 300, context="video.title")
+    click.echo(f"video: {video.video_id} {safe_title}")
 
     result = run_stage_handson(
         video,
