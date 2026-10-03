@@ -100,7 +100,8 @@ class TestPrefetchedPathConsumed:
 
         def fake_extractor(video_path: Path, output_path: Path, **kwargs: Any) -> None:
             called["extract"] += 1
-            output_path.write_bytes(b"img")
+            # Stage 03 publishes only a whole image (#166): the smallest WebP.
+            output_path.write_bytes(b"RIFF" + (8).to_bytes(4, "little") + b"WEBPVP8L")
 
         monkeypatch.setattr(cap_mod, "_download_video", never_download)
         monkeypatch.setattr(cap_mod, "_dispatch_extractor", lambda _strategy: fake_extractor)
