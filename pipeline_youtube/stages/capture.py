@@ -102,13 +102,19 @@ _PUBLISH_MAX_CANDIDATES = 10_000
 
 
 def _tmp_video_path(video: VideoMeta) -> Path:
-    """Canonical temp path for a video's downloaded mp4.
+    """Stable temp path for a video within the calling process and thread.
+
+    Prefetch chooses this path on the caller before starting its worker.
+    A later Stage 03 retry on that caller reuses it after prefetch finishes;
+    other processes and threads get separate download and cleanup targets.
+    A restarted run no longer resumes fragments from a different identity.
 
     Directory permissions are tightened to 0o700 (owner-only) at
     creation and on every call so the video binary never becomes
     world-readable on shared hosts.
     """
     import os
+    import threading
 
     project_root = Path(__file__).resolve().parent.parent.parent
     tmp_dir = project_root / "tmp"
@@ -116,7 +122,7 @@ def _tmp_video_path(video: VideoMeta) -> Path:
     with contextlib.suppress(OSError):
         # Non-POSIX filesystems (e.g. FAT) silently ignore — best-effort.
         os.chmod(tmp_dir, 0o700)
-    return tmp_dir / f"{video.video_id}.mp4"
+    return tmp_dir / f"{video.video_id}-{os.getpid()}-{threading.get_ident()}.mp4"
 
 
 @dataclass
