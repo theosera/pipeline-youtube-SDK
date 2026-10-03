@@ -6,6 +6,7 @@ download or model inference happens.
 
 from __future__ import annotations
 
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -59,16 +60,38 @@ class TestNoopLock:
 
 
 class TestFetchWhisper:
-    @patch("pipeline_youtube.transcript.whisper_fallback.whisper", create=True)
-    def test_whisper_not_installed_raises(self, _mock_whisper):
-        """When whisper import fails, TranscriptNotAvailable is raised."""
+    @pytest.mark.parametrize("mlx_installed", [False, True], ids=["mlx-absent", "mlx-present"])
+    def test_whisper_not_installed_raises(self, mlx_installed: bool):
+        """The OpenAI import check must not depend on an installed MLX backend."""
         with (
-            patch.dict("sys.modules", {"whisper": None}),
-            patch(
-                "pipeline_youtube.transcript.whisper_fallback.fetch_whisper",
-                side_effect=TranscriptNotAvailable("whisper_not_installed"),
+            patch("platform.system", return_value="Darwin"),
+            patch("platform.machine", return_value="arm64"),
+            patch.dict(
+                "sys.modules",
+                {
+                    "whisper": None,
+                    "mlx_whisper": ModuleType("mlx_whisper") if mlx_installed else None,
+                },
             ),
-            pytest.raises(TranscriptNotAvailable, match="whisper_not_installed"),
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
+            patch(
+                "pipeline_youtube.transcript.whisper_fallback._ensure_tmp",
+                side_effect=AssertionError("Missing runtime must fail before audio setup"),
+            ),
+            pytest.raises(TranscriptNotAvailable, match="^whisper_not_installed$"),
+        ):
+            fetch_whisper("test_id", ["ja"])
+
+    def test_mlx_whisper_not_installed_raises(self):
+        """Explicit MLX selection reports its own missing runtime before any I/O."""
+        with (
+            patch.dict("sys.modules", {"mlx_whisper": None}),
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "mlx"),
+            patch(
+                "pipeline_youtube.transcript.whisper_fallback._ensure_tmp",
+                side_effect=AssertionError("Missing runtime must fail before audio setup"),
+            ),
+            pytest.raises(TranscriptNotAvailable, match="^mlx_whisper_not_installed$"),
         ):
             fetch_whisper("test_id", ["ja"])
 
