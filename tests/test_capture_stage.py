@@ -748,11 +748,11 @@ class TestStagedCapture:
             if not swapped:
                 os.rename(name, f"{name}.checked", src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
                 if swap == "another file":
-                    with open(
-                        os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd),
-                        "wb",
-                    ) as f:
-                        f.write(_webp(b"SWAP"))
+                    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=dir_fd)
+                    try:
+                        os.write(fd, _webp(b"SWAP"))
+                    finally:
+                        os.close(fd)
                 else:
                     os.symlink(outside, name, dir_fd=dir_fd)
                 swapped.append(name)
