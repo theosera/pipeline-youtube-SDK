@@ -348,6 +348,188 @@ class TestResumeReviewedProcessing:
 
         assert found is None
 
+    def test_pinned_capture_lookup_prefers_same_stem_sibling(self, tmp_path: Path):
+        # Same-minute Phase 1 rerun: both a.md (stale) and a-2.md (reviewed run)
+        # share video_id in one folder. Glob order is filesystem-dependent, so
+        # an unpinned scan can return the stale capture. Stem pin must win.
+        folder = "2026-04-18-0800 testlist"
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        stale = capture_base / folder / "a.md"
+        sibling = capture_base / folder / "a-2.md"
+        _write_capture(stale, _VID_A)
+        _write_capture(sibling, _VID_A)
+
+        found = _find_unit_md(
+            _VID_A,
+            "testlist",
+            datetime(2026, 4, 18, 12, 0),
+            "capture",
+            vault_root=tmp_path,
+            preferred_folder_name=folder,
+            preferred_stem="a-2",
+        )
+
+        assert found == sibling
+
+    def test_pinned_capture_lookup_does_not_use_differently_suffixed_sibling(self, tmp_path: Path):
+        # Reviewed summary is a-2.md but only the stale a.md capture remains.
+        # Falling back would silently feed Stage 04 the wrong images.
+        folder = "2026-04-18-0800 testlist"
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        _write_capture(capture_base / folder / "a.md", _VID_A)
+
+        found = _find_unit_md(
+            _VID_A,
+            "testlist",
+            datetime(2026, 4, 18, 12, 0),
+            "capture",
+            vault_root=tmp_path,
+            preferred_folder_name=folder,
+            preferred_stem="a-2",
+        )
+
+        assert found is None
+
+    def test_pinned_stem_capture_must_carry_the_same_video_id(self, tmp_path: Path):
+        # A matching filename is not proof of ownership: a vault written before
+        # the shared-suffix reservation (#184), or a hand-renamed note, can hold
+        # another video's capture under the reviewed summary's stem. Accepting it
+        # would feed Stage 04 that video's images; falling back to a.md would mix
+        # in the stale run. Both must fail closed.
+        folder = "2026-04-18-0800 testlist"
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        _write_capture(capture_base / folder / "a.md", _VID_A)
+        _write_capture(capture_base / folder / "a-2.md", _VID_B)
+
+        found = _find_unit_md(
+            _VID_A,
+            "testlist",
+            datetime(2026, 4, 18, 12, 0),
+            "capture",
+            vault_root=tmp_path,
+            preferred_folder_name=folder,
+            preferred_stem="a-2",
+        )
+
+        assert found is None
+
+    def test_resume_reviewed_pairs_capture_with_reviewed_summary_stem(
+        self, tmp_path: Path, monkeypatch
+    ):
+        # End-to-end: reviewed a-2.md must consume capture a-2.md, not a.md.
+        resume_time = datetime(2026, 4, 18, 12, 0)
+        folder = "2026-04-18-0800 testlist"
+        summary_base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        _write_summary(summary_base / folder / "a.md", _VID_A, "false")
+        _write_summary(summary_base / folder / "a-2.md", _VID_A, "true")
+        _write_capture(capture_base / folder / "a.md", _VID_A)
+        _write_capture(capture_base / folder / "a-2.md", _VID_A)
+
+        def fake_learning(video, summary_md_path, capture_md_path, learning_md_path, **kwargs):
+            assert summary_md_path == summary_base / folder / "a-2.md"
+            assert capture_md_path == capture_base / folder / "a-2.md"
+            learning_md_path.parent.mkdir(parents=True, exist_ok=True)
+            learning_md_path.write_text(
+                f'---\nvideo_id: "{video.video_id}"\n---\n\nlearning body\n',
+                encoding="utf-8",
+            )
+            return LLMResponse(
+                text="learning body",
+                model="sonnet",
+                input_tokens=1,
+                output_tokens=2,
+                total_cost_usd=0.01,
+            )
+
+        monkeypatch.setattr(vp_mod, "run_stage_learning", fake_learning)
+
+        result = vp_mod._process_video(
+            _vid(_VID_A),
+            resume_time,
+            dry_run=False,
+            capture_format="auto",
+            models={"stage_02": "sonnet", "stage_04": "sonnet"},
+            resume_reviewed=True,
+            playlist_title="testlist",
+            cache=Cache(None, enabled=False),
+            vault_root=tmp_path,
+            reservations=NoteReservations(),
+        )
+
+        assert result.ok
+        assert result.learning_md_path == (
+            tmp_path / LEARNING_BASE / UNIT_DIRS["learning"] / folder / "a-2.md"
+        )
+
+    @pytest.mark.parametrize("descending", [False, True], ids=["glob-asc", "glob-desc"])
+    def test_resume_reviewed_capture_pairing_ignores_glob_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, descending: bool
+    ):
+        """Reviewed a-2.md must consume capture a-2.md whichever order glob lists.
+
+        ``Path.glob`` order is filesystem-dependent. The end-to-end test above
+        only goes red where the volume happens to list the stale ``a.md`` first,
+        so a call site that stopped passing ``preferred_stem`` could pass CI on
+        one machine and pair the wrong capture on another. Forcing both orders
+        makes that regression fail everywhere.
+        """
+        resume_time = datetime(2026, 4, 18, 12, 0)
+        folder = "2026-04-18-0800 testlist"
+        summary_base = tmp_path / LEARNING_BASE / UNIT_DIRS["summary"]
+        capture_base = tmp_path / LEARNING_BASE / UNIT_DIRS["capture"]
+        _write_summary(summary_base / folder / "a.md", _VID_A, "false")
+        _write_summary(summary_base / folder / "a-2.md", _VID_A, "true")
+        _write_capture(capture_base / folder / "a.md", _VID_A)
+        _write_capture(capture_base / folder / "a-2.md", _VID_A)
+
+        real_glob = Path.glob
+
+        def ordered_glob(self: Path, pattern: str, *args, **kwargs):
+            found = real_glob(self, pattern, *args, **kwargs)
+            return iter(sorted(found, key=lambda p: p.name, reverse=descending))
+
+        monkeypatch.setattr(Path, "glob", ordered_glob)
+
+        # Record instead of asserting inside the fake: _process_video turns any
+        # exception into result.error, which would hide which path was wrong.
+        seen: dict[str, Path] = {}
+
+        def fake_learning(video, summary_md_path, capture_md_path, learning_md_path, **kwargs):
+            seen["summary"] = summary_md_path
+            seen["capture"] = capture_md_path
+            learning_md_path.parent.mkdir(parents=True, exist_ok=True)
+            learning_md_path.write_text(
+                f'---\nvideo_id: "{video.video_id}"\n---\n\nlearning body\n',
+                encoding="utf-8",
+            )
+            return LLMResponse(
+                text="learning body",
+                model="sonnet",
+                input_tokens=1,
+                output_tokens=2,
+                total_cost_usd=0.01,
+            )
+
+        monkeypatch.setattr(vp_mod, "run_stage_learning", fake_learning)
+
+        result = vp_mod._process_video(
+            _vid(_VID_A),
+            resume_time,
+            dry_run=False,
+            capture_format="auto",
+            models={"stage_02": "sonnet", "stage_04": "sonnet"},
+            resume_reviewed=True,
+            playlist_title="testlist",
+            cache=Cache(None, enabled=False),
+            vault_root=tmp_path,
+            reservations=NoteReservations(),
+        )
+
+        assert result.ok, result.error
+        assert seen["summary"] == summary_base / folder / "a-2.md"
+        assert seen["capture"] == capture_base / folder / "a-2.md"
+
     def test_same_day_folder_candidates_are_newest_first(self, tmp_path: Path):
         # iterdir() order is filesystem-dependent; the fallback must not depend
         # on it when two Phase 1 runs exist for the same playlist.

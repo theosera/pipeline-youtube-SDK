@@ -70,6 +70,15 @@ graph TD
 cd pipeline-youtube-SDK
 uv sync
 
+# commit の前の検査 (ruff など・gitleaks による秘密情報スキャン) を手元で回す — 任意。
+#   uv run python -m pre_commit run              # staged の変更だけ
+#   uv run python -m pre_commit run --all-files  # ruff などはリポ全体を見る
+# ⚠️ gitleaks は --all-files でも staged の変更しか見ない (`gitleaks protect --staged`)。
+#   リポの履歴の秘密スキャンは CI の Secret scan (gitleaks) ジョブが必ず走らせる。
+#   手元で同じものを回すなら: uv run python -m pre_commit run gitleaks-ci --hook-stage manual
+# git hook としては入れない: リポで追跡しているディレクトリを hook の置き場にすると、
+#   checkout・pull した枝に入っているスクリプトがそのまま実行されるため。
+
 # Whisper フォールバック (3次) を使う場合は別途インストール:
 #   uv sync --extra whisper
 # ★重要: Whisper は optional extra なので、素の `uv run ...` は実行時に環境をロックへ
