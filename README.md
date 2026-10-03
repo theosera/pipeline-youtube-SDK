@@ -85,6 +85,15 @@ uv sync
 #   同期し直して Whisper を毎回アンインストールする。Whisper を効かせる実行は必ず
 #   `uv run --extra whisper ...` を使うこと。字幕が IP ブロックされた動画は、この
 #   Whisper フォールバック (音声から文字起こし) だけが命綱になる。
+# ⚠️ extras (whisper / mlx) が引く torch は、ロック (uv.lock) では 2.13.0
+#   (GHSA-rrmf-rvhw-rf47 が直った最初の版)。これには次の 2 つの制約がある:
+#   - free-threaded の Python 3.13 (3.13t) 用の wheel が無い (torch 2.12.1 以降)。
+#     3.13t では extras を入れられないので、通常の 3.13 を使う。free-threaded
+#     が要るときに 3.14t へ移れるのは whisper の extra だけ: mlx の extra は、
+#     ロックの mlx (0.31.2) に free-threaded 用の wheel が無いので、3.13 / 3.14
+#     とも通常の interpreter が要る。
+#   - macOS 用の wheel は macOS 14 以上の Apple Silicon 向けだけ
+#     (前の 2.11.0 は macOS 11 以上だった)。
 
 # 編集可能インストール
 uv pip install -e .
