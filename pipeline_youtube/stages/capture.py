@@ -522,6 +522,13 @@ def run_stage_capture(
             staged_name = f"{len(outcomes):03d}.{ext}"
             staged_path = staging_dir / staged_name
 
+            # The ranges come from an LLM's summary and can lie past the
+            # video's end (#167). The window stays centered on the range, and
+            # the listed length is not used to refuse or move it: it comes from
+            # a flat playlist extract and can be shorter than the video, so a
+            # range it calls past the end may still be there, and a window moved
+            # back by it would show another moment. A range really past the end
+            # gives ffmpeg an empty output, which the check below fails.
             start = max(0.0, rng.center_sec - window_seconds / 2.0)
             try:
                 extractor(
