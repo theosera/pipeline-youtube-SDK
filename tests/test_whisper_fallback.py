@@ -108,7 +108,10 @@ class TestFetchWhisper:
         ]
 
         # Mock whisper import check
-        with patch.dict("sys.modules", {"whisper": MagicMock()}):
+        with (
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
+            patch.dict("sys.modules", {"whisper": MagicMock()}),
+        ):
             result = fetch_whisper("test_id", ["ja"])
 
         assert result.source == TranscriptSource.WHISPER
@@ -126,6 +129,7 @@ class TestFetchWhisper:
         mock_run.return_value = []
 
         with (
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
             patch.dict("sys.modules", {"whisper": MagicMock()}),
             pytest.raises(TranscriptNotAvailable, match="whisper_produced_no_segments"),
         ):
@@ -137,6 +141,7 @@ class TestFetchWhisper:
         mock_download.side_effect = TranscriptNotAvailable("audio_download_failed: 404")
 
         with (
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
             patch.dict("sys.modules", {"whisper": MagicMock()}),
             pytest.raises(TranscriptNotAvailable, match="audio_download_failed"),
         ):
@@ -151,7 +156,10 @@ class TestFetchWhisper:
         mock_download.return_value = audio_file
         mock_run.return_value = [{"start": 0, "end": 1, "text": "ok"}]
 
-        with patch.dict("sys.modules", {"whisper": MagicMock()}):
+        with (
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
+            patch.dict("sys.modules", {"whisper": MagicMock()}),
+        ):
             fetch_whisper("test", ["ja"])
 
         assert not audio_file.exists()
@@ -165,7 +173,10 @@ class TestFetchWhisper:
         mock_download.return_value = audio_file
         mock_run.return_value = [{"start": 0, "end": 1, "text": "test"}]
 
-        with patch.dict("sys.modules", {"whisper": MagicMock()}):
+        with (
+            patch("pipeline_youtube.transcript.whisper_fallback._BACKEND", "openai"),
+            patch.dict("sys.modules", {"whisper": MagicMock()}),
+        ):
             result = fetch_whisper("test_id", [])
 
         assert result.language is None
