@@ -31,6 +31,14 @@ def _video() -> VideoMeta:
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_video_tmp_path(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "pipeline_youtube.stages.capture.__file__",
+        str(tmp_path / "pipeline_youtube/stages/capture.py"),
+    )
+
+
 class TestPrefetchHandle:
     def test_wait_returns_none_on_success(self, tmp_path: Path):
         def fake_download(url: str, dest: Path, resolution: str = "480", **kw: Any) -> None:
