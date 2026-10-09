@@ -69,3 +69,4 @@ PR を作成する前に、変更内容を**性質別に分類**する。レビ�
 - `README.md` — 概要・セットアップ
 - `docs/ai-coding-conventions.md` — AI-native コーディング規約 (原本。skill が参照)
 - `pyproject.toml` — 依存・ruff/mypy 設定
+- 姉妹リポ `theosera/pipeline-youtube` (非 SDK 版) — 手元の checkout のディレクトリ名はリモート名と一致しないことがある。**ディレクトリ名で探して「無い」と結論しない**: どのリポかは `git -C <dir> remote get-url origin` (または `git remote -v`) の値で見分ける
