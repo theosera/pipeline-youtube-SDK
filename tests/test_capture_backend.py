@@ -8,7 +8,9 @@ translation.
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -17,6 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pipeline_youtube.stages.capture_backend import (
+    CAPTURE_IMAGE_YT_DLP_LABEL,
+    CAPTURE_IMAGE_YT_DLP_VERSION,
     DEFAULT_DOCKER_IMAGE,
     CaptureBackendError,
     DockerBackendNotReady,
@@ -387,12 +391,66 @@ class TestDockerBackendPreflight:
             docker_backend.preflight()
 
     def test_preflight_happy_path(self, docker_backend):
-        fake = MagicMock(returncode=0)
+        labels = {CAPTURE_IMAGE_YT_DLP_LABEL: CAPTURE_IMAGE_YT_DLP_VERSION}
+        fake = MagicMock(returncode=0, stdout=json.dumps(labels).encode() + b"\n")
+        with (
+            patch("shutil.which", return_value="/usr/bin/docker"),
+            patch("subprocess.run", return_value=fake) as run,
+        ):
+            docker_backend.preflight()  # must not raise
+        assert run.call_args.args[0] == [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{json .Config.Labels}}",
+            DEFAULT_DOCKER_IMAGE,
+        ]
+
+    @pytest.mark.parametrize(
+        ("stdout", "message"),
+        [
+            # An image built before the label existed (e.g. the 07-01 build).
+            (b"null\n", "no yt-dlp version label"),
+            (b'{"org.opencontainers.image.title": "x"}\n', "no yt-dlp version label"),
+            (b"not json\n", "could not read the labels"),
+            (b"\xff\xfe\n", "could not read the labels"),
+            (b'["x"]\n', "could not read the labels"),
+            (
+                json.dumps({CAPTURE_IMAGE_YT_DLP_LABEL: "2026.06.09"}).encode(),
+                "built with yt-dlp '2026.06.09'",
+            ),
+            (json.dumps({CAPTURE_IMAGE_YT_DLP_LABEL: ""}).encode(), "built with yt-dlp ''"),
+            (json.dumps({CAPTURE_IMAGE_YT_DLP_LABEL: 2026}).encode(), "built with yt-dlp <int>"),
+        ],
+    )
+    def test_image_without_matching_yt_dlp_label_is_refused(
+        self, docker_backend, stdout: bytes, message: str
+    ):
+        fake = MagicMock(returncode=0, stdout=stdout)
         with (
             patch("shutil.which", return_value="/usr/bin/docker"),
             patch("subprocess.run", return_value=fake),
+            pytest.raises(DockerBackendNotReady, match=re.escape(message)) as excinfo,
         ):
-            docker_backend.preflight()  # must not raise
+            docker_backend.preflight()
+        assert "docker build -f docker/Dockerfile.capture" in str(excinfo.value)
+
+
+class TestCaptureImageVersionPin:
+    """The Dockerfile ARG, its LABEL, and the preflight constant must agree."""
+
+    DOCKERFILE = Path(__file__).resolve().parents[1] / "docker" / "Dockerfile.capture"
+
+    def test_arg_matches_preflight_constant(self):
+        text = self.DOCKERFILE.read_text(encoding="utf-8")
+        args = re.findall(r"^ARG YT_DLP_VERSION=(\S+)$", text, flags=re.MULTILINE)
+        assert args == [CAPTURE_IMAGE_YT_DLP_VERSION]
+
+    def test_label_and_install_derive_from_the_arg(self):
+        text = self.DOCKERFILE.read_text(encoding="utf-8")
+        assert f'LABEL {CAPTURE_IMAGE_YT_DLP_LABEL}="${{YT_DLP_VERSION}}"' in text.splitlines()
+        assert 'RUN pip install --no-cache-dir "yt-dlp==${YT_DLP_VERSION}"' in text.splitlines()
 
 
 class TestDockerBackendCommandShape:

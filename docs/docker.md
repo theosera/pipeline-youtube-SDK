@@ -77,6 +77,12 @@ is processed:
 1. `docker` CLI present in `PATH`
 2. `docker image inspect pipeline-youtube-capture:latest` succeeds
 3. Daemon responds within 15 s
+4. The image's `io.github.theosera.pipeline-youtube.yt-dlp-version` label
+   equals the yt-dlp pinned by `ARG YT_DLP_VERSION` in
+   `docker/Dockerfile.capture`. An image with no label (built before the
+   label existed), an unreadable label, or a different version is refused —
+   rebuild it after every yt-dlp bump. The image tag alone cannot tell a
+   stale build apart.
 
 If any check fails the CLI exits with a clear error and tells the user
 how to fix it (build the image, start the daemon, or switch to `host`).

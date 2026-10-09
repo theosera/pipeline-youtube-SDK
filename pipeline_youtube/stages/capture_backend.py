@@ -31,6 +31,7 @@ backend chooses how to execute.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import subprocess
@@ -213,6 +214,15 @@ def _host_ffmpeg_encoders() -> frozenset[str]:
 
 DEFAULT_DOCKER_IMAGE = "pipeline-youtube-capture:latest"
 
+# docker/Dockerfile.capture stamps the yt-dlp it installs into this label
+# (both come from ``ARG YT_DLP_VERSION``). The tag alone cannot tell an
+# image built from an older Dockerfile apart, so preflight refuses an image
+# whose label is missing, unreadable, or different from the version below.
+# Keep CAPTURE_IMAGE_YT_DLP_VERSION equal to the Dockerfile ARG — a test
+# pins the two together.
+CAPTURE_IMAGE_YT_DLP_LABEL = "io.github.theosera.pipeline-youtube.yt-dlp-version"
+CAPTURE_IMAGE_YT_DLP_VERSION = "2026.8.19"
+
 
 def _caller_uid_gid() -> tuple[int, int]:
     """Return the host process's effective UID/GID for `--user` mapping.
@@ -234,7 +244,41 @@ def _caller_uid_gid() -> tuple[int, int]:
 
 
 class DockerBackendNotReady(CaptureBackendError):
-    """Raised when the docker daemon is unavailable or the image is missing."""
+    """Raised when the docker daemon is unavailable or the image is missing or stale."""
+
+
+def _check_image_yt_dlp_label(image: str, inspect_stdout: bytes) -> None:
+    """Refuse an image whose yt-dlp label is missing, unreadable, or stale.
+
+    ``inspect_stdout`` is the output of
+    ``docker image inspect --format '{{json .Config.Labels}}' <image>``.
+    Every case that does not prove the expected version fails closed: an
+    image built before the label existed carries no label at all.
+    """
+    rebuild = f"Rebuild it with:\n  docker build -f docker/Dockerfile.capture -t {image} ."
+    try:
+        labels: object = json.loads(inspect_stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise DockerBackendNotReady(
+            f"could not read the labels of docker image {image!r}. {rebuild}"
+        ) from e
+    if labels is not None and not isinstance(labels, dict):
+        raise DockerBackendNotReady(
+            f"could not read the labels of docker image {image!r}. {rebuild}"
+        )
+    found = labels.get(CAPTURE_IMAGE_YT_DLP_LABEL) if labels else None
+    if found is None:
+        raise DockerBackendNotReady(
+            f"docker image {image!r} has no yt-dlp version label "
+            f"({CAPTURE_IMAGE_YT_DLP_LABEL}); it predates the current "
+            f"docker/Dockerfile.capture. {rebuild}"
+        )
+    if found != CAPTURE_IMAGE_YT_DLP_VERSION:
+        shown = repr(found[:64]) if isinstance(found, str) else f"<{type(found).__name__}>"
+        raise DockerBackendNotReady(
+            f"docker image {image!r} was built with yt-dlp {shown}, "
+            f"expected {CAPTURE_IMAGE_YT_DLP_VERSION!r}. {rebuild}"
+        )
 
 
 @dataclass(frozen=True)
@@ -250,7 +294,7 @@ class DockerCaptureBackend:
     The backend does not manage image lifecycle — the user builds
     the image via ``docker build -f docker/Dockerfile.capture -t
     pipeline-youtube-capture:latest .`` (documented in
-    docs/docker.md). ``preflight()`` verifies presence.
+    docs/docker.md). ``preflight()`` verifies presence and the yt-dlp version label.
     """
 
     tmp_dir: Path
@@ -264,6 +308,8 @@ class DockerCaptureBackend:
 
         Called from `run_stage_capture` before any per-video work so
         the user sees one clear error instead of per-video failures.
+        Also refuses an image whose yt-dlp version label does not match
+        ``CAPTURE_IMAGE_YT_DLP_VERSION`` (see ``_check_image_yt_dlp_label``).
         """
         if shutil.which(self.docker_bin) is None:
             raise DockerBackendNotReady(
@@ -271,8 +317,15 @@ class DockerCaptureBackend:
                 "Install Docker Desktop or switch capture_backend to 'host'."
             )
         try:
-            subprocess.run(
-                [self.docker_bin, "image", "inspect", self.image],
+            result = subprocess.run(
+                [
+                    self.docker_bin,
+                    "image",
+                    "inspect",
+                    "--format",
+                    "{{json .Config.Labels}}",
+                    self.image,
+                ],
                 capture_output=True,
                 check=True,
                 timeout=15,
@@ -288,6 +341,7 @@ class DockerCaptureBackend:
             raise DockerBackendNotReady(
                 f"docker daemon unreachable: {type(e).__name__}: {e}"
             ) from e
+        _check_image_yt_dlp_label(self.image, result.stdout)
 
     def _base_args(self, *, network: bool) -> list[str]:
         """Common hardening flags shared by every docker run invocation.
