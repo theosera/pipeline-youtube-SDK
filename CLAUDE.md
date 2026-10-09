@@ -69,4 +69,4 @@ PR を作成する前に、変更内容を**性質別に分類**する。レビ�
 - `README.md` — 概要・セットアップ
 - `docs/ai-coding-conventions.md` — AI-native コーディング規約 (原本。skill が参照)
 - `pyproject.toml` — 依存・ruff/mypy 設定
-- 姉妹リポ `theosera/pipeline-youtube` (非 SDK 版) — 手元の checkout のディレクトリ名はリモート名と一致しないことがある。**ディレクトリ名で探して「無い」と結論しない**: どのリポかは `git -C <dir> remote get-url origin` (または `git remote -v`) の値で見分ける
+- 姉妹リポ `theosera/pipeline-youtube` (非 SDK 版) — 手元の checkout のディレクトリ名はリモート名と一致しないことがある。**ディレクトリ名で探して「無い」と結論しない**: どのリポかは `git -C <dir> remote get-url origin` (または `git remote -v`) の値で見分ける。値は**末尾で**照合する: `/pipeline-youtube.git` (または `.git` 無しの `/pipeline-youtube`) で終わるものが姉妹リポ (例: `git -C <dir> remote get-url origin | grep -E '/pipeline-youtube(\.git)?$'`)。`grep pipeline-youtube` のような部分一致は本リポ自身 (`…/pipeline-youtube-SDK.git`) にも当たるので使わない。候補は、本リポの checkout と同じ親ディレクトリにある他のディレクトリから当たる
