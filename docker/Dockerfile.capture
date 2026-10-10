@@ -20,8 +20,15 @@ FROM python:3.14-slim@sha256:f85c5697265c178cc6887276c55fe16cf3d14ca35c3df6a5eab
 
 # Pin tool versions so image builds are reproducible. yt-dlp releases
 # frequently — bump explicitly after testing against current YouTube
-# extractor behavior.
+# extractor behavior, together with CAPTURE_IMAGE_YT_DLP_VERSION in
+# pipeline_youtube/stages/capture_backend.py (a test pins the two).
 ARG YT_DLP_VERSION=2026.8.19
+
+# Record the pinned yt-dlp in the image. The capture preflight refuses an
+# image whose label is missing or different, so a stale local build cannot
+# keep fetching with an old yt-dlp. Derived from the same ARG as the pip
+# install below so the label cannot drift from what is installed.
+LABEL io.github.theosera.pipeline-youtube.yt-dlp-version="${YT_DLP_VERSION}"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
