@@ -2,14 +2,15 @@
 # SessionStart hook for Claude Code on the web.
 #
 # Guarantees that the `uv` resolved on PATH satisfies this repo's pin
-# (`required-version = ">=0.11.8,<0.12"` in pyproject.toml) and that project
+# (`required-version = ">=0.12.18,<0.14"` in pyproject.toml) and that project
 # dependencies are synced, so tests (`uv run pytest`) and linters
 # (`uv run ruff check`) work from the first turn of a remote session.
 #
 # Why this is needed: some base images ship an older `uv` (e.g. 0.8.x) earlier
-# on PATH than a compatible 0.11.x, which makes `uv run`/`uv sync` fail the
-# version pin. This hook selects a compatible uv (preferring one already on the
-# image, falling back to a pinned install) and pins it onto PATH for the session.
+# on PATH than a compatible 0.12.x/0.13.x, which makes `uv run`/`uv sync` fail
+# the version pin. This hook selects a compatible uv (preferring one already on
+# the image, falling back to a pinned install) and pins it onto PATH for the
+# session.
 #
 # Synchronous + idempotent + non-interactive. Never rewrites uv.lock.
 set -euo pipefail
@@ -23,18 +24,20 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-# Matches the pyproject pin: >=0.11.8,<0.12
-REQ_MIN="0.11.8"
-INSTALL_VERSION="0.11.21"
+# Matches the pyproject pin: >=0.12.18,<0.14
+REQ_MIN="0.12.18"
+# 0.13.1 is what setup-uv resolves for this pin in CI, and the version used
+# locally to check that locks round-trip with 0.12.18.
+INSTALL_VERSION="0.13.1"
 
 log() { echo "[session-start] $*" >&2; }
 
-# Succeeds if "$1 --version" reports a uv in [0.11.8, 0.12).
+# Succeeds if "$1 --version" reports a uv in [0.12.18, 0.14).
 uv_satisfies() {
   local v
   v="$("$1" --version 2>/dev/null | awk '{print $2}')" || return 1
   case "$v" in
-    0.11.*) [ "$(printf '%s\n%s\n' "$REQ_MIN" "$v" | sort -V | head -n1)" = "$REQ_MIN" ] ;;
+    0.12.*|0.13.*) [ "$(printf '%s\n%s\n' "$REQ_MIN" "$v" | sort -V | head -n1)" = "$REQ_MIN" ] ;;
     *) return 1 ;;
   esac
 }
