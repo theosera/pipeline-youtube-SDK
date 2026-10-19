@@ -83,10 +83,20 @@ jobs:
       #   resolver failures (other codes) still surface as errors. If a
       #   pre-existing advisory turns CI red, pin/upgrade the affected dep or
       #   add an explicit, time-boxed `--ignore-vuln <ID>` with a rationale.
+      # The audit reads the lockfile instead of the installed environment, so
+      #   the optional extras (whisper, mlx) are covered without installing
+      #   torch. `uv sync` in the setup action installs no extras, so the old
+      #   form audited the base environment only.
+      # Environment markers are evaluated on this Linux runner, so the mlx
+      #   path (Darwin arm64 only) is not audited here. That path is watched
+      #   through GitHub's Dependabot alerts, which read the lockfile whole.
       - name: pip-audit
         run: |
           rc=0
-          uv run --with pip-audit pip-audit || rc=$?
+          uv export --frozen --all-extras --no-hashes --no-emit-project \
+            --format requirements-txt > "$RUNNER_TEMP/audit-requirements.txt"
+          uv run --with pip-audit pip-audit \
+            -r "$RUNNER_TEMP/audit-requirements.txt" --no-deps || rc=$?
           case "$rc" in
             0) ;;
             1) echo "::error::pip-audit reported vulnerabilities — see job log."; exit 1 ;;
