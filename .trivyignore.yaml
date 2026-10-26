@@ -49,6 +49,12 @@ vulnerabilities:
   # 2026-10-09 に digest を f85c5697（amd64 は 10-06 作成）へ張り替え、Debian の 3 件
   # （CVE-2026-103111・CVE-2026-75804・CVE-2026-84782）は消えた。urllib3 2.7.0 はこの digest にも残る
   # （Trivy 0.75.0 で確認）。上流が urllib3 >= 2.8.0 を含む digest を出したら、2 項目とも消す。
+  # 2026-10-26 に digest を 35caba83（amd64 は 10-21 作成・pip 26.2.2）へ張り替え（repo #227・SDK #194）、
+  # certifi の CRITICAL は消えた。urllib3 2.7.0 はこの digest にも残る: pip 26.2.2 の
+  # src/pip/_vendor/vendor.txt が urllib3==2.7.0 を抱える（前の pip 26.2.1 の certifi==2026.6.17 が
+  # 前の digest の CRITICAL の版と一致したので、Target "Python" は pip の vendor と見ている）。
+  # 2026-10-26 の再測: 上流の python:3.14-slim の今の digest は 35caba83 のまま・pip の main の
+  # vendor.txt も urllib3==2.7.0 ⇒ 期限を 2026-12-03（setuptools・msgpack と同じ日）に延ばした。
 
   - id: CVE-2026-97687
     statement: |
@@ -56,12 +62,14 @@ vulnerabilities:
 
       見逃している内容: pin 済み base image の中の urllib3（Trivy の Target は "Python"）。
       image の中のどのファイルか（pip が抱えている版か）は CI のログからは分からない。
+      2026-10-26: pip 26.2.2 の vendor.txt に urllib3==2.7.0 が在る（pip が抱えている版の見込みが強まった・
+      Trivy の --show-suppressed では確かめていない）。
       このリポ自身の uv.lock は 2.8.0（SDK #154・py #191）で、必須の Dependency audit は通っている。
       capture image の実行時にこの urllib3 が読み込まれるかは未評価。
 
       解消条件: 上流 python:3.14-slim が urllib3 >= 2.8.0 を含む digest を publish し、
       その digest へ pin を張り替える。
-    expired_at: 2026-10-31
+    expired_at: 2026-12-03
 
   - id: CVE-2026-97689
     statement: |
@@ -70,4 +78,4 @@ vulnerabilities:
       見逃している内容: CVE-2026-97687 と同じ。
 
       解消条件: CVE-2026-97687 と同じ。
-    expired_at: 2026-10-31
+    expired_at: 2026-12-03
