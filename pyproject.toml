@@ -17,7 +17,7 @@ dependencies = [
 #   uv sync --extra whisper
 whisper = [
     "openai-whisper>=20240930",
-    "filelock>=3.13",
+    "filelock>=4.2.1",  # 4.2.1 fixes CVE-2026-112907, CVE-2026-112913 and CVE-2026-112940
 ]
 # Apple-Silicon GPU backend — much faster and lighter than openai-whisper on
 # CPU (recommended on M-series Macs). The platform marker makes it a no-op on
