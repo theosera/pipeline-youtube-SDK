@@ -13,6 +13,13 @@
 #   足しても、このジョブの判定は 1 ミリも変わらない。上流 python:3.14-slim が
 #   更新された digest を出すまで、このリポ単独では塞げない。
 #
+# このリストを読むジョブは 2 つ:
+#   "Trivy scan (pinned base image)"（上の base image）と
+#   "Trivy scan (built capture image)"（Dockerfile から作った capture image）。
+#   capture image は base image のファイルをそのまま持つので、ここの項は両方に効く。
+#   Dockerfile が足す層（apt の ffmpeg・webp、pip の yt-dlp）の指摘は
+#   このリポで直せる ⇒ ここには足さない（Dockerfile か版の pin で直す）。
+#
 # 期限が切れると Trivy は再び当該 CVE を報告し、CI が赤に戻る。期限を延ばすときは
 # 「上流がまだ直していない」ことを再測してからにすること。惰性で延ばさない。
 
