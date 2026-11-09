@@ -40,7 +40,7 @@ updates:
           - "patch"
 
   # Track the digest-pinned base image in docker/Dockerfile.capture so a newer
-  # python:3.13-slim digest (security/patch updates) still reaches us despite the
+  # python:3.15-slim digest (security/patch updates) still reaches us despite the
   # pin. Dependabot proposes the digest bump as a reviewable PR.
   - package-ecosystem: "docker"
     directory: "/docker"

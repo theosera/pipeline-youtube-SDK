@@ -10,7 +10,7 @@
 #   .github/workflows/main.yml の "Trivy scan (pinned base image)" は
 #   image-ref に FROM 行の **base image** を渡す。capture image をビルドして
 #   スキャンしているのではないので、Dockerfile に `pip install -U setuptools` を
-#   足しても、このジョブの判定は 1 ミリも変わらない。上流 python:3.14-slim が
+#   足しても、このジョブの判定は 1 ミリも変わらない。上流 python:3.15-slim が
 #   更新された digest を出すまで、このリポ単独では塞げない。
 #
 # 期限が切れると Trivy は再び当該 CVE を報告し、CI が赤に戻る。期限を延ばすときは
@@ -27,7 +27,7 @@ vulnerabilities:
       yt-dlp / ffmpeg / gif2webp であり、実行時に pip / setuptools の
       パッケージ取得は行わない。それでも「入っている」ことは事実なので消さずに記録する。
 
-      解消条件: 上流 python:3.14-slim が setuptools >= 78.1.1 を含む digest を
+      解消条件: 上流 python:3.15-slim が setuptools >= 78.1.1 を含む digest を
       publish し、その digest へ pin を張り替える。
     expired_at: 2026-12-03
 
@@ -41,7 +41,7 @@ vulnerabilities:
       Unpacker へ流し込む必要がある。capture image は msgpack を使う経路を
       実行時に持たない。
 
-      解消条件: 上流 python:3.14-slim が msgpack >= 1.2.1 を含む digest を
+      解消条件: 上流 python:3.15-slim が msgpack >= 1.2.1 を含む digest を
       publish し、その digest へ pin を張り替える。
     expired_at: 2026-12-03
 
@@ -58,10 +58,11 @@ vulnerabilities:
       悪用には攻撃者が制御する msgpack のデータを map の deserialization へ流し込む
       必要がある。
 
-      解消条件: pip の main の vendor.txt は msgpack==1.2.3（2026-10-30 に読んだ・
-      pip の最新の tag は 26.2.2 のまま）。pip がこれを含む版を出し、上流
-      python:3.14-slim がその pip を含む digest を publish したら、その digest へ
-      pin を張り替える。
+      解消条件: pip 26.3（2026-11-02）の vendor.txt は msgpack==1.2.4（2026-11-09 に
+      wheel を読んだ）。公式の python image は CPython に同梱の pip（ensurepip）を入れる。
+      CPython の 3.15 の枝の ensurepip は 26.3 だが、出ている 3.15.2 は 26.2.2 のまま
+      （2026-11-09 に読んだ）⇒ 26.3 以上を同梱する版の python:3.15-slim が digest を
+      publish したら、その digest へ pin を張り替える。
     expired_at: 2026-12-03
 
   # ── SDK Issue #156: pin 済み base image の urllib3 2.7.0 の HIGH 2 件 ──
@@ -74,6 +75,9 @@ vulnerabilities:
   # CVE-2026-97687 の statement）: Trivy の PURL と層、層のファイルの一覧が pip の vendor を指した。
   # 2026-10-26 の再測: 上流の python:3.14-slim の今の digest は 35caba83 のまま・pip の main の
   # vendor.txt も urllib3==2.7.0 ⇒ 期限を 2026-12-03（setuptools・msgpack と同じ日）に延ばした。
+  # 2026-11-09 に FROM を python:3.15-slim@65a65fc7（amd64 は 11-05 作・CPython 3.15.2・同梱の
+  # pip 26.2.2）へ替えた。Trivy 0.76.1 で、このリストの 5 項目はこの digest にも残ることを確かめた
+  # （同じ pip 26.2.2 の vendor）。pip 26.3 は urllib3==2.8.0 を抱えるが、まだ同梱されていない。
 
   - id: CVE-2026-97687
     statement: |
@@ -92,7 +96,7 @@ vulnerabilities:
       このリポ自身の uv.lock は 2.8.0（SDK #154・py #191）で、必須の Dependency audit は通っている。
       capture image の実行時にこの urllib3 が読み込まれるかは未評価。
 
-      解消条件: 上流 python:3.14-slim が urllib3 >= 2.8.0 を含む digest を publish し、
+      解消条件: 上流 python:3.15-slim が urllib3 >= 2.8.0 を含む digest を publish し、
       その digest へ pin を張り替える。
     expired_at: 2026-12-03
 
