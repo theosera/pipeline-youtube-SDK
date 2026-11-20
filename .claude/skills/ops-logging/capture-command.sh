@@ -470,6 +470,16 @@ mask() {
   # A visible non-whitespace ? keeps both sides without joining fields or
   # turning fence info into closing whitespace. The archive renderer and
   # refence comparisons apply the same mapping before measuring structure.
+  # Claude Code session ids: three rules mask a UUID (8-4-4-4-12 hex, the
+  # shape of a session id, which also names transcript, scratchpad and
+  # background-task output paths), the 8-hex job directory under
+  # `/.claude/jobs/` (the id's first eight characters), and the `session_…` id
+  # of a session URL. An id is not a credential, but it names one session and
+  # must not leave the machine in a log. They are the LAST step of mask():
+  # id_rule() in the cleanup awk applies them to what render() writes, after
+  # the markup pass and legacy_cleanup(), so no other rule or pass sees their
+  # `***MASKED***`. `session_id`, `session_archive` and other short words stay
+  # readable.
   { LC_ALL=C tr '\000' '?'; printf '\n'; } | LC_ALL=C awk '
     # Byte widths for the renderer closing-whitespace union. Only a wholly
     # whitespace suffix is structural; a partial UTF-8 sequence never matches.
@@ -893,25 +903,82 @@ mask() {
       seal_clean_chunk()
       clean_ends[clean_segments] = clean_used
     }
+    # The session-id rules (see the comment above the first awk), applied to
+    # what render() writes for one record. Rule k is one former sed rule, in
+    # the same order and with the same leftmost, longest matches; each rule
+    # reads the output of the rule before it, as sed rules read a line. A rule
+    # holds back its last id_hold[k] bytes, one fewer than its shortest match,
+    # since a match there may still need bytes that have not arrived. A
+    # session_ match that reaches the end of what has arrived is replaced at
+    # once, and id_skip drops the letters and digits that continue it, as the
+    # sed rule took them all. Each string here is one bounded batch from
+    # id_put() plus that hold; a skeleton piece can be longer but holds no id,
+    # so it takes one linear pass.
+    function id_rule(k, s, last,    out) {
+      if (k > 3) { printf "%s", s; return }
+      s = id_held[k] s
+      if (k == 3 && id_skip) {
+        if (match(s, /[^0-9A-Za-z]/)) { s = substr(s, RSTART); id_skip = 0 }
+        else s = ""
+      }
+      out = ""
+      while (match(s, id_re[k])) {
+        out = out substr(s, 1, RSTART - 1) id_mark[k]
+        s = substr(s, RSTART + RLENGTH)
+        if (k == 3 && s == "" && !last) id_skip = 1
+      }
+      if (last) { out = out s; s = "" }
+      else if (length(s) > id_hold[k]) {
+        out = out substr(s, 1, length(s) - id_hold[k])
+        s = substr(s, length(s) - id_hold[k] + 1)
+      }
+      id_held[k] = s
+      id_rule(k + 1, out, last)
+    }
+    # render() writes through id_put(), which gathers small pieces (a CR-dense
+    # record has many) so the rules run about once per 256 bytes.
+    function id_put(s) {
+      id_text = id_text s
+      id_text_size += length(s)
+      if (id_text_size >= 256) { id_rule(1, id_text, 0); id_text = ""; id_text_size = 0 }
+    }
+    # A record end ends every match, so each rule lets go of what it holds
+    # before the caller writes the LF.
+    function id_end() {
+      id_rule(1, id_text, 1)
+      id_text = ""; id_text_size = 0; id_skip = 0
+    }
     function clean_segment(segment,    j) {
-      for (j = clean_starts[segment]; j <= clean_ends[segment]; j++) printf "%s", clean_parts[j]
+      for (j = clean_starts[segment]; j <= clean_ends[segment]; j++) id_put(clean_parts[j])
     }
     function render(    j) {
       legacy_cleanup()
       if (!selected) {
         for (j = 1; j <= clean_segments; j++) {
-          if (j > 1) printf "\r"
+          if (j > 1) id_put("\r")
           clean_segment(j)
         }
+        id_end()
         return
       }
       for (j = 1; j <= skeleton_count; j++) {
-        if (j > 1) printf "\r"
+        if (j > 1) id_put("\r")
         if (clean_segments == skeleton_count && substr(skeleton_segments[j], 1, 1) == "N") clean_segment(j)
-        else printf "%s", substr(skeleton_segments[j], 2)
+        else id_put(substr(skeleton_segments[j], 2))
       }
+      id_end()
     }
     BEGIN {
+      # The id_rule() shapes. Classes are written out: not every supported awk
+      # reads an interval expression.
+      id_h = "[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]"
+      id_a = "[0-9A-Za-z][0-9A-Za-z][0-9A-Za-z][0-9A-Za-z]"
+      id_re[1] = id_h id_h "-" id_h "-" id_h "-" id_h "-" id_h id_h id_h
+      id_re[2] = "/[.]claude/jobs/" id_h id_h
+      id_re[3] = "session_" id_a id_a id_a id_a id_a "[0-9A-Za-z]*"
+      id_mark[1] = "***MASKED***"; id_hold[1] = 35
+      id_mark[2] = "/.claude/jobs/***MASKED***"; id_hold[2] = 21
+      id_mark[3] = "session_***MASKED***"; id_hold[3] = 27
       profile_count = split(ENVIRON["CON295_LEGACY_PROFILE"], accepted_profile, "\n")
       for (i = 1; i <= profile_count; i++) {
         if (substr(accepted_profile[i], 1, 1) == "w") legacy_blanks[substr(accepted_profile[i], 2)] = 1

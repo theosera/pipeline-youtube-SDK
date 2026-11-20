@@ -106,6 +106,7 @@ terminal-ops-logs/
 - `token=` / `key=` / `secret=` / `password=` / `authorization …`
 - AWS `AKIA…` / OpenAI・Anthropic `sk-…` (`sk-proj-` 等のハイフン形含む)
 - Google API key `AIza…` (Gmail / YouTube) / Slack `xox[baprs]-…`
+- Claude Code の session id の形: UUID (8-4-4-4-12 の 16 進・session の id 以外の UUID も伏せる) / `/.claude/jobs/` の 16 進 8 字 / `session_` + 英数 20 字以上 (session URL の id など) (`mask()` の最後の段 `id_rule()` で掛ける。`session_id` などの短い語は残す)
 
 新しい token 形式が増えたらこの規則とスクリプトの `mask()` を更新する
 (マスク漏れはこの Skill の回帰なので、追加時は必ずここに 1 行追記)。
