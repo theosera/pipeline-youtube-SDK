@@ -129,8 +129,10 @@ jobs:
       # (single source of truth — Dependabot's docker ecosystem bumps that
       # digest, so this stays in sync). Scanning the base directly rather than
       # building the full capture image keeps the job focused on the
-      # supply-chain surface #7 pins and independent of the app build; the
-      # pip/ffmpeg layers are covered by pip-audit + Dependabot.
+      # supply-chain surface #7 pins and independent of the app build. The
+      # layers the Dockerfile adds on top (apt's ffmpeg/webp, pip's yt-dlp) are
+      # scanned by docker-capture-scan below — pip-audit reads uv.lock, not the
+      # image.
       - name: Resolve pinned base image
         id: base
         run: echo "ref=$(grep -oP 'FROM \K[^ ]+' docker/Dockerfile.capture | head -n1)" >> "$GITHUB_OUTPUT"
@@ -183,3 +185,37 @@ jobs:
           docker run --rm pipeline-youtube-capture:ci yt-dlp --version
           docker run --rm pipeline-youtube-capture:ci ffmpeg -version
           docker run --rm pipeline-youtube-capture:ci gif2webp -version
+
+  docker-capture-scan:
+    name: Capture image scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Same as docker-build: the build context is the repo root, so keep
+          # checkout's persisted token out of it.
+          persist-credentials: false
+
+      # docker-scan scans only the pinned base image. The capture image adds
+      # Debian packages (ffmpeg, webp and the libraries they pull in) and
+      # yt-dlp on top of it, and nothing else scans those layers. Build the
+      # image exactly as docker-build does and scan the result. Kept as its own
+      # job so a red scan does not turn "Capture image build + smoke" red.
+      # Not a required check: it starts outside the ruleset.
+      - name: Build capture image
+        run: docker build -f docker/Dockerfile.capture -t pipeline-youtube-capture:scan .
+
+      # Same action, thresholds and suppression list as docker-scan. The
+      # entries in .trivyignore.yaml are base-image findings; the capture image
+      # inherits those files, so the same entries apply here. Findings in the
+      # layers the Dockerfile adds are fixable in this repo and do not belong
+      # in that list.
+      - name: Trivy scan (built capture image)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: pipeline-youtube-capture:scan
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          trivyignores: .trivyignore.yaml
